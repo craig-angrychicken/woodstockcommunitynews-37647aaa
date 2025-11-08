@@ -21,6 +21,7 @@ export type Database = {
           date: string | null
           guid: string | null
           id: string
+          is_test: boolean
           name: string
           size_mb: number
           source_id: string | null
@@ -33,6 +34,7 @@ export type Database = {
           date?: string | null
           guid?: string | null
           id?: string
+          is_test?: boolean
           name: string
           size_mb?: number
           source_id?: string | null
@@ -45,6 +47,7 @@ export type Database = {
           date?: string | null
           guid?: string | null
           id?: string
+          is_test?: boolean
           name?: string
           size_mb?: number
           source_id?: string | null
@@ -306,7 +309,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_artifact_story_count: {
+        Args: { artifact_guid: string }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never

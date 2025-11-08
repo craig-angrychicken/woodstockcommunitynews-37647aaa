@@ -1,8 +1,9 @@
 import { Badge } from "@/components/ui/badge";
+import { TestBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Eye, FileText, Copy, Trash2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 interface ArtifactCardProps {
   artifact: {
@@ -30,23 +31,15 @@ export const ArtifactCard = ({
   onViewStory,
   onDelete,
 }: ArtifactCardProps) => {
-  const { toast } = useToast();
-
   const handleCopyGuid = () => {
     navigator.clipboard.writeText(artifact.guid);
-    toast({
-      title: "Copied!",
-      description: "Artifact GUID copied to clipboard",
-    });
+    toast.success("GUID copied to clipboard");
   };
 
   const handleCopyLink = () => {
     const link = `${window.location.origin}/artifacts?id=${artifact.id}`;
     navigator.clipboard.writeText(link);
-    toast({
-      title: "Copied!",
-      description: "Artifact link copied to clipboard",
-    });
+    toast.success("Link copied to clipboard");
   };
 
   return (
@@ -55,11 +48,7 @@ export const ArtifactCard = ({
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-muted-foreground">{sourceName}</span>
-            {isTest && (
-              <Badge variant="secondary" className="bg-amber-100 text-amber-800">
-                🧪 TEST
-              </Badge>
-            )}
+            {isTest && <TestBadge />}
           </div>
           <span className="text-xs text-muted-foreground">
             {new Date(artifact.date).toLocaleDateString()}
@@ -94,11 +83,11 @@ export const ArtifactCard = ({
             <span className="text-muted-foreground">Usage:</span>
             <span className="font-medium">
               {storiesCount > 0 ? (
-                <span className="text-green-600">
+                <span className="text-success">
                   Used in {storiesCount} {storiesCount === 1 ? 'story' : 'stories'}
                 </span>
               ) : (
-                <span className="text-orange-600">Not used</span>
+                <span className="text-warning">Not used</span>
               )}
             </span>
           </div>

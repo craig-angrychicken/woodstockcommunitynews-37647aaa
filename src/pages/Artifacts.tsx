@@ -7,6 +7,7 @@ import { CardSkeleton } from "@/components/ui/loading-skeleton";
 import { ErrorState } from "@/components/ui/error-state";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { BulkDeleteDialog } from "@/components/ui/bulk-delete-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, Search, FileText } from "lucide-react";
+import { ChevronDown, ChevronRight, Search, FileText, Trash2 } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -38,6 +39,7 @@ const Artifacts = () => {
   const [selectedArtifact, setSelectedArtifact] = useState<any>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [artifactToDelete, setArtifactToDelete] = useState<string | null>(null);
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
 
@@ -130,6 +132,40 @@ const Artifacts = () => {
     }
   };
 
+  // Bulk delete for test artifacts
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async () => {
+      const testArtifactIds = filteredArtifacts
+        .filter(a => environmentFilter === "test" || a.is_test)
+        .map(a => a.id);
+      
+      if (testArtifactIds.length === 0) {
+        throw new Error("No test artifacts to delete");
+      }
+
+      const { error } = await supabase
+        .from('artifacts')
+        .delete()
+        .in('id', testArtifactIds);
+
+      if (error) throw error;
+      return testArtifactIds.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['artifacts'] });
+      queryClient.invalidateQueries({ queryKey: ['all-story-artifacts'] });
+      toast.success(`Successfully deleted ${count} test artifacts`);
+      setBulkDeleteDialogOpen(false);
+    },
+    onError: (error: any) => {
+      toast.error(`Failed to bulk delete: ${error.message}`);
+    }
+  });
+
+  const handleBulkDelete = () => {
+    setBulkDeleteDialogOpen(true);
+  };
+
   // Get usage count for each artifact
   const artifactUsage = useMemo(() => {
     const usage = new Map<string, number>();
@@ -188,6 +224,11 @@ const Artifacts = () => {
     return filtered;
   }, [artifacts, dateRangeFilter, sourceFilter, environmentFilter, usageFilter, searchQuery, artifactUsage]);
 
+  // Calculate test artifacts count after filteredArtifacts is defined
+  const testArtifactsCount = filteredArtifacts.filter(a => 
+    environmentFilter === "test" || a.is_test
+  ).length;
+
   // Group artifacts by source
   const groupedArtifacts = useMemo(() => {
     const groups = new Map<string, typeof filteredArtifacts>();
@@ -239,6 +280,16 @@ const Artifacts = () => {
             Showing {filteredArtifacts.length} of {artifacts?.length || 0} artifacts
           </p>
         </div>
+        {environmentFilter === "test" && testArtifactsCount > 0 && (
+          <Button
+            variant="destructive"
+            onClick={handleBulkDelete}
+            disabled={bulkDeleteMutation.isPending}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete All Test Data ({testArtifactsCount})
+          </Button>
+        )}
       </div>
 
       {/* Filter Bar */}
@@ -409,6 +460,18 @@ const Artifacts = () => {
         confirmLabel="Delete"
         variant="destructive"
         onConfirm={confirmDelete}
+      />
+
+      {/* Bulk Delete Dialog */}
+      <BulkDeleteDialog
+        open={bulkDeleteDialogOpen}
+        onOpenChange={setBulkDeleteDialogOpen}
+        title="Delete All Test Artifacts?"
+        description="This will permanently delete all test artifacts currently shown in your filtered view."
+        itemCount={testArtifactsCount}
+        onConfirm={async () => {
+          await bulkDeleteMutation.mutateAsync();
+        }}
       />
     </div>
   );
