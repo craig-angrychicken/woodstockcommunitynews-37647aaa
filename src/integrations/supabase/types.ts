@@ -16,27 +16,50 @@ export type Database = {
     Tables: {
       artifacts: {
         Row: {
+          content: string | null
           created_at: string
+          date: string | null
+          guid: string | null
           id: string
           name: string
           size_mb: number
+          source_id: string | null
+          title: string | null
           type: string
         }
         Insert: {
+          content?: string | null
           created_at?: string
+          date?: string | null
+          guid?: string | null
           id?: string
           name: string
           size_mb?: number
+          source_id?: string | null
+          title?: string | null
           type: string
         }
         Update: {
+          content?: string | null
           created_at?: string
+          date?: string | null
+          guid?: string | null
           id?: string
           name?: string
           size_mb?: number
+          source_id?: string | null
+          title?: string | null
           type?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "artifacts_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "sources"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       sources: {
         Row: {
@@ -76,33 +99,95 @@ export type Database = {
       }
       stories: {
         Row: {
+          article_type: string | null
           content: string | null
           created_at: string
+          environment: string | null
+          guid: string | null
           id: string
+          is_test: boolean | null
+          prompt_version_id: string | null
           published_at: string | null
+          source_id: string | null
           status: string
           title: string
           updated_at: string
         }
         Insert: {
+          article_type?: string | null
           content?: string | null
           created_at?: string
+          environment?: string | null
+          guid?: string | null
           id?: string
+          is_test?: boolean | null
+          prompt_version_id?: string | null
           published_at?: string | null
+          source_id?: string | null
           status?: string
           title: string
           updated_at?: string
         }
         Update: {
+          article_type?: string | null
           content?: string | null
           created_at?: string
+          environment?: string | null
+          guid?: string | null
           id?: string
+          is_test?: boolean | null
+          prompt_version_id?: string | null
           published_at?: string | null
+          source_id?: string | null
           status?: string
           title?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "stories_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      story_artifacts: {
+        Row: {
+          artifact_id: string
+          created_at: string
+          id: string
+          story_id: string
+        }
+        Insert: {
+          artifact_id: string
+          created_at?: string
+          id?: string
+          story_id: string
+        }
+        Update: {
+          artifact_id?: string
+          created_at?: string
+          id?: string
+          story_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "story_artifacts_artifact_id_fkey"
+            columns: ["artifact_id"]
+            isOneToOne: false
+            referencedRelation: "artifacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "story_artifacts_story_id_fkey"
+            columns: ["story_id"]
+            isOneToOne: false
+            referencedRelation: "stories"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
