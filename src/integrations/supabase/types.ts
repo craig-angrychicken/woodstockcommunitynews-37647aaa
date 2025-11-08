@@ -14,7 +14,96 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      artifacts: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          size_mb: number
+          type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          size_mb?: number
+          type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          size_mb?: number
+          type?: string
+        }
+        Relationships: []
+      }
+      sources: {
+        Row: {
+          created_at: string
+          id: string
+          items_fetched: number | null
+          last_fetch_at: string | null
+          name: string
+          status: string
+          type: string
+          updated_at: string
+          url: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          items_fetched?: number | null
+          last_fetch_at?: string | null
+          name: string
+          status?: string
+          type: string
+          updated_at?: string
+          url?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          items_fetched?: number | null
+          last_fetch_at?: string | null
+          name?: string
+          status?: string
+          type?: string
+          updated_at?: string
+          url?: string | null
+        }
+        Relationships: []
+      }
+      stories: {
+        Row: {
+          content: string | null
+          created_at: string
+          id: string
+          published_at: string | null
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string
+          id?: string
+          published_at?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          content?: string | null
+          created_at?: string
+          id?: string
+          published_at?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
