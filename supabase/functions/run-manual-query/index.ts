@@ -73,18 +73,30 @@ async function downloadAndStoreImage(
   imageUrl: string, 
   artifactId: string, 
   imageIndex: number,
-  supabase: any
+  supabase: any,
+  baseUrl: string
 ): Promise<string | null> {
   try {
     console.log(`📥 Downloading image ${imageIndex}: ${imageUrl}`);
     
-    // Handle relative URLs
+    // Handle relative URLs - resolve against base URL
     let fullImageUrl = imageUrl;
     if (imageUrl.startsWith('//')) {
       fullImageUrl = 'https:' + imageUrl;
     } else if (imageUrl.startsWith('/')) {
-      console.log('⚠️ Skipping relative URL:', imageUrl);
-      return null;
+      try {
+        fullImageUrl = new URL(imageUrl, baseUrl).href;
+      } catch (e) {
+        console.log('⚠️ Failed to resolve relative URL:', imageUrl);
+        return null;
+      }
+    } else if (!imageUrl.startsWith('http')) {
+      try {
+        fullImageUrl = new URL(imageUrl, baseUrl).href;
+      } catch (e) {
+        console.log('⚠️ Failed to resolve relative URL:', imageUrl);
+        return null;
+      }
     }
     
     // Download image
@@ -133,66 +145,26 @@ async function downloadAndStoreImage(
   }
 }
 
-// Fetch full article content from individual article page
-async function fetchFullArticle(articleUrl: string, sourceDomain: string): Promise<{ content: string; images: string[] }> {
-  try {
-    console.log(`📄 Fetching full article from: ${articleUrl}`);
-    
-    const response = await fetch(articleUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)'
-      }
-    });
-    
-    if (!response.ok) {
-      console.error(`Failed to fetch article: ${response.status}`);
-      return { content: '', images: [] };
+// Extract full content and images from article HTML fragment
+function extractContentFromHtml(htmlFragment: string): { content: string; images: string[] } {
+  const doc = new DOMParser().parseFromString(htmlFragment, 'text/html');
+  if (!doc) return { content: '', images: [] };
+  
+  // Extract images
+  const images: string[] = [];
+  const imgElements = doc.querySelectorAll('img');
+  for (const img of imgElements) {
+    const src = (img as Element).getAttribute('src');
+    if (src && !src.includes('logo') && !src.includes('icon') && !src.includes('sprite')) {
+      images.push(src);
     }
-    
-    const html = await response.text();
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    if (!doc) return { content: '', images: [] };
-    
-    // Extract images
-    const images: string[] = [];
-    const imgElements = doc.querySelectorAll('article img, .article img, .content img, main img');
-    for (const img of imgElements) {
-      const src = (img as Element).getAttribute('src');
-      if (src && !src.includes('logo') && !src.includes('icon')) {
-        images.push(src);
-      }
-    }
-    
-    // Extract main content based on common patterns
-    let contentElement = null;
-    const contentSelectors = [
-      'article',
-      '.article-content',
-      '.post-content',
-      '.entry-content',
-      'main',
-      '[class*="content"]'
-    ];
-    
-    for (const selector of contentSelectors) {
-      contentElement = doc.querySelector(selector);
-      if (contentElement) break;
-    }
-    
-    if (!contentElement) {
-      contentElement = doc.querySelector('body');
-    }
-    
-    const htmlContent = (contentElement as Element)?.innerHTML || '';
-    const markdownContent = htmlToMarkdown(htmlContent);
-    
-    console.log(`✅ Extracted ${markdownContent.length} chars and ${images.length} images`);
-    
-    return { content: markdownContent, images };
-  } catch (error) {
-    console.error('Error fetching full article:', error);
-    return { content: '', images: [] };
   }
+  
+  // Extract content - use the entire fragment
+  const htmlContent = doc.body?.innerHTML || htmlFragment;
+  const markdownContent = htmlToMarkdown(htmlContent);
+  
+  return { content: markdownContent, images };
 }
 
 // Helper function to parse Cherokee County style news pages
@@ -211,17 +183,14 @@ function parseCherokeeCountyNews(html: string, sourceUrl: string) {
     if (titleElement) {
       const title = titleElement.textContent?.trim() || '';
       const dateText = dateElement?.textContent?.trim() || '';
-      const articleLink = titleElement.getAttribute('href') || '';
       
-      // Make absolute URL
-      const fullUrl = articleLink.startsWith('http') 
-        ? articleLink 
-        : new URL(articleLink, sourceUrl).href;
-
+      // Extract full content HTML from this article element
+      const contentHtml = el.outerHTML;
+      
       results.push({
         title,
         date: dateText,
-        articleUrl: fullUrl,
+        contentHtml,
         sourceUrl
       });
     }
@@ -242,22 +211,18 @@ function parseWoodstockNews(html: string, sourceUrl: string) {
     const el = article as Element;
     const titleElement = el.querySelector('.news-title');
     const dateElement = el.querySelector('.news-date');
-    const linkElement = el.querySelector('a[href*="news_detail"]');
 
-    if (titleElement && linkElement) {
+    if (titleElement) {
       const title = titleElement.textContent?.trim() || '';
       const dateText = dateElement?.textContent?.trim() || '';
-      const articleLink = linkElement.getAttribute('href') || '';
       
-      // Make absolute URL
-      const fullUrl = articleLink.startsWith('http') 
-        ? articleLink 
-        : new URL(articleLink, sourceUrl).href;
+      // Extract full content HTML from this article element
+      const contentHtml = el.outerHTML;
 
       results.push({
         title,
         date: dateText,
-        articleUrl: fullUrl,
+        contentHtml,
         sourceUrl
       });
     }
@@ -292,27 +257,23 @@ function parseGenericNews(html: string, sourceUrl: string) {
   for (const article of articles) {
     const el = article as Element;
     
-    // Try to find title and link
+    // Try to find title
     const titleElement = el.querySelector('h1, h2, h3, .title, [class*="title"]');
-    const linkElement = el.querySelector('a[href]');
     
-    if (titleElement && linkElement) {
+    if (titleElement) {
       const title = titleElement.textContent?.trim() || '';
-      const articleLink = linkElement.getAttribute('href') || '';
-      
-      // Make absolute URL
-      const fullUrl = articleLink.startsWith('http') 
-        ? articleLink 
-        : new URL(articleLink, sourceUrl).href;
       
       // Try to find date
       const dateElement = el.querySelector('time, .date, [class*="date"]');
       const dateText = dateElement?.textContent?.trim() || '';
+      
+      // Extract full content HTML from this article element
+      const contentHtml = el.outerHTML;
 
       results.push({
         title,
         date: dateText,
-        articleUrl: fullUrl,
+        contentHtml,
         sourceUrl
       });
     }
@@ -337,11 +298,13 @@ function parseEvents(html: string, sourceUrl: string) {
   while ((match = eventPattern.exec(text)) !== null) {
     const [, title, date, time] = match;
     if (title && date) {
+      // Create HTML content for the event
+      const contentHtml = `<div><h3>${title.trim()}</h3><p>Event on ${date.trim()} at ${time.trim()}</p></div>`;
+      
       results.push({
         title: title.trim(),
         date: date.trim(),
-        content: `Event on ${date.trim()} at ${time.trim()}`,
-        articleUrl: sourceUrl, // Events don't have separate pages, use source URL
+        contentHtml,
         sourceUrl
       });
     }
@@ -384,42 +347,45 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
     }
 
     const html = await response.text();
-    let articleLinks = [];
+    let parsedArticles = [];
 
-    // Parse listing page to get article links
+    // Parse listing page to extract full article content
     if (source.url.includes('cherokeecountyga.gov')) {
-      articleLinks = parseCherokeeCountyNews(html, source.url);
+      parsedArticles = parseCherokeeCountyNews(html, source.url);
     } else if (source.url.includes('woodstockga.gov/newslist')) {
-      articleLinks = parseWoodstockNews(html, source.url);
+      parsedArticles = parseWoodstockNews(html, source.url);
     } else if (source.url.includes('/events')) {
-      articleLinks = parseEvents(html, source.url);
+      parsedArticles = parseEvents(html, source.url);
     } else if (source.url.includes('cherokeecountyfire.org') || 
                source.url.includes('cherokeek12.net') || 
                source.url.includes('cherokeega.org')) {
-      articleLinks = parseGenericNews(html, source.url);
+      parsedArticles = parseGenericNews(html, source.url);
     } else {
-      articleLinks = parseGenericNews(html, source.url);
+      parsedArticles = parseGenericNews(html, source.url);
     }
 
-    console.log(`📋 Found ${articleLinks.length} article links from ${source.name}`);
+    console.log(`📋 Found ${parsedArticles.length} articles from ${source.name}`);
     
-    // Fetch full content for each article
+    // Process each article's content
     const fullArticles = [];
-    for (let i = 0; i < articleLinks.length; i++) {
-      const link = articleLinks[i];
+    for (let i = 0; i < parsedArticles.length; i++) {
+      const article = parsedArticles[i];
       
-      // Apply human delay between requests
+      // Apply human delay between processing
       if (i > 0) {
         await randomDelay(2000, 3000);
       }
       
-      console.log(`\n📰 Processing article ${i + 1}/${articleLinks.length}: ${link.title}`);
+      console.log(`\n📰 Processing article ${i + 1}/${parsedArticles.length}: ${article.title}`);
       
-      const { content, images } = await fetchFullArticle(link.articleUrl, source.url);
+      // Extract content and images from the HTML
+      const { content, images } = extractContentFromHtml(article.contentHtml);
       
       if (content) {
         // Generate unique artifact ID for this article
         const artifactId = `${source.name.replace(/\s+/g, '-')}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        console.log(`📄 Content length: ${content.length} chars, Images found: ${images.length}`);
         
         // Download and store images, replace URLs in content
         let finalContent = content;
@@ -427,11 +393,13 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
         
         for (let imgIndex = 0; imgIndex < images.length && imgIndex < 10; imgIndex++) {
           await randomDelay(1000, 2000); // Small delay between image downloads
-          const supabaseUrl = await downloadAndStoreImage(images[imgIndex], artifactId, imgIndex, supabase);
+          const supabaseUrl = await downloadAndStoreImage(images[imgIndex], artifactId, imgIndex, supabase, source.url);
           if (supabaseUrl) {
             imageMap.set(images[imgIndex], supabaseUrl);
           }
         }
+        
+        console.log(`✅ Stored ${imageMap.size} images`);
         
         // Replace image URLs in markdown content
         for (const [originalUrl, supabaseUrl] of imageMap.entries()) {
@@ -440,11 +408,11 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
         
         fullArticles.push({
           artifactId,
-          title: link.title,
+          title: article.title,
           content: finalContent,
-          date: link.date,
+          date: article.date,
           imageCount: imageMap.size,
-          sourceUrl: link.articleUrl
+          sourceUrl: article.sourceUrl
         });
       }
     }
