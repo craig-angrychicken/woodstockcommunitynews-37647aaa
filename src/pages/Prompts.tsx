@@ -8,9 +8,14 @@ import { HistoryPromptCard } from "@/components/prompts/HistoryPromptCard";
 import { EditPromptModal } from "@/components/prompts/EditPromptModal";
 import { ActivatePromptModal } from "@/components/prompts/ActivatePromptModal";
 import { ComparePromptsModal } from "@/components/prompts/ComparePromptsModal";
+import { CardSkeleton } from "@/components/ui/loading-skeleton";
+import { ErrorState } from "@/components/ui/error-state";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { FileText } from "lucide-react";
 
 const Prompts = () => {
   const queryClient = useQueryClient();
@@ -18,14 +23,21 @@ const Prompts = () => {
   const [activateModalOpen, setActivateModalOpen] = useState(false);
   const [compareModalOpen, setCompareModalOpen] = useState(false);
   const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedPrompt, setSelectedPrompt] = useState<any>(null);
+  const [promptToDelete, setPromptToDelete] = useState<string | null>(null);
   const [comparePrompts, setComparePrompts] = useState<{ prompt1: any; prompt2: any } | null>(
     null
   );
   const [activeTab, setActiveTab] = useState("active");
 
   // Fetch active prompts
-  const { data: activePrompts } = useQuery({
+  const {
+    data: activePrompts,
+    isLoading: activeLoading,
+    error: activeError,
+    refetch: refetchActive,
+  } = useQuery({
     queryKey: ["prompts", "active"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -41,7 +53,12 @@ const Prompts = () => {
   });
 
   // Fetch test drafts
-  const { data: testDrafts } = useQuery({
+  const {
+    data: testDrafts,
+    isLoading: testLoading,
+    error: testError,
+    refetch: refetchTest,
+  } = useQuery({
     queryKey: ["prompts", "test-drafts"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -56,7 +73,12 @@ const Prompts = () => {
   });
 
   // Fetch history
-  const { data: historyPrompts } = useQuery({
+  const {
+    data: historyPrompts,
+    isLoading: historyLoading,
+    error: historyError,
+    refetch: refetchHistory,
+  } = useQuery({
     queryKey: ["prompts", "history"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -79,11 +101,24 @@ const Prompts = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prompts"] });
       toast.success("Prompt deleted successfully");
+      setDeleteDialogOpen(false);
+      setPromptToDelete(null);
     },
     onError: () => {
       toast.error("Failed to delete prompt");
     },
   });
+
+  const handleDelete = (promptId: string) => {
+    setPromptToDelete(promptId);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (promptToDelete) {
+      deleteMutation.mutate(promptToDelete);
+    }
+  };
 
   const handleEdit = (prompt: any) => {
     setSelectedPrompt(prompt);
@@ -173,32 +208,54 @@ const Prompts = () => {
         </TabsList>
 
         <TabsContent value="active" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {retrievalPrompt && (
-              <PromptCard
-                versionName={retrievalPrompt.version_name}
-                updatedAt={retrievalPrompt.updated_at}
-                isActive={retrievalPrompt.is_active}
-                onEdit={() => handleEdit(retrievalPrompt)}
-                onViewHistory={() => handleViewHistory("retrieval")}
-                onCreateTestDraft={() => handleCreateTestDraft(retrievalPrompt)}
-              />
-            )}
-            {journalismPrompt && (
-              <PromptCard
-                versionName={journalismPrompt.version_name}
-                updatedAt={journalismPrompt.updated_at}
-                isActive={journalismPrompt.is_active}
-                onEdit={() => handleEdit(journalismPrompt)}
-                onViewHistory={() => handleViewHistory("journalism")}
-                onCreateTestDraft={() => handleCreateTestDraft(journalismPrompt)}
-              />
-            )}
-          </div>
+          {activeLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
+          ) : activeError ? (
+            <ErrorState
+              message="Failed to load active prompts. Please try again."
+              onRetry={() => refetchActive()}
+            />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {retrievalPrompt && (
+                <PromptCard
+                  versionName={retrievalPrompt.version_name}
+                  updatedAt={retrievalPrompt.updated_at}
+                  isActive={retrievalPrompt.is_active}
+                  onEdit={() => handleEdit(retrievalPrompt)}
+                  onViewHistory={() => handleViewHistory("retrieval")}
+                  onCreateTestDraft={() => handleCreateTestDraft(retrievalPrompt)}
+                />
+              )}
+              {journalismPrompt && (
+                <PromptCard
+                  versionName={journalismPrompt.version_name}
+                  updatedAt={journalismPrompt.updated_at}
+                  isActive={journalismPrompt.is_active}
+                  onEdit={() => handleEdit(journalismPrompt)}
+                  onViewHistory={() => handleViewHistory("journalism")}
+                  onCreateTestDraft={() => handleCreateTestDraft(journalismPrompt)}
+                />
+              )}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="test" className="space-y-4">
-          {testDrafts && testDrafts.length > 0 ? (
+          {testLoading ? (
+            <div className="space-y-4">
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
+          ) : testError ? (
+            <ErrorState
+              message="Failed to load test drafts. Please try again."
+              onRetry={() => refetchTest()}
+            />
+          ) : testDrafts && testDrafts.length > 0 ? (
             testDrafts.map((draft) => (
               <TestPromptCard
                 key={draft.id}
@@ -213,18 +270,30 @@ const Prompts = () => {
                 onEdit={() => handleEdit(draft)}
                 onViewResults={() => toast.info("View results functionality coming soon")}
                 onActivate={() => handleActivate(draft)}
-                onDelete={() => deleteMutation.mutate(draft.id)}
+                onDelete={() => handleDelete(draft.id)}
               />
             ))
           ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              No test drafts yet. Create one from the Active Prompts tab.
-            </div>
+            <EmptyState
+              icon={FileText}
+              title="No test drafts yet"
+              description="Create a test draft from the Active Prompts tab to start testing new prompt versions."
+            />
           )}
         </TabsContent>
 
         <TabsContent value="history" className="space-y-4">
-          {historyPrompts && historyPrompts.length > 0 ? (
+          {historyLoading ? (
+            <div className="space-y-4">
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
+          ) : historyError ? (
+            <ErrorState
+              message="Failed to load prompt history. Please try again."
+              onRetry={() => refetchHistory()}
+            />
+          ) : historyPrompts && historyPrompts.length > 0 ? (
             historyPrompts.map((prompt) => (
               <HistoryPromptCard
                 key={prompt.id}
@@ -240,7 +309,11 @@ const Prompts = () => {
               />
             ))
           ) : (
-            <div className="text-center py-8 text-muted-foreground">No prompt history yet.</div>
+            <EmptyState
+              icon={FileText}
+              title="No prompt history yet"
+              description="Prompt versions will appear here as you create and activate them."
+            />
           )}
         </TabsContent>
       </Tabs>
@@ -300,6 +373,17 @@ const Prompts = () => {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete Prompt?"
+        description="This will permanently remove this prompt version. This action cannot be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 };

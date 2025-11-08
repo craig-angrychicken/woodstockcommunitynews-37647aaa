@@ -3,6 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { ArtifactCard } from "@/components/artifacts/ArtifactCard";
 import { ArtifactDetailModal } from "@/components/artifacts/ArtifactDetailModal";
+import { CardSkeleton } from "@/components/ui/loading-skeleton";
+import { ErrorState } from "@/components/ui/error-state";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,9 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/hooks/use-toast";
-import { ChevronDown, ChevronRight, Search } from "lucide-react";
+import { toast } from "sonner";
+import { ChevronDown, ChevronRight, Search, FileText } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -22,7 +25,6 @@ import {
 } from "@/components/ui/collapsible";
 
 const Artifacts = () => {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   // Filters
@@ -35,10 +37,17 @@ const Artifacts = () => {
   // Modals
   const [selectedArtifact, setSelectedArtifact] = useState<any>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [artifactToDelete, setArtifactToDelete] = useState<string | null>(null);
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
 
   // Fetch artifacts
-  const { data: artifacts, isLoading } = useQuery({
+  const {
+    data: artifacts,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['artifacts'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -100,17 +109,26 @@ const Artifacts = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['artifacts'] });
       queryClient.invalidateQueries({ queryKey: ['all-story-artifacts'] });
-      toast({ title: "Success", description: "Artifact deleted successfully" });
+      toast.success("Artifact deleted successfully");
       setShowDetailModal(false);
+      setDeleteDialogOpen(false);
+      setArtifactToDelete(null);
     },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive"
-      });
+    onError: (error: any) => {
+      toast.error(`Failed to delete artifact: ${error.message}`);
     }
   });
+
+  const handleDelete = (artifactId: string) => {
+    setArtifactToDelete(artifactId);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (artifactToDelete) {
+      deleteArtifactMutation.mutate(artifactToDelete);
+    }
+  };
 
   // Get usage count for each artifact
   const artifactUsage = useMemo(() => {
@@ -211,11 +229,6 @@ const Artifacts = () => {
     window.location.href = `/stories?artifact=${artifactId}`;
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this artifact?')) {
-      deleteArtifactMutation.mutate(id);
-    }
-  };
 
   return (
     <div className="container mx-auto py-8 px-4 space-y-6">
@@ -309,14 +322,21 @@ const Artifacts = () => {
       {/* Grouped Artifacts Display */}
       {isLoading ? (
         <div className="space-y-4">
-          {[1, 2, 3].map(i => (
-            <Skeleton key={i} className="h-32" />
-          ))}
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
         </div>
+      ) : error ? (
+        <ErrorState
+          message="Failed to load artifacts. Please try again."
+          onRetry={() => refetch()}
+        />
       ) : groupedArtifacts.length === 0 ? (
-        <div className="text-center py-12 bg-card border rounded-lg">
-          <p className="text-muted-foreground">No artifacts found matching your filters</p>
-        </div>
+        <EmptyState
+          icon={FileText}
+          title="No artifacts found"
+          description="No artifacts match your current filters. Try adjusting your filter criteria or add new sources to start collecting content."
+        />
       ) : (
         <div className="space-y-4">
           {groupedArtifacts.map(({ sourceName, artifacts, count }) => (
@@ -378,6 +398,17 @@ const Artifacts = () => {
         open={showDetailModal}
         onClose={() => setShowDetailModal(false)}
         onDelete={() => handleDelete(selectedArtifact?.id)}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete Artifact?"
+        description="This will permanently remove this artifact. This action cannot be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={confirmDelete}
       />
     </div>
   );

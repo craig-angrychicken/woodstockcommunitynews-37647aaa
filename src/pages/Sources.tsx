@@ -6,18 +6,13 @@ import { SourceCard } from "@/components/sources/SourceCard";
 import { TestSourceCard } from "@/components/sources/TestSourceCard";
 import { AddSourceForm } from "@/components/sources/AddSourceForm";
 import { EditSourceModal } from "@/components/sources/EditSourceModal";
+import { CardSkeleton } from "@/components/ui/loading-skeleton";
+import { ErrorState } from "@/components/ui/error-state";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { useNavigate } from "react-router-dom";
+import { Database, Trash2 } from "lucide-react";
 
 const Sources = () => {
   const queryClient = useQueryClient();
@@ -25,10 +20,17 @@ const Sources = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState<any>(null);
   const [activateDialogOpen, setActivateDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [sourceToActivate, setSourceToActivate] = useState<any>(null);
+  const [sourceToDelete, setSourceToDelete] = useState<string | null>(null);
 
   // Fetch active sources
-  const { data: activeSources } = useQuery({
+  const {
+    data: activeSources,
+    isLoading: activeLoading,
+    error: activeError,
+    refetch: refetchActive,
+  } = useQuery({
     queryKey: ["sources", "active"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -43,7 +45,12 @@ const Sources = () => {
   });
 
   // Fetch test queue sources
-  const { data: testSources } = useQuery({
+  const {
+    data: testSources,
+    isLoading: testLoading,
+    error: testError,
+    refetch: refetchTest,
+  } = useQuery({
     queryKey: ["sources", "testing"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -105,7 +112,16 @@ const Sources = () => {
   };
 
   const handleRemove = (sourceId: string) => {
-    deleteMutation.mutate(sourceId);
+    setSourceToDelete(sourceId);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (sourceToDelete) {
+      deleteMutation.mutate(sourceToDelete);
+      setDeleteDialogOpen(false);
+      setSourceToDelete(null);
+    }
   };
 
   const handleActivate = (source: any) => {
@@ -155,7 +171,17 @@ const Sources = () => {
         </TabsList>
 
         <TabsContent value="active" className="space-y-4">
-          {activeSources && activeSources.length > 0 ? (
+          {activeLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
+          ) : activeError ? (
+            <ErrorState
+              message="Failed to load active sources. Please try again."
+              onRetry={() => refetchActive()}
+            />
+          ) : activeSources && activeSources.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {activeSources.map((source) => (
                 <SourceCard
@@ -174,14 +200,26 @@ const Sources = () => {
               ))}
             </div>
           ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              No active sources yet. Add sources to the test queue and activate them after testing.
-            </div>
+            <EmptyState
+              icon={Database}
+              title="No active sources yet"
+              description="Add sources to the test queue and activate them after testing to start collecting content."
+            />
           )}
         </TabsContent>
 
         <TabsContent value="test" className="space-y-4">
-          {testSources && testSources.length > 0 ? (
+          {testLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
+          ) : testError ? (
+            <ErrorState
+              message="Failed to load test queue sources. Please try again."
+              onRetry={() => refetchTest()}
+            />
+          ) : testSources && testSources.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {testSources.map((source) => (
                 <TestSourceCard
@@ -199,9 +237,11 @@ const Sources = () => {
               ))}
             </div>
           ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              No sources in test queue. Add a new source below.
-            </div>
+            <EmptyState
+              icon={Database}
+              title="No sources in test queue"
+              description="Add a new source below to start testing it before activating for production use."
+            />
           )}
         </TabsContent>
       </Tabs>
@@ -225,21 +265,25 @@ const Sources = () => {
       )}
 
       {/* Activate Confirmation Dialog */}
-      <AlertDialog open={activateDialogOpen} onOpenChange={setActivateDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Activate Source?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will move <strong>{sourceToActivate?.name}</strong> to active sources and include
-              it in all future daily runs.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setSourceToActivate(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmActivate}>Activate</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={activateDialogOpen}
+        onOpenChange={setActivateDialogOpen}
+        title="Activate Source?"
+        description={`This will move ${sourceToActivate?.name} to active sources and include it in all future daily runs.`}
+        confirmLabel="Activate"
+        onConfirm={confirmActivate}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete Source?"
+        description="This will permanently remove this source. This action cannot be undone."
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 };
