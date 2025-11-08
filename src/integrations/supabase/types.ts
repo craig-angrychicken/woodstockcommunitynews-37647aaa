@@ -63,30 +63,59 @@ export type Database = {
       }
       prompt_versions: {
         Row: {
+          author: string | null
+          based_on_version_id: string | null
           content: string
           created_at: string
           id: string
           is_active: boolean | null
+          is_test_draft: boolean
+          prompt_type: string
+          test_results: Json | null
+          test_status: string | null
+          update_notes: string | null
           updated_at: string
           version_name: string
         }
         Insert: {
+          author?: string | null
+          based_on_version_id?: string | null
           content: string
           created_at?: string
           id?: string
           is_active?: boolean | null
+          is_test_draft?: boolean
+          prompt_type?: string
+          test_results?: Json | null
+          test_status?: string | null
+          update_notes?: string | null
           updated_at?: string
           version_name: string
         }
         Update: {
+          author?: string | null
+          based_on_version_id?: string | null
           content?: string
           created_at?: string
           id?: string
           is_active?: boolean | null
+          is_test_draft?: boolean
+          prompt_type?: string
+          test_results?: Json | null
+          test_status?: string | null
+          update_notes?: string | null
           updated_at?: string
           version_name?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "prompt_versions_based_on_version_id_fkey"
+            columns: ["based_on_version_id"]
+            isOneToOne: false
+            referencedRelation: "prompt_versions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       query_history: {
         Row: {
