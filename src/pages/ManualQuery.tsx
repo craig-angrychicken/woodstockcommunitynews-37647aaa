@@ -34,6 +34,7 @@ const ManualQuery = () => {
   const [selectedPromptVersion, setSelectedPromptVersion] = useState<string>("");
   const [runStages, setRunStages] = useState<"stage1" | "both">("both");
   const [isRunning, setIsRunning] = useState(false);
+  const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
 
   // Fetch sources
   const { data: sources } = useQuery({
@@ -171,6 +172,7 @@ const ManualQuery = () => {
     newDateFrom.setDate(newDateFrom.getDate() - days);
     setDateFrom(newDateFrom);
     setDateTo(new Date());
+    setActiveQuickDate(days);
   };
 
   const handleSelectAllSources = () => {
@@ -232,7 +234,12 @@ const ManualQuery = () => {
                       <Calendar
                         mode="single"
                         selected={dateFrom}
-                        onSelect={(date) => date && setDateFrom(date)}
+                        onSelect={(date) => {
+                          if (date) {
+                            setDateFrom(date);
+                            setActiveQuickDate(null);
+                          }
+                        }}
                         className="pointer-events-auto"
                       />
                     </PopoverContent>
@@ -258,7 +265,12 @@ const ManualQuery = () => {
                       <Calendar
                         mode="single"
                         selected={dateTo}
-                        onSelect={(date) => date && setDateTo(date)}
+                        onSelect={(date) => {
+                          if (date) {
+                            setDateTo(date);
+                            setActiveQuickDate(null);
+                          }
+                        }}
                         className="pointer-events-auto"
                       />
                     </PopoverContent>
@@ -267,10 +279,20 @@ const ManualQuery = () => {
               </div>
 
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => handleQuickDate(7)}>
+                <Button 
+                  variant={activeQuickDate === 7 ? "default" : "outline"}
+                  size="sm" 
+                  onClick={() => handleQuickDate(7)}
+                  className={cn(activeQuickDate === 7 && "bg-blue-600 hover:bg-blue-700")}
+                >
                   Last 7 days
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => handleQuickDate(30)}>
+                <Button 
+                  variant={activeQuickDate === 30 ? "default" : "outline"}
+                  size="sm" 
+                  onClick={() => handleQuickDate(30)}
+                  className={cn(activeQuickDate === 30 && "bg-blue-600 hover:bg-blue-700")}
+                >
                   Last 30 days
                 </Button>
               </div>

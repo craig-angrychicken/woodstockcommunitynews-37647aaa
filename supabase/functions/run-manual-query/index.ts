@@ -140,8 +140,26 @@ function parseEvents(html: string, sourceUrl: string) {
   return results;
 }
 
+// Helper to parse various date formats and check if within range
+function isDateInRange(dateStr: string, dateFrom: string, dateTo: string): boolean {
+  if (!dateStr) return false;
+  
+  try {
+    // Try to parse the date string
+    const articleDate = new Date(dateStr);
+    const fromDate = new Date(dateFrom);
+    const toDate = new Date(dateTo);
+    
+    // Check if valid date and within range
+    if (isNaN(articleDate.getTime())) return false;
+    return articleDate >= fromDate && articleDate <= toDate;
+  } catch {
+    return false; // If parsing fails, exclude the article
+  }
+}
+
 // Main function to fetch and parse content from a source
-async function fetchAndParseSource(source: any) {
+async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string) {
   try {
     console.log(`Fetching content from: ${source.url}`);
     const response = await fetch(source.url, {
@@ -230,15 +248,24 @@ serve(async (req) => {
 
     // Fetch and parse real content from sources
     for (const source of sources) {
-      const articles = await fetchAndParseSource(source);
+      const articles = await fetchAndParseSource(source, dateFrom, dateTo);
       
-      if (articles.length === 0) {
-        console.log(`No articles found for ${source.name}`);
+      console.log(`Total articles found: ${articles.length} from ${source.name}`);
+      
+      // Filter articles by date range
+      const filteredArticles = articles.filter(article => 
+        isDateInRange(article.date, dateFrom, dateTo)
+      );
+      
+      console.log(`After date filter: ${filteredArticles.length} articles from ${source.name}`);
+      
+      if (filteredArticles.length === 0) {
+        console.log(`No articles in date range for ${source.name}`);
         continue;
       }
 
-      // Create artifacts from parsed articles
-      const artifactsToInsert = articles.map(article => ({
+      // Create artifacts from filtered articles
+      const artifactsToInsert = filteredArticles.map(article => ({
         name: `${source.name}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         title: article.title,
         type: source.type,
