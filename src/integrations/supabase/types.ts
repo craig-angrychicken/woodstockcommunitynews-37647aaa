@@ -61,6 +61,89 @@ export type Database = {
           },
         ]
       }
+      prompt_versions: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          is_active: boolean | null
+          updated_at: string
+          version_name: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          updated_at?: string
+          version_name: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          updated_at?: string
+          version_name?: string
+        }
+        Relationships: []
+      }
+      query_history: {
+        Row: {
+          artifacts_count: number | null
+          completed_at: string | null
+          created_at: string
+          date_from: string
+          date_to: string
+          environment: string
+          error_message: string | null
+          id: string
+          prompt_version_id: string | null
+          run_stages: string
+          source_ids: string[]
+          status: string
+          stories_count: number | null
+        }
+        Insert: {
+          artifacts_count?: number | null
+          completed_at?: string | null
+          created_at?: string
+          date_from: string
+          date_to: string
+          environment: string
+          error_message?: string | null
+          id?: string
+          prompt_version_id?: string | null
+          run_stages: string
+          source_ids: string[]
+          status?: string
+          stories_count?: number | null
+        }
+        Update: {
+          artifacts_count?: number | null
+          completed_at?: string | null
+          created_at?: string
+          date_from?: string
+          date_to?: string
+          environment?: string
+          error_message?: string | null
+          id?: string
+          prompt_version_id?: string | null
+          run_stages?: string
+          source_ids?: string[]
+          status?: string
+          stories_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "query_history_prompt_version_id_fkey"
+            columns: ["prompt_version_id"]
+            isOneToOne: false
+            referencedRelation: "prompt_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sources: {
         Row: {
           created_at: string
