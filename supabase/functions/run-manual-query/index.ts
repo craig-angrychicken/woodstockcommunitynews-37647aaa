@@ -1,10 +1,186 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { DOMParser, Element } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Helper function to parse Cherokee County style news pages
+function parseCherokeeCountyNews(html: string, sourceUrl: string) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (!doc) return [];
+
+  const articles = doc.querySelectorAll('.newsContainerSide');
+  const results = [];
+
+  for (const article of articles) {
+    const el = article as Element;
+    const titleElement = el.querySelector('.normalStoryTitle a');
+    const contentElement = el.querySelector('.normalStory');
+    const dateElement = el.querySelector('[style*="font-size:10px"]');
+    const imageElement = el.querySelector('.imageBracket img');
+
+    if (titleElement && contentElement) {
+      const title = titleElement.textContent?.trim() || '';
+      const content = contentElement.textContent?.trim() || '';
+      const dateText = dateElement?.textContent?.trim() || '';
+      const imageUrl = imageElement?.getAttribute('src') || '';
+
+      results.push({
+        title,
+        content,
+        date: dateText,
+        imageUrl,
+        sourceUrl
+      });
+    }
+  }
+
+  return results;
+}
+
+// Helper function to parse Woodstock style news pages
+function parseWoodstockNews(html: string, sourceUrl: string) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (!doc) return [];
+
+  const articles = doc.querySelectorAll('.news-list-item');
+  const results = [];
+
+  for (const article of articles) {
+    const el = article as Element;
+    const titleElement = el.querySelector('.news-title');
+    const dateElement = el.querySelector('.news-date');
+    const linkElement = el.querySelector('a[href*="news_detail"]');
+
+    if (titleElement && dateElement) {
+      const title = titleElement.textContent?.trim() || '';
+      const dateText = dateElement.textContent?.trim() || '';
+      const articleLink = linkElement?.getAttribute('href') || '';
+
+      results.push({
+        title,
+        content: `Read more at: ${articleLink}`,
+        date: dateText,
+        sourceUrl,
+        articleLink
+      });
+    }
+  }
+
+  return results;
+}
+
+// Helper function to parse generic news pages
+function parseGenericNews(html: string, sourceUrl: string) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (!doc) return [];
+
+  // Try to find common news article patterns
+  const selectors = [
+    'article',
+    '.news-item',
+    '.post',
+    '[class*="news"]',
+    '[class*="article"]'
+  ];
+
+  for (const selector of selectors) {
+    const articles = doc.querySelectorAll(selector);
+    if (articles.length > 0) {
+      const results = [];
+      for (const article of articles) {
+        const el = article as Element;
+        const title = el.querySelector('h1, h2, h3, .title, [class*="title"]')?.textContent?.trim();
+        const content = article.textContent?.trim()?.slice(0, 500);
+        
+        if (title && content) {
+          results.push({
+            title,
+            content,
+            date: new Date().toISOString(),
+            sourceUrl
+          });
+        }
+      }
+      if (results.length > 0) return results;
+    }
+  }
+
+  return [];
+}
+
+// Helper function to parse events from calendar pages
+function parseEvents(html: string, sourceUrl: string) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (!doc) return [];
+
+  // Look for event patterns in the HTML/text
+  const results = [];
+  const text = doc.body?.textContent || '';
+  
+  // Try to extract event data from text patterns
+  const eventPattern = /([A-Z][^Date:]+)\s+Date:\s+([^Time:]+)\s+Time:\s+([^\n]+)/g;
+  let match;
+  
+  while ((match = eventPattern.exec(text)) !== null) {
+    const [, title, date, time] = match;
+    if (title && date) {
+      results.push({
+        title: title.trim(),
+        content: `Event on ${date.trim()} at ${time.trim()}`,
+        date: date.trim(),
+        sourceUrl
+      });
+    }
+  }
+
+  return results;
+}
+
+// Main function to fetch and parse content from a source
+async function fetchAndParseSource(source: any) {
+  try {
+    console.log(`Fetching content from: ${source.url}`);
+    const response = await fetch(source.url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)'
+      }
+    });
+
+    if (!response.ok) {
+      console.error(`Failed to fetch ${source.url}: ${response.status}`);
+      return [];
+    }
+
+    const html = await response.text();
+    let articles = [];
+
+    // Determine parser based on source URL patterns
+    if (source.url.includes('cherokeecountyga.gov')) {
+      articles = parseCherokeeCountyNews(html, source.url);
+    } else if (source.url.includes('woodstockga.gov/newslist')) {
+      articles = parseWoodstockNews(html, source.url);
+    } else if (source.url.includes('/events')) {
+      articles = parseEvents(html, source.url);
+    } else if (source.url.includes('cherokeecountyfire.org') || 
+               source.url.includes('cherokeek12.net') || 
+               source.url.includes('cherokeega.org')) {
+      articles = parseGenericNews(html, source.url);
+    } else {
+      // Try generic parser as fallback
+      articles = parseGenericNews(html, source.url);
+    }
+
+    console.log(`Parsed ${articles.length} items from ${source.name}`);
+    return articles;
+  } catch (error) {
+    console.error(`Error fetching/parsing ${source.url}:`, error);
+    return [];
+  }
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -52,28 +228,35 @@ serve(async (req) => {
 
     if (sourcesError) throw sourcesError;
 
-    // Simulate fetching from sources and create artifacts
+    // Fetch and parse real content from sources
     for (const source of sources) {
-      // In real implementation, this would fetch actual data from the source
-      // For now, we'll create mock artifacts
-      const mockArtifacts = Array.from({ length: Math.floor(Math.random() * 5) + 1 }, (_, i) => ({
-        name: `${source.name}-artifact-${i + 1}`,
-        title: `Article from ${source.name} - ${new Date().toISOString()}`,
+      const articles = await fetchAndParseSource(source);
+      
+      if (articles.length === 0) {
+        console.log(`No articles found for ${source.name}`);
+        continue;
+      }
+
+      // Create artifacts from parsed articles
+      const artifactsToInsert = articles.map(article => ({
+        name: `${source.name}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        title: article.title,
         type: source.type,
-        content: `Mock content fetched from ${source.name}`,
-        size_mb: Math.random() * 2,
+        content: article.content,
+        size_mb: new Blob([article.content]).size / (1024 * 1024),
         source_id: source.id,
-        date: new Date().toISOString()
+        date: article.date ? new Date(article.date).toISOString() : new Date().toISOString()
       }));
 
       const { error: insertError } = await supabase
         .from('artifacts')
-        .insert(mockArtifacts);
+        .insert(artifactsToInsert);
 
       if (insertError) {
         console.error('Error inserting artifacts:', insertError);
       } else {
-        artifactsCount += mockArtifacts.length;
+        artifactsCount += artifactsToInsert.length;
+        console.log(`Created ${artifactsToInsert.length} artifacts from ${source.name}`);
       }
 
       // Update source's last_fetch_at
@@ -81,7 +264,7 @@ serve(async (req) => {
         .from('sources')
         .update({
           last_fetch_at: new Date().toISOString(),
-          items_fetched: mockArtifacts.length
+          items_fetched: articles.length
         })
         .eq('id', source.id);
     }
