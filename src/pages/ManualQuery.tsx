@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { CalendarIcon, Loader2, Play, CheckCircle, XCircle } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { TestBadge } from "@/components/ui/status-badge";
 
 const ManualQuery = () => {
   const { toast } = useToast();
@@ -41,7 +42,7 @@ const ManualQuery = () => {
       const { data, error } = await supabase
         .from('sources')
         .select('*')
-        .eq('status', 'active')
+        .in('status', ['active', 'testing'])
         .order('name');
       if (error) throw error;
       return data;
@@ -180,6 +181,11 @@ const ManualQuery = () => {
     setSelectedSources([]);
   };
 
+  const handleSelectTestSources = () => {
+    const testSources = sources?.filter(s => s.status === 'testing').map(s => s.id) || [];
+    setSelectedSources(testSources);
+  };
+
   const toggleSource = (sourceId: string) => {
     setSelectedSources(prev =>
       prev.includes(sourceId)
@@ -287,6 +293,9 @@ const ManualQuery = () => {
                 <Button variant="outline" size="sm" onClick={handleSelectNoneSources}>
                   Select None
                 </Button>
+                <Button variant="outline" size="sm" onClick={handleSelectTestSources}>
+                  Select Test
+                </Button>
               </div>
 
               <div className="grid md:grid-cols-2 gap-3">
@@ -299,10 +308,13 @@ const ManualQuery = () => {
                     />
                     <label
                       htmlFor={source.id}
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex items-center gap-2"
                     >
-                      {source.name}
-                      <span className="text-muted-foreground text-xs ml-2">({source.type})</span>
+                      <span>
+                        {source.name}
+                        <span className="text-muted-foreground text-xs ml-2">({source.type})</span>
+                      </span>
+                      {source.status === 'testing' && <TestBadge />}
                     </label>
                   </div>
                 ))}
