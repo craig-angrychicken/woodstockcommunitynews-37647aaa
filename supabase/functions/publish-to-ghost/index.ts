@@ -137,6 +137,7 @@ serve(async (req) => {
 
     // Extract post ID from ghostUrl if updating
     let postId = null;
+    let updatedAt = null;
     let method = 'POST';
     let endpoint = `${ghostApiUrl}/ghost/api/admin/posts/`;
     
@@ -145,7 +146,7 @@ serve(async (req) => {
       const urlParts = ghostUrl.split('/').filter((p: string) => p);
       const slug = urlParts[urlParts.length - 1].split('?')[0].split('#')[0];
       
-      // Get the post by slug to find its ID
+      // Get the post by slug to find its ID and updated_at timestamp
       const getResponse = await fetch(`${ghostApiUrl}/ghost/api/admin/posts/slug/${slug}/`, {
         method: 'GET',
         headers: {
@@ -157,11 +158,13 @@ serve(async (req) => {
       
       if (getResponse.ok) {
         const getResult = await getResponse.json();
-        postId = getResult.posts[0]?.id;
-        if (postId) {
+        const existingPost = getResult.posts[0];
+        postId = existingPost?.id;
+        updatedAt = existingPost?.updated_at;
+        if (postId && updatedAt) {
           method = 'PUT';
           endpoint = `${ghostApiUrl}/ghost/api/admin/posts/${postId}/`;
-          console.log('🔄 Updating existing post:', postId);
+          console.log('🔄 Updating existing post:', postId, 'updated_at:', updatedAt);
         }
       } else {
         console.warn('⚠️ Could not find existing post, will create new one');
@@ -176,7 +179,9 @@ serve(async (req) => {
         status: status || 'draft',
         tags: tags || [],
         featured: featured || false,
-        custom_excerpt: excerpt || subhead || null
+        custom_excerpt: excerpt || subhead || null,
+        // Include updated_at for PUT requests (required by Ghost API)
+        ...(method === 'PUT' && updatedAt ? { updated_at: updatedAt } : {})
       }]
     };
 
