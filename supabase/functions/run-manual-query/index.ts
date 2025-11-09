@@ -509,7 +509,11 @@ function parseEvents(html: string, sourceUrl: string) {
 
 // Helper to parse various date formats and check if within range
 function isDateInRange(dateStr: string, dateFrom: string, dateTo: string): boolean {
-  if (!dateStr) return false;
+  // If no date provided, include the article (treat as current/undated)
+  if (!dateStr) {
+    console.log(`  ℹ️ Article has no date, including in results`);
+    return true;
+  }
   
   try {
     // Try to parse the date string
@@ -518,10 +522,33 @@ function isDateInRange(dateStr: string, dateFrom: string, dateTo: string): boole
     const toDate = new Date(dateTo);
     
     // Check if valid date and within range
-    if (isNaN(articleDate.getTime())) return false;
+    if (isNaN(articleDate.getTime())) {
+      console.log(`  ⚠️ Invalid date format: ${dateStr}, including anyway`);
+      return true;
+    }
+    
     return articleDate >= fromDate && articleDate <= toDate;
   } catch {
-    return false; // If parsing fails, exclude the article
+    console.log(`  ⚠️ Error parsing date: ${dateStr}, including anyway`);
+    return true; // Include on error
+  }
+}
+
+// Helper to normalize URLs (convert relative to absolute)
+function normalizeUrl(url: string, baseUrl: string): string {
+  try {
+    // If already absolute, return as-is
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    
+    // Convert relative to absolute
+    const base = new URL(baseUrl);
+    const absoluteUrl = new URL(url, base.origin).toString();
+    return absoluteUrl;
+  } catch (error) {
+    console.log(`  ⚠️ Failed to normalize URL: ${url}`);
+    return url;
   }
 }
 
@@ -535,18 +562,39 @@ function parseWithConfig(html: string, sourceUrl: string, config: any) {
   const results = [];
 
   console.log(`🔧 Using custom parser config with selector: ${selectors.container}`);
+  if (selectors.date) console.log(`   Date selector: ${selectors.date}`);
   console.log(`   Found ${articles.length} container elements`);
 
   for (const article of articles) {
     const el = article as Element;
     const titleElement = el.querySelector(selectors.title);
-    const dateElement = selectors.date ? el.querySelector(selectors.date) : null;
+    let dateElement = selectors.date ? el.querySelector(selectors.date) : null;
     const linkElement = selectors.link ? el.querySelector(selectors.link) : null;
 
     if (titleElement) {
       const title = titleElement.textContent?.trim() || '';
-      const dateText = dateElement?.textContent?.trim() || '';
-      const articleUrl = linkElement?.getAttribute('href') || null;
+      let dateText = dateElement?.textContent?.trim() || '';
+      
+      // Fallback: Look for date patterns in direct children if no selector matched
+      if (!dateText) {
+        const directChildren = Array.from(el.children);
+        for (const child of directChildren) {
+          const text = (child as Element).textContent?.trim() || '';
+          const datePattern = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}$/i;
+          if (datePattern.test(text) && text.length < 50) {
+            dateText = text;
+            console.log(`   📅 Found date pattern "${dateText}" for "${title.substring(0, 40)}..."`);
+            break;
+          }
+        }
+      } else {
+        console.log(`   📅 Found date "${dateText}" for "${title.substring(0, 40)}..."`);
+      }
+      
+      let articleUrl = linkElement?.getAttribute('href') || null;
+      if (articleUrl) {
+        articleUrl = normalizeUrl(articleUrl, sourceUrl);
+      }
       
       results.push({
         title,

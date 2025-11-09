@@ -168,7 +168,7 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
         }
       }
 
-      // Find date-like elements
+      // Find date-like elements (semantic first, then pattern-based)
       const dateCandidates = element.querySelectorAll('time, [class*="date"], [class*="time"], [datetime]');
       for (const dateEl of dateCandidates) {
         const el = dateEl as Element;
@@ -180,22 +180,30 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
         }
       }
       
-      // Fallback: Look for date patterns in text content of all child elements
+      // Fallback: Look for date patterns in direct children (not nested deep)
       if (dateCandidates.length === 0) {
-        const allTextElements = element.querySelectorAll('*');
-        for (const textEl of allTextElements) {
-          const el = textEl as Element;
+        // First try direct children of the container
+        const directChildren = Array.from(element.children);
+        for (const child of directChildren) {
+          const el = child as Element;
           const text = el.textContent?.trim() || '';
           
-          // Match common date patterns
-          const datePattern = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|posted|published|updated/i;
-          if (datePattern.test(text) && text.length < 100) {
+          // Match date-only patterns (not mixed with other content)
+          const pureeDatePattern = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}$/i;
+          const slashDatePattern = /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/;
+          
+          if ((pureeDatePattern.test(text) || slashDatePattern.test(text)) && text.length < 50) {
             const classes = el.getAttribute('class');
+            const tag = el.tagName.toLowerCase();
+            
             if (classes) {
               dateSelectors.push(`.${classes.split(' ')[0]}`);
-              console.log(`  📅 Found date pattern in: .${classes.split(' ')[0]}`);
-              break; // Only need one
+              console.log(`  📅 Found date in: .${classes.split(' ')[0]} - "${text}"`);
+            } else {
+              dateSelectors.push(tag);
+              console.log(`  📅 Found date in: ${tag} - "${text}"`);
             }
+            break;
           }
         }
       }
@@ -235,12 +243,28 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
         }
       }
       
-      const dateEl = element.querySelector('time, [class*="date"]');
+      // Try to find date element - check all direct children for date patterns
+      let dateEl = element.querySelector('time, [class*="date"]') as Element | null;
+      
+      if (!dateEl) {
+        const directChildren = Array.from(element.children);
+        for (const child of directChildren) {
+          const text = (child as Element).textContent?.trim() || '';
+          const pureeDatePattern = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}$/i;
+          const slashDatePattern = /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/;
+          
+          if ((pureeDatePattern.test(text) || slashDatePattern.test(text)) && text.length < 50) {
+            dateEl = child as Element;
+            break;
+          }
+        }
+      }
       
       if (titleEl) {
+        const extractedDate = dateEl ? dateEl.textContent?.trim() : '';
         sampleArticles.push({
           title: titleEl.textContent?.trim() || '',
-          date: dateEl ? (dateEl as Element).textContent?.trim() : '',
+          date: extractedDate || '',
           excerpt: element.textContent?.trim().substring(0, 150) || '',
         });
       }
