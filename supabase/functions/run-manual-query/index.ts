@@ -131,13 +131,13 @@ function extractUrlsFromCssBackground(styleString: string): string[] {
   while ((match = urlPattern.exec(styleString)) !== null) {
     const url = match[1].trim();
     
-    // Skip data URIs, gradients, and common non-content images
+    // Skip data URIs, gradients, and common non-content images (case-insensitive)
+    const urlLower = url.toLowerCase();
     if (url.startsWith('data:') || 
-        url.includes('gradient') ||
-        url.includes('logo') ||
-        url.includes('icon') ||
-        url.includes('sprite') ||
-        url.includes('banner')) {
+        urlLower.includes('gradient') ||
+        urlLower.includes('logo') ||
+        urlLower.includes('icon') ||
+        urlLower.includes('sprite')) {
       continue;
     }
     
@@ -145,6 +145,15 @@ function extractUrlsFromCssBackground(styleString: string): string[] {
   }
   
   return urls;
+}
+
+// Helper to extract best URL from srcset attribute
+function pickFromSrcset(srcset: string): string | null {
+  const parts = srcset.split(',').map(s => s.trim());
+  if (parts.length === 0) return null;
+  // Pick last (usually largest resolution)
+  const last = parts[parts.length - 1].split(/\s+/)[0];
+  return last || null;
 }
 
 // Extract full article content from article page HTML
@@ -195,33 +204,98 @@ function extractFullArticleContent(html: string, baseUrl: string): { content: st
     return { content: '', images: [] };
   }
   
-  // Extract images from <img> tags
+  // Track image sources by type for logging
+  let imgTagCount = 0;
+  let srcsetCount = 0;
+  let cssContentCount = 0;
+  let cssHeroCount = 0;
+  let metaCount = 0;
   const images: string[] = [];
+  
+  // 1. Extract from <img> tags with lazy-load support
   const imgElements = contentElement.querySelectorAll('img');
-  const imgCount = imgElements.length;
   for (const img of imgElements) {
-    const src = (img as Element).getAttribute('src');
-    if (src && !src.includes('logo') && !src.includes('icon') && !src.includes('sprite')) {
+    const el = img as Element;
+    // Try multiple src attributes (lazy-loading)
+    const src = el.getAttribute('src') || 
+                 el.getAttribute('data-src') || 
+                 el.getAttribute('data-original') || 
+                 el.getAttribute('data-lazy-src');
+    const srcset = el.getAttribute('srcset');
+    
+    const srcLower = (src || '').toLowerCase();
+    if (src && !srcLower.includes('logo') && !srcLower.includes('icon') && !srcLower.includes('sprite')) {
       images.push(src);
+      imgTagCount++;
+    } else if (srcset) {
+      const srcsetUrl = pickFromSrcset(srcset);
+      if (srcsetUrl) {
+        images.push(srcsetUrl);
+        srcsetCount++;
+      }
     }
   }
   
-  // Extract images from CSS background properties
+  // 2. Extract from <picture> elements
+  const pictureElements = contentElement.querySelectorAll('picture source[srcset]');
+  for (const source of pictureElements) {
+    const srcset = (source as Element).getAttribute('srcset');
+    if (srcset) {
+      const srcsetUrl = pickFromSrcset(srcset);
+      if (srcsetUrl) {
+        images.push(srcsetUrl);
+        srcsetCount++;
+      }
+    }
+  }
+  
+  // 3. Extract from CSS backgrounds INSIDE content
   const elementsWithBackground = contentElement.querySelectorAll('[style*="background"]');
   for (const el of elementsWithBackground) {
     const style = (el as Element).getAttribute('style') || '';
     const backgroundUrls = extractUrlsFromCssBackground(style);
     images.push(...backgroundUrls);
+    cssContentCount += backgroundUrls.length;
+  }
+  
+  // 4. Extract from CSS backgrounds OUTSIDE content (hero images)
+  const heroSelectors = '.hero, [class*="hero"], [class*="featured"], .page-header, .entry-header, .post-thumbnail, .wp-post-image, .featured-image';
+  const heroElements = doc.querySelectorAll(heroSelectors);
+  for (const el of heroElements) {
+    const style = (el as Element).getAttribute('style') || '';
+    if (style.includes('background')) {
+      const backgroundUrls = extractUrlsFromCssBackground(style);
+      images.push(...backgroundUrls);
+      cssHeroCount += backgroundUrls.length;
+    }
+  }
+  
+  // 5. Extract from meta tags (og:image, twitter:image)
+  const metaSelectors = [
+    'meta[property="og:image"]',
+    'meta[name="twitter:image"]',
+    'meta[name="twitter:image:src"]',
+    'link[rel="image_src"]'
+  ];
+  for (const selector of metaSelectors) {
+    const metaEl = doc.querySelector(selector);
+    if (metaEl) {
+      const content = metaEl.getAttribute('content') || metaEl.getAttribute('href');
+      if (content && !content.toLowerCase().includes('logo')) {
+        images.push(content);
+        metaCount++;
+      }
+    }
   }
   
   // Deduplicate images
   const uniqueImages = Array.from(new Set(images));
-  const cssBackgroundCount = images.length - imgCount;
   
   // Convert to markdown
   const content = htmlToMarkdown(contentElement.innerHTML);
   
-  console.log(`  📄 Extracted ${content.length} chars, ${imgCount} <img> tags, ${cssBackgroundCount} CSS backgrounds, ${uniqueImages.length} total unique images`);
+  // Enhanced logging
+  console.log(`  📄 Extracted ${content.length} chars, ${imgTagCount} <img> tags, ${srcsetCount} srcset/lazy, ${cssContentCount} CSS (content), ${cssHeroCount} CSS (hero), ${metaCount} meta, ${uniqueImages.length} total unique images`);
   
   return { content, images: uniqueImages };
 }
@@ -308,17 +382,43 @@ function extractContentFromHtml(htmlFragment: string): { content: string; images
   const doc = new DOMParser().parseFromString(htmlFragment, 'text/html');
   if (!doc) return { content: '', images: [] };
   
-  // Extract images from <img> tags
   const images: string[] = [];
+  
+  // 1. Extract from <img> tags with lazy-load support
   const imgElements = doc.querySelectorAll('img');
   for (const img of imgElements) {
-    const src = (img as Element).getAttribute('src');
-    if (src && !src.includes('logo') && !src.includes('icon') && !src.includes('sprite')) {
+    const el = img as Element;
+    // Try multiple src attributes (lazy-loading)
+    const src = el.getAttribute('src') || 
+                 el.getAttribute('data-src') || 
+                 el.getAttribute('data-original') || 
+                 el.getAttribute('data-lazy-src');
+    const srcset = el.getAttribute('srcset');
+    
+    const srcLower = (src || '').toLowerCase();
+    if (src && !srcLower.includes('logo') && !srcLower.includes('icon') && !srcLower.includes('sprite')) {
       images.push(src);
+    } else if (srcset) {
+      const srcsetUrl = pickFromSrcset(srcset);
+      if (srcsetUrl) {
+        images.push(srcsetUrl);
+      }
     }
   }
   
-  // Extract images from CSS background properties
+  // 2. Extract from <picture> elements
+  const pictureElements = doc.querySelectorAll('picture source[srcset]');
+  for (const source of pictureElements) {
+    const srcset = (source as Element).getAttribute('srcset');
+    if (srcset) {
+      const srcsetUrl = pickFromSrcset(srcset);
+      if (srcsetUrl) {
+        images.push(srcsetUrl);
+      }
+    }
+  }
+  
+  // 3. Extract from CSS background properties
   const elementsWithBackground = doc.querySelectorAll('[style*="background"]');
   for (const el of elementsWithBackground) {
     const style = (el as Element).getAttribute('style') || '';
