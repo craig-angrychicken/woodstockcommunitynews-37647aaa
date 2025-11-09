@@ -50,8 +50,12 @@ const Prompts = () => {
       setDeleteDialogOpen(false);
       setPromptToDelete(null);
     },
-    onError: () => {
-      toast.error("Failed to delete prompt");
+    onError: (error: any) => {
+      console.error("Delete error:", error);
+      toast.error(
+        error?.message || "Failed to delete prompt. Please try again."
+      );
+      setDeleteDialogOpen(false);
     },
   });
 
