@@ -348,7 +348,115 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
       console.log(`  ⚠️ No paragraphs or substantial content found`);
     }
     
-    // ARTICLE QUALITY SCORE
+    // ENHANCED ARTICLE PREVIEW LENGTH DETECTION
+    const avgTextLength = sampleElements.reduce((sum, el) => {
+      return sum + (el.textContent?.trim().length || 0);
+    }, 0) / sampleElements.length;
+    
+    const hasArticlePreview = sampleElements.some(el => {
+      const text = el.textContent?.trim() || '';
+      return text.length > 150; // Real articles usually have 150+ chars (title + description)
+    });
+    
+    console.log(`  📏 Average text length: ${Math.round(avgTextLength)} chars`);
+    
+    if (avgTextLength < 100) {
+      confidence -= 30;
+      console.log(`  ⚠️ Text too short (avg: ${Math.round(avgTextLength)}) - likely navigation`);
+    }
+    
+    if (hasArticlePreview) {
+      confidence += 20;
+      console.log(`  ✅ Has article preview content (>150 chars)`);
+    }
+    
+    // MULTI-LINE VS SINGLE-LINE DETECTION
+    const hasMultiLineContent = sampleElements.some(el => {
+      // Look for multiple text blocks (title + description)
+      const textBlocks = Array.from(el.children).filter(child => {
+        const text = (child as Element).textContent?.trim() || '';
+        return text.length > 20;
+      });
+      return textBlocks.length >= 2;
+    });
+    
+    if (hasMultiLineContent) {
+      confidence += 25;
+      console.log(`  ✅ Has multi-line article structure`);
+    }
+    
+    // STRICTER NAVIGATION TERM MATCHING
+    const expandedNavTerms = [
+      'about', 'services', 'home', 'contact', 'government', 'business', 
+      'calendar', 'departments', 'residents', 'doing business', 'history',
+      'news', 'events', 'community', 'employment', 'resources', 'directory',
+      'sitemap', 'search', 'login', 'register', 'profile', 'settings'
+    ];
+    
+    const isNavigationCategory = sampleElements.some(el => {
+      const text = (el.textContent?.trim() || '').toLowerCase();
+      const words = text.split(/\s+/);
+      
+      // If it's just 1-3 words and matches nav patterns
+      if (words.length <= 3) {
+        return expandedNavTerms.some(term => text.includes(term));
+      }
+      return false;
+    });
+    
+    if (isNavigationCategory) {
+      confidence -= 50;
+      console.log(`  ⚠️ Matches navigation category pattern (1-3 words + nav terms)`);
+    }
+    
+    // CHECK FOR "READ MORE" LINKS AND ARTICLE METADATA
+    const hasReadMoreLinks = sampleElements.some(el => {
+      const links = el.querySelectorAll('a');
+      return Array.from(links).some(link => {
+        const text = (link as Element).textContent?.trim().toLowerCase() || '';
+        return text.includes('read more') || text.includes('continue reading') || 
+               text.includes('full story') || text.includes('learn more');
+      });
+    });
+    
+    const hasArticleMetadata = sampleElements.some(el => {
+      const text = el.textContent?.toLowerCase() || '';
+      return text.includes('posted') || text.includes('by ') || 
+             text.includes('category:') || text.includes('tags:') ||
+             text.includes('author:') || text.includes('published');
+    });
+    
+    if (hasReadMoreLinks) {
+      confidence += 20;
+      console.log(`  ✅ Has 'read more' links`);
+    }
+    
+    if (hasArticleMetadata) {
+      confidence += 15;
+      console.log(`  ✅ Has article metadata (author, posted, etc.)`);
+    }
+    
+    // CHECK FOR PROPER ARTICLE LINK PATTERNS
+    const linkPatterns = sampleElements.map(el => {
+      const link = el.querySelector('a[href]');
+      return (link as Element)?.getAttribute('href') || '';
+    }).filter(href => href);
+    
+    const hasSpecificLinks = linkPatterns.some(href => {
+      // Article links often contain IDs, slugs, or date patterns
+      return /\d+/.test(href) || 
+             href.includes('article') || 
+             href.includes('story') ||
+             href.includes('news') ||
+             href.split('/').length > 3; // Deep URLs
+    });
+    
+    if (hasSpecificLinks) {
+      confidence += 15;
+      console.log(`  ✅ Has specific article link patterns`);
+    }
+    
+    // ARTICLE QUALITY SCORE (existing logic)
     let articleQualityScore = 0;
     
     // Check for article-like features in samples
