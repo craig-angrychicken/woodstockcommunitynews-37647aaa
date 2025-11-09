@@ -200,6 +200,14 @@ function extractFullArticleContent(html: string, baseUrl: string, customSelector
     }
   }
   
+  // Finalsite-specific selectors (for cherokeek12.net and similar sites)
+  const finalsiteSelectors = [
+    'article.fsResource .fsResourceContent',
+    '.fsResource .fsResourceContent',
+    '.fsArticle',
+    'main article'
+  ];
+  
   // Default selectors as fallback
   const defaultSelectors = [
     '.normalStory',
@@ -213,8 +221,15 @@ function extractFullArticleContent(html: string, baseUrl: string, customSelector
     '[role="main"]'
   ];
   
-  // Try custom selectors FIRST, then defaults
-  const contentSelectors = [...customSelectorArray, ...defaultSelectors];
+  // Build selector priority: custom > finalsite (if applicable) > defaults
+  let contentSelectors = [...customSelectorArray];
+  
+  // Add Finalsite selectors if we're on a Finalsite domain
+  if (baseUrl.includes('cherokeek12.net') || baseUrl.includes('finalsite')) {
+    contentSelectors.push(...finalsiteSelectors);
+  }
+  
+  contentSelectors.push(...defaultSelectors);
   
   let contentElement = null;
   for (const selector of contentSelectors) {
@@ -865,10 +880,30 @@ async function extractDateFromDetailPage(articleUrl: string, config: any, source
     if (customSelector) {
       const dateEl = doc.querySelector(customSelector);
       if (dateEl) {
-        const dateText = dateEl.textContent?.trim() || dateEl.getAttribute('datetime') || dateEl.getAttribute('content') || '';
-        if (dateText) {
-          console.log(`   📅 Found detail page date via custom selector "${customSelector}": ${dateText}`);
-          return dateText;
+        // Prefer machine-readable attributes first
+        const datetimeAttr = dateEl.getAttribute('datetime');
+        const contentAttr = dateEl.getAttribute('content');
+        const textContent = dateEl.textContent?.trim();
+        
+        const rawValue = datetimeAttr || contentAttr || textContent || '';
+        
+        if (rawValue) {
+          // Try to parse as ISO date first
+          const tryParse = new Date(rawValue);
+          if (!isNaN(tryParse.getTime())) {
+            const isoDate = tryParse.toISOString();
+            console.log(`   📅 Found detail page date via custom selector "${customSelector}": ${rawValue} → ${isoDate}`);
+            return isoDate;
+          }
+          
+          // Fallback: try parseDateFromText for common formats
+          const parsedDate = parseDateFromText(rawValue);
+          if (parsedDate) {
+            console.log(`   📅 Parsed detail page date via custom selector "${customSelector}": ${rawValue} → ${parsedDate}`);
+            return parsedDate;
+          }
+          
+          console.log(`   ⚠️ Custom selector "${customSelector}" returned non-date value: "${rawValue}"`);
         }
       }
     }
@@ -889,12 +924,27 @@ async function extractDateFromDetailPage(articleUrl: string, config: any, source
     for (const selector of defaultSelectors) {
       const dateEl = doc.querySelector(selector);
       if (dateEl) {
-        const dateText = dateEl.getAttribute('datetime') || 
-                        dateEl.getAttribute('content') || 
-                        dateEl.textContent?.trim() || '';
-        if (dateText && dateText.length > 0 && dateText.length < 100) {
-          console.log(`   📅 Found detail page date via "${selector}": ${dateText}`);
-          return dateText;
+        const datetimeAttr = dateEl.getAttribute('datetime');
+        const contentAttr = dateEl.getAttribute('content');
+        const textContent = dateEl.textContent?.trim();
+        
+        const rawValue = datetimeAttr || contentAttr || textContent || '';
+        
+        if (rawValue && rawValue.length > 0 && rawValue.length < 100) {
+          // Try to parse as ISO date first
+          const tryParse = new Date(rawValue);
+          if (!isNaN(tryParse.getTime())) {
+            const isoDate = tryParse.toISOString();
+            console.log(`   📅 Found detail page date via "${selector}": ${rawValue} → ${isoDate}`);
+            return isoDate;
+          }
+          
+          // Fallback: try parseDateFromText
+          const parsedDate = parseDateFromText(rawValue);
+          if (parsedDate) {
+            console.log(`   📅 Parsed detail page date via "${selector}": ${rawValue} → ${parsedDate}`);
+            return parsedDate;
+          }
         }
       }
     }
