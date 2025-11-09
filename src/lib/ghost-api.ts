@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 interface GhostPostData {
   title: string;
@@ -26,28 +27,44 @@ export async function publishToGhost(
     excerpt?: string;
   }
 ): Promise<{ success: boolean; postId?: string; url?: string }> {
-  // TODO: Replace with actual Ghost Admin API implementation
-  // For now, this is a mock implementation
-  
-  console.log("📝 Publishing to Ghost CMS:");
-  console.log("Title:", storyTitle);
-  console.log("Content length:", storyContent.length, "characters");
-  console.log("Options:", options);
+  try {
+    console.log("📝 Publishing to Ghost CMS:", storyTitle);
 
-  // Simulate API call delay
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+    const { data, error } = await supabase.functions.invoke('publish-to-ghost', {
+      body: {
+        title: storyTitle,
+        content: storyContent,
+        status: options?.status || "draft",
+        tags: options?.tags,
+        featured: options?.featured || false,
+        excerpt: options?.excerpt,
+      },
+    });
 
-  // Mock successful response
-  const mockPostId = `ghost-${Date.now()}`;
-  const mockUrl = `https://your-ghost-site.com/posts/${mockPostId}`;
+    if (error) {
+      console.error("Ghost API error:", error);
+      toast.error("Failed to publish to Ghost");
+      throw error;
+    }
 
-  toast.success("Story published to Ghost successfully!");
+    if (!data.success) {
+      console.error("Ghost API error:", data.error);
+      toast.error(`Failed to publish to Ghost: ${data.error}`);
+      return { success: false };
+    }
 
-  return {
-    success: true,
-    postId: mockPostId,
-    url: mockUrl,
-  };
+    toast.success("Story published to Ghost successfully!");
+
+    return {
+      success: true,
+      postId: data.postId,
+      url: data.url,
+    };
+  } catch (error) {
+    console.error("Error publishing to Ghost:", error);
+    toast.error("Failed to publish to Ghost");
+    return { success: false };
+  }
 }
 
 /**
