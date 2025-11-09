@@ -50,7 +50,7 @@ const AIJournalist = () => {
     }
   });
 
-  // Fetch available artifacts for specific selection mode
+  // Fetch available artifacts for specific selection mode (excluding already-used artifacts)
   const { data: availableArtifacts } = useQuery({
     queryKey: ['available-artifacts', dateFrom, dateTo, environment, selectionMode],
     queryFn: async () => {
@@ -66,9 +66,22 @@ const AIJournalist = () => {
           query = query.eq('is_test', false);
         }
 
-        const { data, error } = await query;
-        if (error) throw error;
-        return data || [];
+        const { data: artifactsData, error: artifactsError } = await query;
+        if (artifactsError) throw artifactsError;
+
+        // Get all artifact IDs that are already used in stories
+        const { data: usedArtifacts, error: usedError } = await supabase
+          .from('story_artifacts')
+          .select('artifact_id');
+
+        if (usedError) throw usedError;
+
+        const usedArtifactIds = new Set(usedArtifacts?.map(sa => sa.artifact_id) || []);
+
+        // Filter out used artifacts
+        const unusedArtifacts = artifactsData?.filter(a => !usedArtifactIds.has(a.id)) || [];
+
+        return unusedArtifacts;
       }
       return [];
     },
