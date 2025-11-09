@@ -6,6 +6,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Helper function to convert string to base64url
+function base64UrlEncode(str: string): string {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  let binary = '';
+  for (let i = 0; i < data.length; i++) {
+    binary += String.fromCharCode(data[i]);
+  }
+  return btoa(binary)
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
 // Generate JWT token for Ghost Admin API
 async function generateGhostToken(apiKey: string): Promise<string> {
   const [id, secret] = apiKey.split(':');
@@ -23,12 +37,15 @@ async function generateGhostToken(apiKey: string): Promise<string> {
     aud: '/admin/'
   };
   
-  const encoder = new TextEncoder();
-  const base64Header = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-  const base64Payload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  // Properly encode header and payload to base64url
+  const base64Header = base64UrlEncode(JSON.stringify(header));
+  const base64Payload = base64UrlEncode(JSON.stringify(payload));
   
   const message = `${base64Header}.${base64Payload}`;
-  const secretBytes = encoder.encode(secret);
+  
+  // Convert hex secret to bytes
+  const encoder = new TextEncoder();
+  const secretBytes = new Uint8Array(secret.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []);
   const messageBytes = encoder.encode(message);
   
   // Create HMAC signature
@@ -42,7 +59,13 @@ async function generateGhostToken(apiKey: string): Promise<string> {
   
   const signature = await crypto.subtle.sign('HMAC', key, messageBytes);
   const signatureArray = new Uint8Array(signature);
-  const base64Signature = btoa(String.fromCharCode(...signatureArray))
+  
+  // Convert signature to base64url
+  let binary = '';
+  for (let i = 0; i < signatureArray.length; i++) {
+    binary += String.fromCharCode(signatureArray[i]);
+  }
+  const base64Signature = btoa(binary)
     .replace(/=/g, '')
     .replace(/\+/g, '-')
     .replace(/\//g, '_');
