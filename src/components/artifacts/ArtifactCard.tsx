@@ -17,6 +17,7 @@ interface ArtifactCardProps {
   sourceName: string;
   isTest: boolean;
   storiesCount: number;
+  imageCount: number;
   onViewContent: () => void;
   onViewStory: () => void;
   onDelete: () => void;
@@ -27,6 +28,7 @@ export const ArtifactCard = ({
   sourceName,
   isTest,
   storiesCount,
+  imageCount,
   onViewContent,
   onViewStory,
   onDelete,
@@ -60,6 +62,12 @@ export const ArtifactCard = ({
         <h3 className="font-semibold line-clamp-2">
           {artifact.title || artifact.name}
         </h3>
+
+        {imageCount > 0 && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>Images: {imageCount}</span>
+          </div>
+        )}
 
         <div className="space-y-2 text-sm">
           <div className="flex items-center justify-between">
