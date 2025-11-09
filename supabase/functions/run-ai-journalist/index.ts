@@ -19,6 +19,7 @@ Deno.serve(async (req) => {
       promptVersionId,
       historyId,
       maxArtifacts,
+      artifactIds,
     } = await req.json();
 
     console.log("AI Journalist run started:", {
@@ -28,6 +29,7 @@ Deno.serve(async (req) => {
       promptVersionId,
       historyId,
       maxArtifacts,
+      artifactIds,
     });
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -47,13 +49,21 @@ Deno.serve(async (req) => {
       throw new Error("Failed to fetch prompt version");
     }
 
-    // Fetch artifacts in the date range
+    // Fetch artifacts by IDs or date range
     let artifactsQuery = supabase
       .from("artifacts")
-      .select("*")
-      .gte("date", dateFrom)
-      .lte("date", dateTo)
-      .order("date", { ascending: false });
+      .select("*");
+
+    if (artifactIds && artifactIds.length > 0) {
+      // Use specific artifact IDs
+      artifactsQuery = artifactsQuery.in("id", artifactIds);
+    } else {
+      // Use date range
+      artifactsQuery = artifactsQuery
+        .gte("date", dateFrom)
+        .lte("date", dateTo)
+        .order("date", { ascending: false });
+    }
 
     if (environment === "test") {
       artifactsQuery = artifactsQuery.eq("is_test", true);
@@ -61,7 +71,7 @@ Deno.serve(async (req) => {
       artifactsQuery = artifactsQuery.eq("is_test", false);
     }
 
-    if (maxArtifacts) {
+    if (maxArtifacts && (!artifactIds || artifactIds.length === 0)) {
       artifactsQuery = artifactsQuery.limit(maxArtifacts);
     }
 

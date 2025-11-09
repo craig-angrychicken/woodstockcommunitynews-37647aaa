@@ -33,6 +33,8 @@ const AIJournalist = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState<"dateRange" | "specific">("dateRange");
+  const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
 
   // Fetch prompt versions
   const { data: promptVersions } = useQuery({
@@ -41,14 +43,40 @@ const AIJournalist = () => {
       const { data, error } = await supabase
         .from('prompt_versions')
         .select('*')
+        .eq('prompt_type', 'journalism')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data;
     }
   });
 
-  // Fetch available artifacts count
-  const { data: artifactsCount } = useQuery({
+  // Fetch available artifacts for specific selection mode
+  const { data: availableArtifacts } = useQuery({
+    queryKey: ['available-artifacts', dateFrom, dateTo, environment, selectionMode],
+    queryFn: async () => {
+      if (selectionMode === "specific") {
+        let query = supabase
+          .from('artifacts')
+          .select('*')
+          .order('date', { ascending: false });
+
+        if (environment === 'test') {
+          query = query.eq('is_test', true);
+        } else {
+          query = query.eq('is_test', false);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+        return data || [];
+      }
+      return [];
+    },
+    enabled: selectionMode === "specific"
+  });
+
+  // Fetch count for date range mode
+  const { data: dateRangeCount } = useQuery({
     queryKey: ['artifacts-count', dateFrom, dateTo, environment],
     queryFn: async () => {
       let query = supabase
@@ -66,8 +94,13 @@ const AIJournalist = () => {
       const { count, error } = await query;
       if (error) throw error;
       return count || 0;
-    }
+    },
+    enabled: selectionMode === "dateRange"
   });
+
+  const artifactsCount = selectionMode === "dateRange" 
+    ? (dateRangeCount || 0)
+    : selectedArtifactIds.length;
 
   // Fetch query history for AI runs
   const { data: queryHistory } = useQuery({
@@ -160,16 +193,23 @@ const AIJournalist = () => {
 
       setCurrentHistoryId(historyRecord.id);
 
-      // Call edge function
+      // Call edge function with either date range or specific artifact IDs
+      const body: any = {
+        environment,
+        promptVersionId,
+        historyId: historyRecord.id,
+        maxArtifacts
+      };
+
+      if (selectionMode === 'specific') {
+        body.artifactIds = selectedArtifactIds;
+      } else {
+        body.dateFrom = dateFrom.toISOString();
+        body.dateTo = dateTo.toISOString();
+      }
+
       const { data, error } = await supabase.functions.invoke('run-ai-journalist', {
-        body: {
-          dateFrom: dateFrom.toISOString(),
-          dateTo: dateTo.toISOString(),
-          environment,
-          promptVersionId,
-          historyId: historyRecord.id,
-          maxArtifacts
-        }
+        body
       });
 
       if (error) throw error;
@@ -228,15 +268,35 @@ const AIJournalist = () => {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
-          {/* Date Range Section */}
+          {/* Artifact Selection Mode */}
           <Card>
             <CardHeader>
-              <CardTitle>Artifact Date Range</CardTitle>
+              <CardTitle>Artifact Selection</CardTitle>
               <CardDescription>
-                Select date range for artifacts to process ({artifactsCount || 0} artifacts available)
+                Choose how to select artifacts ({artifactsCount} selected)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <RadioGroup value={selectionMode} onValueChange={(v: any) => {
+                setSelectionMode(v);
+                setSelectedArtifactIds([]);
+              }}>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="dateRange" id="date-range" />
+                  <Label htmlFor="date-range" className="cursor-pointer">
+                    Date Range
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="specific" id="specific" />
+                  <Label htmlFor="specific" className="cursor-pointer">
+                    Select Specific Artifacts
+                  </Label>
+                </div>
+              </RadioGroup>
+
+              {selectionMode === "dateRange" ? (
+                <div className="space-y-4 pt-4">
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>From Date</Label>
@@ -310,15 +370,75 @@ const AIJournalist = () => {
                 >
                   Last 7 days
                 </Button>
-                <Button 
-                  variant={activeQuickDate === 30 ? "default" : "outline"}
-                  size="sm" 
-                  onClick={() => handleQuickDate(30)}
-                  className={cn(activeQuickDate === 30 && "bg-blue-600 hover:bg-blue-700")}
-                >
-                  Last 30 days
-                </Button>
-              </div>
+                  <Button 
+                    variant={activeQuickDate === 30 ? "default" : "outline"}
+                    size="sm" 
+                    onClick={() => handleQuickDate(30)}
+                    className={cn(activeQuickDate === 30 && "bg-blue-600 hover:bg-blue-700")}
+                  >
+                    Last 30 days
+                  </Button>
+                </div>
+                </div>
+              ) : (
+                <div className="space-y-4 pt-4">
+                  <div className="max-h-96 overflow-y-auto border rounded-lg">
+                    {availableArtifacts && availableArtifacts.length > 0 ? (
+                      <div className="divide-y">
+                        <div className="p-3 bg-muted/50 sticky top-0 z-10">
+                          <Label className="flex items-center space-x-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="rounded border-input"
+                              checked={selectedArtifactIds.length === availableArtifacts.length}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedArtifactIds(availableArtifacts.map(a => a.id));
+                                } else {
+                                  setSelectedArtifactIds([]);
+                                }
+                              }}
+                            />
+                            <span className="font-medium">
+                              Select All ({availableArtifacts.length} artifacts)
+                            </span>
+                          </Label>
+                        </div>
+                        {availableArtifacts.map((artifact) => (
+                          <div key={artifact.id} className="p-3 hover:bg-muted/50 transition-colors">
+                            <Label className="flex items-start space-x-3 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="mt-1 rounded border-input"
+                                checked={selectedArtifactIds.includes(artifact.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedArtifactIds([...selectedArtifactIds, artifact.id]);
+                                  } else {
+                                    setSelectedArtifactIds(selectedArtifactIds.filter(id => id !== artifact.id));
+                                  }
+                                }}
+                              />
+                              <div className="flex-1 space-y-1">
+                                <p className="font-medium leading-tight">
+                                  {artifact.title || artifact.name}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {format(new Date(artifact.date), "MMM d, yyyy")}
+                                </p>
+                              </div>
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground text-center py-8">
+                        No artifacts available
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -433,7 +553,7 @@ const AIJournalist = () => {
               size="lg"
               className="flex-1"
               onClick={handleRun}
-              disabled={isRunning || !artifactsCount}
+              disabled={isRunning || artifactsCount === 0}
             >
               {isRunning ? (
                 <>
