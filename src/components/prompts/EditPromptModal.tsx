@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,6 +36,13 @@ export const EditPromptModal = ({
   const [isSaving, setIsSaving] = useState(false);
 
   const isCreating = !promptId;
+
+  // Update local state when props change
+  useEffect(() => {
+    setContent(currentContent);
+    setVersionName(currentVersionName);
+    setUpdateNotes("");
+  }, [currentContent, currentVersionName, open]);
 
   const handleSave = async () => {
     if (!versionName.trim()) {
