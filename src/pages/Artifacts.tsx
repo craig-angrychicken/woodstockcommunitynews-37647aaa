@@ -48,6 +48,7 @@ const Artifacts = () => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
   const [artifactToDelete, setArtifactToDelete] = useState<string | null>(null);
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
 
@@ -173,6 +174,34 @@ const Artifacts = () => {
   const handleBulkDelete = () => {
     setBulkDeleteDialogOpen(true);
   };
+
+  // Delete all artifacts mutation
+  const deleteAllArtifactsMutation = useMutation({
+    mutationFn: async () => {
+      const { count, error: countError } = await supabase
+        .from('artifacts')
+        .select('*', { count: 'exact', head: true });
+      
+      if (countError) throw countError;
+
+      const { error } = await supabase
+        .from('artifacts')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000');
+      
+      if (error) throw error;
+      return count || 0;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['artifacts'] });
+      queryClient.invalidateQueries({ queryKey: ['all-story-artifacts'] });
+      toast.success(`Successfully deleted all ${count} artifacts`);
+      setDeleteAllDialogOpen(false);
+    },
+    onError: (error: any) => {
+      toast.error(`Failed to delete all artifacts: ${error.message}`);
+    }
+  });
 
   // Backfill images mutation
   const backfillImagesMutation = useMutation({
@@ -326,6 +355,14 @@ const Artifacts = () => {
               Delete All Test Data ({testArtifactsCount})
             </Button>
           )}
+          <Button
+            variant="destructive"
+            onClick={() => setDeleteAllDialogOpen(true)}
+            disabled={!artifacts || artifacts.length === 0 || deleteAllArtifactsMutation.isPending}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete All Artifacts ({artifacts?.length || 0})
+          </Button>
         </div>
       </div>
 
@@ -509,6 +546,18 @@ const Artifacts = () => {
         itemCount={testArtifactsCount}
         onConfirm={async () => {
           await bulkDeleteMutation.mutateAsync();
+        }}
+      />
+
+      {/* Delete All Artifacts Dialog */}
+      <BulkDeleteDialog
+        open={deleteAllDialogOpen}
+        onOpenChange={setDeleteAllDialogOpen}
+        title="⚠️ Delete ALL Artifacts?"
+        description="This will permanently delete EVERY artifact in your database, including both production and test data. All artifacts from all sources will be removed."
+        itemCount={artifacts?.length || 0}
+        onConfirm={async () => {
+          await deleteAllArtifactsMutation.mutateAsync();
         }}
       />
     </div>
