@@ -198,8 +198,11 @@ serve(async (req) => {
 
     console.log('🔑 Making request to Ghost API');
 
+    // Add source=html parameter for POST requests to tell Ghost we're sending HTML
+    const urlWithSource = method === 'POST' ? `${endpoint}?source=html` : endpoint;
+
     // Make request to Ghost API (POST for create, PUT for update)
-    const response = await fetch(endpoint, {
+    const response = await fetch(urlWithSource, {
       method,
       headers: {
         'Authorization': `Ghost ${token}`,
