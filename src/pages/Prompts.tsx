@@ -1,90 +1,35 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PromptCard } from "@/components/prompts/PromptCard";
-import { TestPromptCard } from "@/components/prompts/TestPromptCard";
-import { HistoryPromptCard } from "@/components/prompts/HistoryPromptCard";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { EditPromptModal } from "@/components/prompts/EditPromptModal";
-import { ActivatePromptModal } from "@/components/prompts/ActivatePromptModal";
-import { ComparePromptsModal } from "@/components/prompts/ComparePromptsModal";
-import { CardSkeleton } from "@/components/ui/loading-skeleton";
-import { ErrorState } from "@/components/ui/error-state";
-import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { FileText } from "lucide-react";
+import { Plus, Edit, CheckCircle, Trash2 } from "lucide-react";
+import { format } from "date-fns";
 
 const Prompts = () => {
   const queryClient = useQueryClient();
   const [editModalOpen, setEditModalOpen] = useState(false);
-  const [activateModalOpen, setActivateModalOpen] = useState(false);
-  const [compareModalOpen, setCompareModalOpen] = useState(false);
-  const [viewModalOpen, setViewModalOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedPrompt, setSelectedPrompt] = useState<any>(null);
   const [promptToDelete, setPromptToDelete] = useState<string | null>(null);
-  const [comparePrompts, setComparePrompts] = useState<{ prompt1: any; prompt2: any } | null>(
-    null
-  );
-  const [activeTab, setActiveTab] = useState("active");
+  const [isCreating, setIsCreating] = useState(false);
 
-  // Fetch active prompts
+  // Fetch all prompts
   const {
-    data: activePrompts,
-    isLoading: activeLoading,
-    error: activeError,
-    refetch: refetchActive,
+    data: prompts,
+    isLoading,
+    error,
+    refetch,
   } = useQuery({
-    queryKey: ["prompts", "active"],
+    queryKey: ["prompts"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("prompt_versions")
         .select("*")
-        .eq("is_active", true)
-        .eq("is_test_draft", false)
-        .order("prompt_type");
-
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  // Fetch test drafts
-  const {
-    data: testDrafts,
-    isLoading: testLoading,
-    error: testError,
-    refetch: refetchTest,
-  } = useQuery({
-    queryKey: ["prompts", "test-drafts"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("prompt_versions")
-        .select("*")
-        .eq("is_test_draft", true)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  // Fetch history
-  const {
-    data: historyPrompts,
-    isLoading: historyLoading,
-    error: historyError,
-    refetch: refetchHistory,
-  } = useQuery({
-    queryKey: ["prompts", "history"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("prompt_versions")
-        .select("*")
-        .eq("is_test_draft", false)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -122,257 +67,184 @@ const Prompts = () => {
 
   const handleEdit = (prompt: any) => {
     setSelectedPrompt(prompt);
+    setIsCreating(false);
     setEditModalOpen(true);
   };
 
-  const handleCreateTestDraft = (prompt: any) => {
-    const newVersionNumber = (parseFloat(prompt.version_name.match(/\d+\.\d+/)?.[0] || "1.0") + 0.1).toFixed(1);
-    const promptType = prompt.prompt_type === "retrieval" ? "Retrieval" : "Journalism";
-    
-    setSelectedPrompt({
-      ...prompt,
-      version_name: `${promptType} v${newVersionNumber} DRAFT`,
-      is_test_draft: true,
-    });
+  const handleCreateNew = () => {
+    setSelectedPrompt(null);
+    setIsCreating(true);
     setEditModalOpen(true);
   };
 
-  const handleActivate = (prompt: any) => {
-    setSelectedPrompt(prompt);
-    setActivateModalOpen(true);
-  };
+  // Make active mutation
+  const makeActiveMutation = useMutation({
+    mutationFn: async (promptId: string) => {
+      const prompt = prompts?.find(p => p.id === promptId);
+      if (!prompt) throw new Error("Prompt not found");
 
-  const handleViewHistory = (promptType: string) => {
-    setActiveTab("history");
-  };
+      // Deactivate other prompts of the same type
+      const { error: deactivateError } = await supabase
+        .from("prompt_versions")
+        .update({ is_active: false })
+        .eq("prompt_type", prompt.prompt_type);
 
-  const handleView = (prompt: any) => {
-    setSelectedPrompt(prompt);
-    setViewModalOpen(true);
-  };
+      if (deactivateError) throw deactivateError;
 
-  const handleCompare = (prompt: any) => {
-    // Get the previous version of the same type
-    const sameTypePrompts = historyPrompts?.filter(
-      (p) => p.prompt_type === prompt.prompt_type && p.id !== prompt.id
-    );
-    if (sameTypePrompts && sameTypePrompts.length > 0) {
-      setComparePrompts({
-        prompt1: prompt,
-        prompt2: sameTypePrompts[0],
-      });
-      setCompareModalOpen(true);
-    } else {
-      toast.info("No other versions available for comparison");
-    }
-  };
+      // Activate selected prompt
+      const { error: activateError } = await supabase
+        .from("prompt_versions")
+        .update({ is_active: true })
+        .eq("id", promptId);
 
-  const handleCopyToTestDraft = async (prompt: any) => {
-    try {
-      const { error } = await supabase.from("prompt_versions").insert({
-        version_name: `${prompt.version_name} COPY`,
-        content: prompt.content,
-        prompt_type: prompt.prompt_type,
-        is_active: false,
-        is_test_draft: true,
-        update_notes: `Copied from ${prompt.version_name}`,
-        based_on_version_id: prompt.id,
-        test_status: "not_tested",
-        author: "User",
-      });
-
-      if (error) throw error;
+      if (activateError) throw activateError;
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prompts"] });
-      toast.success("Test draft created successfully");
-      setActiveTab("test");
-    } catch (error) {
-      console.error("Error creating test draft:", error);
-      toast.error("Failed to create test draft");
-    }
-  };
-
-  const retrievalPrompt = activePrompts?.find((p) => p.prompt_type === "retrieval");
-  const journalismPrompt = activePrompts?.find((p) => p.prompt_type === "journalism");
+      toast.success("Prompt activated successfully");
+    },
+    onError: () => {
+      toast.error("Failed to activate prompt");
+    },
+  });
 
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Prompts</h1>
+        <div>
+          <h1 className="text-3xl font-bold mb-2">Prompts</h1>
+          <p className="text-muted-foreground">Manage your AI prompt versions</p>
+        </div>
+        <Button onClick={handleCreateNew} size="lg">
+          <Plus className="mr-2 h-5 w-5" />
+          Add Prompt
+        </Button>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-6">
-          <TabsTrigger value="active">Active Prompts</TabsTrigger>
-          <TabsTrigger value="test">Test Prompts</TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="active" className="space-y-6">
-          {activeLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <CardSkeleton />
-              <CardSkeleton />
-            </div>
-          ) : activeError ? (
-            <ErrorState
-              message="Failed to load active prompts. Please try again."
-              onRetry={() => refetchActive()}
-            />
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {retrievalPrompt && (
-                <PromptCard
-                  versionName={retrievalPrompt.version_name}
-                  updatedAt={retrievalPrompt.updated_at}
-                  isActive={retrievalPrompt.is_active}
-                  onEdit={() => handleEdit(retrievalPrompt)}
-                  onViewHistory={() => handleViewHistory("retrieval")}
-                  onCreateTestDraft={() => handleCreateTestDraft(retrievalPrompt)}
-                />
-              )}
-              {journalismPrompt && (
-                <PromptCard
-                  versionName={journalismPrompt.version_name}
-                  updatedAt={journalismPrompt.updated_at}
-                  isActive={journalismPrompt.is_active}
-                  onEdit={() => handleEdit(journalismPrompt)}
-                  onViewHistory={() => handleViewHistory("journalism")}
-                  onCreateTestDraft={() => handleCreateTestDraft(journalismPrompt)}
-                />
-              )}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="test" className="space-y-4">
-          {testLoading ? (
-            <div className="space-y-4">
-              <CardSkeleton />
-              <CardSkeleton />
-            </div>
-          ) : testError ? (
-            <ErrorState
-              message="Failed to load test drafts. Please try again."
-              onRetry={() => refetchTest()}
-            />
-          ) : testDrafts && testDrafts.length > 0 ? (
-            testDrafts.map((draft) => (
-              <TestPromptCard
-                key={draft.id}
-                id={draft.id}
-                versionName={draft.version_name}
-                basedOnVersionName={
-                  historyPrompts?.find((p) => p.id === draft.based_on_version_id)?.version_name
-                }
-                testStatus={draft.test_status || "not_tested"}
-                testResults={draft.test_results as { story_count?: number; date?: string } | undefined}
-                updateNotes={draft.update_notes}
-                onEdit={() => handleEdit(draft)}
-                onViewResults={() => toast.info("View results functionality coming soon")}
-                onActivate={() => handleActivate(draft)}
-                onDelete={() => handleDelete(draft.id)}
-              />
-            ))
-          ) : (
-            <EmptyState
-              icon={FileText}
-              title="No test drafts yet"
-              description="Create a test draft from the Active Prompts tab to start testing new prompt versions."
-            />
-          )}
-        </TabsContent>
-
-        <TabsContent value="history" className="space-y-4">
-          {historyLoading ? (
-            <div className="space-y-4">
-              <CardSkeleton />
-              <CardSkeleton />
-            </div>
-          ) : historyError ? (
-            <ErrorState
-              message="Failed to load prompt history. Please try again."
-              onRetry={() => refetchHistory()}
-            />
-          ) : historyPrompts && historyPrompts.length > 0 ? (
-            historyPrompts.map((prompt) => (
-              <HistoryPromptCard
-                key={prompt.id}
-                id={prompt.id}
-                versionName={prompt.version_name}
-                createdAt={prompt.created_at}
-                author={prompt.author || "System"}
-                updateNotes={prompt.update_notes}
-                isActive={prompt.is_active}
-                onView={() => handleView(prompt)}
-                onCompare={() => handleCompare(prompt)}
-                onCopyToTestDraft={() => handleCopyToTestDraft(prompt)}
-              />
-            ))
-          ) : (
-            <EmptyState
-              icon={FileText}
-              title="No prompt history yet"
-              description="Prompt versions will appear here as you create and activate them."
-            />
-          )}
-        </TabsContent>
-      </Tabs>
-
-      {/* Edit Modal */}
-      {selectedPrompt && (
-        <EditPromptModal
-          open={editModalOpen}
-          onOpenChange={setEditModalOpen}
-          promptId={selectedPrompt.id}
-          promptType={selectedPrompt.prompt_type}
-          currentContent={selectedPrompt.content}
-          currentVersionName={selectedPrompt.version_name}
-          isTestDraft={selectedPrompt.is_test_draft}
-          onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ["prompts"] });
-          }}
-        />
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i} className="animate-pulse">
+              <CardHeader>
+                <div className="h-6 bg-muted rounded w-3/4 mb-2" />
+                <div className="h-4 bg-muted rounded w-1/2" />
+              </CardHeader>
+              <CardContent>
+                <div className="h-20 bg-muted rounded" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : error ? (
+        <Card className="p-8">
+          <div className="text-center">
+            <p className="text-destructive mb-4">Failed to load prompts</p>
+            <Button onClick={() => refetch()}>Try Again</Button>
+          </div>
+        </Card>
+      ) : !prompts || prompts.length === 0 ? (
+        <Card className="p-12">
+          <div className="text-center">
+            <h3 className="text-xl font-semibold mb-2">No prompts yet</h3>
+            <p className="text-muted-foreground mb-4">
+              Create your first prompt to get started
+            </p>
+            <Button onClick={handleCreateNew}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Prompt
+            </Button>
+          </div>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {prompts.map((prompt) => (
+            <Card
+              key={prompt.id}
+              className={`relative transition-all ${
+                prompt.is_active
+                  ? "border-primary shadow-lg ring-2 ring-primary/20"
+                  : "hover:border-primary/50"
+              }`}
+            >
+              <CardHeader>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <CardTitle className="text-lg mb-2 flex items-center gap-2">
+                      {prompt.version_name}
+                      {prompt.is_active && (
+                        <Badge variant="default" className="ml-2">
+                          <CheckCircle className="mr-1 h-3 w-3" />
+                          Active
+                        </Badge>
+                      )}
+                    </CardTitle>
+                    <CardDescription className="text-xs space-y-1">
+                      <div>Type: {prompt.prompt_type}</div>
+                      <div>Updated: {format(new Date(prompt.updated_at), "MMM d, yyyy")}</div>
+                      {prompt.author && <div>By: {prompt.author}</div>}
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-sm text-muted-foreground line-clamp-3">
+                  {prompt.content.substring(0, 150)}...
+                </div>
+                {prompt.update_notes && (
+                  <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
+                    <strong>Notes:</strong> {prompt.update_notes}
+                  </div>
+                )}
+              </CardContent>
+              <CardFooter className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleEdit(prompt)}
+                  className="flex-1"
+                >
+                  <Edit className="mr-1 h-3 w-3" />
+                  Edit
+                </Button>
+                {!prompt.is_active && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => makeActiveMutation.mutate(prompt.id)}
+                    disabled={makeActiveMutation.isPending}
+                    className="flex-1"
+                  >
+                    <CheckCircle className="mr-1 h-3 w-3" />
+                    Activate
+                  </Button>
+                )}
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => handleDelete(prompt.id)}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
       )}
 
-      {/* Activate Modal */}
-      {selectedPrompt && (
-        <ActivatePromptModal
-          open={activateModalOpen}
-          onOpenChange={setActivateModalOpen}
-          promptId={selectedPrompt.id}
-          promptType={selectedPrompt.prompt_type}
-          versionName={selectedPrompt.version_name}
-          onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ["prompts"] });
-          }}
-        />
-      )}
-
-      {/* Compare Modal */}
-      {comparePrompts && (
-        <ComparePromptsModal
-          open={compareModalOpen}
-          onOpenChange={setCompareModalOpen}
-          prompt1={comparePrompts.prompt1}
-          prompt2={comparePrompts.prompt2}
-        />
-      )}
-
-      {/* View Modal */}
-      {selectedPrompt && (
-        <Dialog open={viewModalOpen} onOpenChange={setViewModalOpen}>
-          <DialogContent className="max-w-3xl max-h-[80vh]">
-            <DialogHeader>
-              <DialogTitle>{selectedPrompt.version_name}</DialogTitle>
-            </DialogHeader>
-            <ScrollArea className="h-[60vh]">
-              <pre className="text-sm whitespace-pre-wrap font-mono p-4">
-                {selectedPrompt.content}
-              </pre>
-            </ScrollArea>
-          </DialogContent>
-        </Dialog>
-      )}
+      {/* Edit/Create Modal */}
+      <EditPromptModal
+        open={editModalOpen}
+        onOpenChange={setEditModalOpen}
+        promptId={selectedPrompt?.id}
+        promptType={selectedPrompt?.prompt_type || "journalism"}
+        currentContent={selectedPrompt?.content || ""}
+        currentVersionName={selectedPrompt?.version_name || ""}
+        isTestDraft={false}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ["prompts"] });
+          setEditModalOpen(false);
+        }}
+      />
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog

@@ -4,16 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
 interface EditPromptModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  promptId: string;
-  promptType: string;
-  currentContent: string;
-  currentVersionName: string;
+  promptId?: string | null;
+  promptType?: string;
+  currentContent?: string;
+  currentVersionName?: string;
   isTestDraft?: boolean;
   onSuccess: () => void;
 }
@@ -22,26 +23,54 @@ export const EditPromptModal = ({
   open,
   onOpenChange,
   promptId,
-  promptType,
-  currentContent,
-  currentVersionName,
+  promptType = "journalism",
+  currentContent = "",
+  currentVersionName = "",
   isTestDraft = false,
   onSuccess,
 }: EditPromptModalProps) => {
   const [content, setContent] = useState(currentContent);
   const [updateNotes, setUpdateNotes] = useState("");
   const [versionName, setVersionName] = useState(currentVersionName);
+  const [selectedType, setSelectedType] = useState(promptType);
   const [isSaving, setIsSaving] = useState(false);
 
+  const isCreating = !promptId;
+
   const handleSave = async () => {
-    if (!updateNotes.trim()) {
+    if (!versionName.trim()) {
+      toast.error("Version name is required");
+      return;
+    }
+
+    if (!content.trim()) {
+      toast.error("Prompt content is required");
+      return;
+    }
+
+    if (!isCreating && !updateNotes.trim()) {
       toast.error("Update notes are required");
       return;
     }
 
     setIsSaving(true);
     try {
-      if (isTestDraft) {
+      if (isCreating) {
+        // Create brand new prompt
+        const { error } = await supabase.from("prompt_versions").insert({
+          version_name: versionName,
+          content,
+          prompt_type: selectedType,
+          is_active: false,
+          is_test_draft: false,
+          update_notes: updateNotes || "Initial version",
+          test_status: "not_tested",
+          author: "User",
+        });
+
+        if (error) throw error;
+        toast.success("Prompt created successfully");
+      } else if (isTestDraft) {
         // Update existing test draft
         const { error } = await supabase
           .from("prompt_versions")
@@ -56,11 +85,11 @@ export const EditPromptModal = ({
         if (error) throw error;
         toast.success("Test draft updated successfully");
       } else {
-        // Create new version
+        // Create new version based on existing
         const { error } = await supabase.from("prompt_versions").insert({
           version_name: versionName,
           content,
-          prompt_type: promptType,
+          prompt_type: selectedType,
           is_active: false,
           is_test_draft: true,
           update_notes: updateNotes,
@@ -88,43 +117,66 @@ export const EditPromptModal = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isTestDraft ? "Edit Test Draft" : "Create New Version"}</DialogTitle>
+          <DialogTitle>
+            {isCreating ? "Create New Prompt" : isTestDraft ? "Edit Prompt" : "Create New Version"}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label htmlFor="versionName">Version Name</Label>
+            <Label htmlFor="versionName">Version Name *</Label>
             <Input
               id="versionName"
               value={versionName}
               onChange={(e) => setVersionName(e.target.value)}
-              placeholder="e.g., Journalism v2.1 DRAFT"
+              placeholder="e.g., Journalism v1.0"
             />
           </div>
+          
+          {isCreating && (
+            <div>
+              <Label htmlFor="promptType">Prompt Type *</Label>
+              <Select value={selectedType} onValueChange={setSelectedType}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="journalism">Journalism</SelectItem>
+                  <SelectItem value="retrieval">Retrieval</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          
           <div>
-            <Label htmlFor="content">Prompt Content</Label>
+            <Label htmlFor="content">Prompt Content *</Label>
             <Textarea
               id="content"
               value={content}
               onChange={(e) => setContent(e.target.value)}
               className="min-h-[300px] font-mono text-sm"
+              placeholder="Enter your prompt content here..."
             />
           </div>
+          
           <div>
-            <Label htmlFor="updateNotes">Update Notes *</Label>
+            <Label htmlFor="updateNotes">
+              Update Notes {!isCreating && "*"}
+            </Label>
             <Textarea
               id="updateNotes"
               value={updateNotes}
               onChange={(e) => setUpdateNotes(e.target.value)}
-              placeholder="Describe what changed in this version..."
+              placeholder={isCreating ? "Optional notes about this prompt..." : "Describe what changed in this version..."}
               className="min-h-[100px]"
             />
           </div>
+          
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={isSaving}>
-              {isSaving ? "Saving..." : isTestDraft ? "Update Draft" : "Save as New Version"}
+              {isSaving ? "Saving..." : isCreating ? "Create Prompt" : "Save Changes"}
             </Button>
           </div>
         </div>
