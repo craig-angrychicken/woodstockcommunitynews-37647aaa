@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.scheduled-run-journalism]
 verify_jwt = false
+
+[functions.fetch-openrouter-models]
+verify_jwt = false

@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
+    const openRouterApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -140,26 +140,37 @@ ${artifactSummaries}
 Generate a compelling news story that synthesizes the above artifacts.`;
 
       try {
-        // Call Lovable AI API
-        const aiResponse = await fetch(
-          "https://ai.gateway.lovable.dev/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${lovableApiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "google/gemini-2.5-flash",
-              messages: [
-                {
-                  role: "user",
-                  content: fullPrompt,
-                },
-              ],
+        // Determine API endpoint and key based on provider
+        const apiUrl = promptVersion.model_provider === "openrouter" 
+          ? "https://openrouter.ai/api/v1/chat/completions"
+          : "https://ai.gateway.lovable.dev/v1/chat/completions";
+        
+        const apiKey = openRouterApiKey;
+        const model = promptVersion.model_name || "google/gemini-2.0-flash-exp:free";
+
+        console.log(`Using ${promptVersion.model_provider} with model: ${model}`);
+
+        // Call AI API
+        const aiResponse = await fetch(apiUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            ...(promptVersion.model_provider === "openrouter" && {
+              "HTTP-Referer": supabaseUrl,
+              "X-Title": "Woodstock Wire AI Journalist",
             }),
-          }
-        );
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [
+              {
+                role: "user",
+                content: fullPrompt,
+              },
+            ],
+          }),
+        });
 
         if (!aiResponse.ok) {
           const errorText = await aiResponse.text();

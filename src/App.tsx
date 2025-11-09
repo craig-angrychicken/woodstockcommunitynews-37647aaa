@@ -11,6 +11,7 @@ import AIJournalist from "./pages/AIJournalist";
 import Artifacts from "./pages/Artifacts";
 import Prompts from "./pages/Prompts";
 import Sources from "./pages/Sources";
+import Models from "./pages/Models";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ const App = () => (
             <Route path="/artifacts" element={<Artifacts />} />
             <Route path="/prompts" element={<Prompts />} />
             <Route path="/sources" element={<Sources />} />
+            <Route path="/models" element={<Models />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
