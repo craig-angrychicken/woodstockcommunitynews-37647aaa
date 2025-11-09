@@ -106,33 +106,49 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Helper functions
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    
+    const callAIWithRetry = async (
+      apiUrl: string,
+      headers: HeadersInit,
+      body: any,
+      maxRetries = 3
+    ) => {
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+        
+        if (response.status === 429) {
+          const waitTime = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+          console.log(`Rate limited, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
+          await sleep(waitTime);
+          continue;
+        }
+        
+        return response;
+      }
+      throw new Error("Max retries exceeded for rate limiting");
+    };
+
     // Start background processing
     const processStories = async () => {
       try {
         console.log(`Processing ${artifacts.length} artifacts (one story per artifact)`);
 
-        // Generate one story per artifact
         let storiesCreated = 0;
+        const failures: Array<{
+          artifact_id: string;
+          artifact_title: string;
+          error: string;
+        }> = [];
 
         for (let i = 0; i < artifacts.length; i++) {
           const artifact = artifacts[i];
           console.log(`Processing artifact ${i + 1}/${artifacts.length}: ${artifact.title || artifact.name}`);
-
-          // Prepare the prompt with single artifact data
-          const artifactData = `
-Title: ${artifact.title || artifact.name}
-Date: ${artifact.date}
-Source: ${artifact.source_id}
-Content: ${artifact.content || "No content"}
-${artifact.image_url ? `Image: ${artifact.image_url}` : ""}
-`;
-
-          const fullPrompt = `${promptVersion.content}
-
-## Artifact:
-${artifactData}
-
-Generate a compelling news story based on this artifact.`;
 
           try {
             // Determine API endpoint and key based on provider
@@ -143,35 +159,76 @@ Generate a compelling news story based on this artifact.`;
             const apiKey = openRouterApiKey;
             const model = promptVersion.model_name || "google/gemini-2.0-flash-exp:free";
 
-            console.log(`Using ${promptVersion.model_provider} with model: ${model}`);
+            // Try with full content first
+            let contentToUse = artifact.content || "No content";
+            let attemptNumber = 1;
 
-            // Call AI API
-            const aiResponse = await fetch(apiUrl, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-                ...(promptVersion.model_provider === "openrouter" && {
-                  "HTTP-Referer": supabaseUrl,
-                  "X-Title": "Woodstock Wire AI Journalist",
-                }),
-              },
-              body: JSON.stringify({
-                model: model,
-                messages: [
-                  {
-                    role: "user",
-                    content: fullPrompt,
-                  },
-                ],
-                max_tokens: 5000,
-                temperature: 0.7,
-              }),
-            });
+            const makeAPICall = async (content: string): Promise<Response> => {
+              const artifactData = `
+Title: ${artifact.title || artifact.name}
+Date: ${artifact.date}
+Source: ${artifact.source_id}
+Content: ${content}
+${artifact.image_url ? `Image: ${artifact.image_url}` : ""}
+`;
+
+              const fullPrompt = `${promptVersion.content}
+
+## Artifact:
+${artifactData}`;
+
+              return await callAIWithRetry(
+                apiUrl,
+                {
+                  Authorization: `Bearer ${apiKey}`,
+                  "Content-Type": "application/json",
+                  ...(promptVersion.model_provider === "openrouter" && {
+                    "HTTP-Referer": supabaseUrl,
+                    "X-Title": "Woodstock Wire AI Journalist",
+                  }),
+                },
+                {
+                  model: model,
+                  messages: [
+                    {
+                      role: "user",
+                      content: fullPrompt,
+                    },
+                  ],
+                  max_tokens: 5000,
+                  temperature: 0.6,
+                }
+              );
+            };
+
+            let aiResponse = await makeAPICall(contentToUse);
+
+            // Handle token limit errors by retrying with truncated content
+            if (!aiResponse.ok) {
+              const errorText = await aiResponse.text();
+              
+              if (
+                (aiResponse.status === 413 || 
+                 aiResponse.status === 400 || 
+                 errorText.includes("context_length_exceeded") ||
+                 errorText.includes("too long")) &&
+                contentToUse.length > 20000
+              ) {
+                console.log(`Token limit hit for artifact ${artifact.id}, retrying with truncated content (20k chars)`);
+                contentToUse = contentToUse.substring(0, 20000) + "\n\n[Content truncated due to length...]";
+                attemptNumber = 2;
+                aiResponse = await makeAPICall(contentToUse);
+              }
+            }
 
             if (!aiResponse.ok) {
               const errorText = await aiResponse.text();
-              console.error("AI API error:", aiResponse.status, errorText);
+              console.error(`✗ AI API error for artifact ${artifact.id}:`, aiResponse.status, errorText);
+              failures.push({
+                artifact_id: artifact.id,
+                artifact_title: artifact.title || artifact.name,
+                error: `API error ${aiResponse.status}: ${errorText}`,
+              });
               continue;
             }
 
@@ -204,7 +261,12 @@ Generate a compelling news story based on this artifact.`;
               .single();
 
             if (storyError || !newStory) {
-              console.error("Failed to insert story:", storyError);
+              console.error(`✗ Failed to insert story for artifact ${artifact.id}:`, storyError);
+              failures.push({
+                artifact_id: artifact.id,
+                artifact_title: artifact.title || artifact.name,
+                error: `Database error: ${storyError?.message || "Unknown error"}`,
+              });
               continue;
             }
 
@@ -215,20 +277,47 @@ Generate a compelling news story based on this artifact.`;
             });
 
             storiesCreated++;
-            console.log(`Story created: ${title}`);
+            console.log(`✓ Story ${storiesCreated}/${artifacts.length} created: ${title}`);
+
+            // Add delay between requests to avoid rate limiting
+            if (i < artifacts.length - 1) {
+              await sleep(2000); // 2 second delay
+            }
           } catch (error) {
-            console.error("Error generating story:", error);
+            const errorMsg = error instanceof Error ? error.message : "Unknown error";
+            console.error(`✗ Error generating story for artifact ${artifact.id}:`, errorMsg);
+            failures.push({
+              artifact_id: artifact.id,
+              artifact_title: artifact.title || artifact.name,
+              error: errorMsg,
+            });
             continue;
           }
         }
 
-        // Update history record
+        // Log summary
+        console.log(`\n=== Processing Summary ===`);
+        console.log(`Total artifacts: ${artifacts.length}`);
+        console.log(`Stories created: ${storiesCreated}`);
+        console.log(`Failures: ${failures.length}`);
+
+        if (failures.length > 0) {
+          console.log("\nFailed artifacts:");
+          failures.forEach(f => {
+            console.log(`- ${f.artifact_title} (${f.artifact_id}): ${f.error}`);
+          });
+        }
+
+        // Update history record with detailed status
         await supabase
           .from("query_history")
           .update({
-            status: "completed",
+            status: storiesCreated === 0 ? "failed" : "completed",
             stories_count: storiesCreated,
             completed_at: new Date().toISOString(),
+            error_message: failures.length > 0 
+              ? `${storiesCreated} succeeded, ${failures.length} failed. Check logs for details.`
+              : null,
           })
           .eq("id", historyId);
 
