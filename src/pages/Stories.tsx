@@ -192,6 +192,29 @@ const Stories = () => {
         description: "Please wait..."
       });
       
+      // Fetch artifact date(s) for this story
+      const { data: storyArtifacts, error: artifactsError } = await supabase
+        .from('story_artifacts')
+        .select('artifact_id')
+        .eq('story_id', storyToPublish.id);
+      
+      if (artifactsError) throw artifactsError;
+      
+      let artifactDate = null;
+      if (storyArtifacts && storyArtifacts.length > 0) {
+        const artifactIds = storyArtifacts.map(sa => sa.artifact_id);
+        const { data: artifacts, error: dateError } = await supabase
+          .from('artifacts')
+          .select('date')
+          .in('id', artifactIds)
+          .order('date', { ascending: false })
+          .limit(1);
+        
+        if (!dateError && artifacts && artifacts.length > 0) {
+          artifactDate = artifacts[0].date;
+        }
+      }
+      
       const result = await publishToGhost(
         storyToPublish.content,
         storyToPublish.title,
@@ -199,7 +222,8 @@ const Stories = () => {
           status: 'published',
           tags: [],
           featured: false,
-          ghostUrl: storyToPublish.ghost_url || undefined // Pass existing URL for updates
+          ghostUrl: storyToPublish.ghost_url || undefined,
+          publishedAt: artifactDate || storyToPublish.created_at
         }
       );
       

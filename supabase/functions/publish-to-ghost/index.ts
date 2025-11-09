@@ -80,7 +80,7 @@ serve(async (req) => {
   }
 
   try {
-    const { title, content, status, tags, featured, excerpt, ghostUrl } = await req.json();
+    const { title, content, status, tags, featured, excerpt, ghostUrl, publishedAt } = await req.json();
 
     console.log('📝 Publishing to Ghost:', { title, status: status || 'draft', isUpdate: !!ghostUrl });
 
@@ -191,6 +191,7 @@ serve(async (req) => {
         tags: tags || [],
         featured: featured || false,
         custom_excerpt: excerpt || subhead || null,
+        published_at: publishedAt,
         // Include updated_at for PUT requests (required by Ghost API)
         ...(method === 'PUT' && updatedAt ? { updated_at: updatedAt } : {})
       }]

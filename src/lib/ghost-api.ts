@@ -25,7 +25,8 @@ export async function publishToGhost(
     tags?: string[];
     featured?: boolean;
     excerpt?: string;
-    ghostUrl?: string; // Optional: URL of existing Ghost post to update
+    ghostUrl?: string;
+    publishedAt?: string;
   }
 ): Promise<{ success: boolean; postId?: string; url?: string }> {
   try {
@@ -39,7 +40,8 @@ export async function publishToGhost(
         tags: options?.tags,
         featured: options?.featured || false,
         excerpt: options?.excerpt,
-        ghostUrl: options?.ghostUrl, // Pass existing URL for updates
+        ghostUrl: options?.ghostUrl,
+        publishedAt: options?.publishedAt,
       },
     });
 
