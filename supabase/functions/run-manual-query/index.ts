@@ -509,10 +509,9 @@ function parseEvents(html: string, sourceUrl: string) {
 
 // Helper to parse various date formats and check if within range
 function isDateInRange(dateStr: string, dateFrom: string, dateTo: string): boolean {
-  // If no date provided, include the article (treat as current/undated)
+  // If no date provided, EXCLUDE the article (strict filtering)
   if (!dateStr) {
-    console.log(`  ℹ️ Article has no date, including in results`);
-    return true;
+    return false;
   }
   
   try {
@@ -523,14 +522,15 @@ function isDateInRange(dateStr: string, dateFrom: string, dateTo: string): boole
     
     // Check if valid date and within range
     if (isNaN(articleDate.getTime())) {
-      console.log(`  ⚠️ Invalid date format: ${dateStr}, including anyway`);
-      return true;
+      console.log(`  ⚠️ Invalid date format: ${dateStr}, EXCLUDING`);
+      return false;
     }
     
-    return articleDate >= fromDate && articleDate <= toDate;
+    const inRange = articleDate >= fromDate && articleDate <= toDate;
+    return inRange;
   } catch {
-    console.log(`  ⚠️ Error parsing date: ${dateStr}, including anyway`);
-    return true; // Include on error
+    console.log(`  ⚠️ Error parsing date: ${dateStr}, EXCLUDING`);
+    return false; // Exclude on error
   }
 }
 
@@ -612,7 +612,7 @@ function parseWithConfig(html: string, sourceUrl: string, config: any) {
 }
 
 // Main function to fetch and parse content from a source
-async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string, supabase: any) {
+async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string, maxArticles: number | null, supabase: any) {
   try {
     console.log(`\n🔍 Fetching content from: ${source.url}`);
     const response = await fetch(source.url, {
@@ -670,17 +670,43 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
 
     console.log(`📋 Found ${parsedArticles.length} articles from ${source.name}`);
     
+    // ⚡ CRITICAL: Filter by date IMMEDIATELY, BEFORE expensive operations
+    console.log(`🔍 Filtering articles by date range (${dateFrom} to ${dateTo})...`);
+    const dateFilteredArticles = parsedArticles.filter(article => {
+      if (!article.date) {
+        console.log(`  ⏭️  Skipping "${article.title.substring(0, 40)}..." - no date found`);
+        return false;
+      }
+      
+      const inRange = isDateInRange(article.date, dateFrom, dateTo);
+      if (!inRange) {
+        console.log(`  ⏭️  Skipping "${article.title.substring(0, 40)}..." - outside date range (${article.date})`);
+      }
+      return inRange;
+    });
+    
+    console.log(`✅ After date filter: ${dateFilteredArticles.length} articles (from ${parsedArticles.length} total)`);
+    
+    // Apply article limit if specified
+    let articlesToProcess = dateFilteredArticles;
+    if (maxArticles && maxArticles > 0 && dateFilteredArticles.length > maxArticles) {
+      articlesToProcess = dateFilteredArticles.slice(0, maxArticles);
+      console.log(`📊 Limited to first ${maxArticles} articles for testing`);
+    }
+    
+    console.log(`🚀 Processing ${articlesToProcess.length} articles...`);
+    
     // Process each article's content
     const fullArticles = [];
-    for (let i = 0; i < parsedArticles.length; i++) {
-      const article = parsedArticles[i];
+    for (let i = 0; i < articlesToProcess.length; i++) {
+      const article = articlesToProcess[i];
       
       // Apply human delay between processing
       if (i > 0) {
         await randomDelay(500, 500);
       }
       
-      console.log(`\n📰 Processing article ${i + 1}/${parsedArticles.length}: ${article.title}`);
+      console.log(`\n📰 Processing article ${i + 1}/${articlesToProcess.length}: ${article.title}`);
       
       let content = '';
       let images: string[] = [];
@@ -784,7 +810,8 @@ serve(async (req) => {
       environment,
       promptVersionId,
       runStages,
-      historyId
+      historyId,
+      maxArticles = null
     } = await req.json();
 
     console.log('Starting manual query run:', {
@@ -793,7 +820,8 @@ serve(async (req) => {
       sourceIds,
       environment,
       promptVersionId,
-      runStages
+      runStages,
+      maxArticles
     });
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -819,24 +847,17 @@ serve(async (req) => {
 
     // Fetch and parse real content from sources
     for (const source of sources) {
-      const articles = await fetchAndParseSource(source, dateFrom, dateTo, supabase);
+      const articles = await fetchAndParseSource(source, dateFrom, dateTo, maxArticles, supabase);
       
-      console.log(`Total articles found: ${articles.length} from ${source.name}`);
+      console.log(`Total articles processed: ${articles.length} from ${source.name}`);
       
-      // Filter articles by date range
-      const filteredArticles = articles.filter(article => 
-        isDateInRange(article.date, dateFrom, dateTo)
-      );
-      
-      console.log(`After date filter: ${filteredArticles.length} articles from ${source.name}`);
-      
-      if (filteredArticles.length === 0) {
+      if (articles.length === 0) {
         console.log(`No articles in date range for ${source.name}`);
         continue;
       }
 
-      // Create artifacts from filtered articles
-      const artifactsToInsert = filteredArticles.map(article => ({
+      // Create artifacts from articles (already filtered)
+      const artifactsToInsert = articles.map(article => ({
         guid: article.artifactGuid,
         name: article.artifactName,
         title: article.title,

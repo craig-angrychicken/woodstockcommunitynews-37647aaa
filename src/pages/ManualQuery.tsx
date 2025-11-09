@@ -33,6 +33,7 @@ const ManualQuery = () => {
   const [promptMode, setPromptMode] = useState<"active" | "select">("active");
   const [selectedPromptVersion, setSelectedPromptVersion] = useState<string>("");
   const [runStages, setRunStages] = useState<"stage1" | "both">("both");
+  const [maxArticles, setMaxArticles] = useState<number | null>(20);
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
 
@@ -134,7 +135,8 @@ const ManualQuery = () => {
           environment,
           promptVersionId,
           runStages,
-          historyId: historyRecord.id
+          historyId: historyRecord.id,
+          maxArticles
         }
       });
 
@@ -423,22 +425,46 @@ const ManualQuery = () => {
               <CardDescription>Choose what stages to execute</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <RadioGroup value={runStages} onValueChange={(v: any) => setRunStages(v)}>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="stage1" id="stage1-only" />
-                  <Label htmlFor="stage1-only" className="cursor-pointer">
-                    Stage 1 Only (Fetch Sources)
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="both" id="both-stages" />
-                  <Label htmlFor="both-stages" className="cursor-pointer">
-                    Both Stages (Fetch + Generate Stories)
-                  </Label>
-                </div>
-              </RadioGroup>
+              <div className="space-y-2">
+                <Label>Article Limit (for testing)</Label>
+                <Select 
+                  value={maxArticles?.toString() || "all"} 
+                  onValueChange={(v) => setMaxArticles(v === "all" ? null : parseInt(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">First 10 articles</SelectItem>
+                    <SelectItem value="20">First 20 articles (recommended)</SelectItem>
+                    <SelectItem value="50">First 50 articles</SelectItem>
+                    <SelectItem value="all">All articles</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Only articles within the selected date range will be processed
+                </p>
+              </div>
 
-              <div className="space-y-2 text-sm text-muted-foreground">
+              <div className="space-y-2 pt-4 border-t">
+                <Label>Execution Stages</Label>
+                <RadioGroup value={runStages} onValueChange={(v: any) => setRunStages(v)}>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="stage1" id="stage1-only" />
+                    <Label htmlFor="stage1-only" className="cursor-pointer">
+                      Stage 1 Only (Fetch Sources)
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="both" id="both-stages" />
+                    <Label htmlFor="both-stages" className="cursor-pointer">
+                      Both Stages (Fetch + Generate Stories)
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              <div className="space-y-2 text-sm text-muted-foreground pt-2">
                 <p><strong>Stage 1:</strong> Fetches data from selected sources and saves as artifacts</p>
                 <p><strong>Stage 2:</strong> Uses AI to generate news articles from artifacts</p>
               </div>
