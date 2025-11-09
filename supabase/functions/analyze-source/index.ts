@@ -141,6 +141,32 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
           }
         }
       }
+      
+      // Fallback: If no titles found, look for links with substantial text (common in simple sites)
+      if (titleCandidates.length === 0) {
+        const linkCandidates = element.querySelectorAll('a[href]');
+        for (const linkEl of linkCandidates) {
+          const el = linkEl as Element;
+          const text = el.textContent?.trim() || '';
+          const href = el.getAttribute('href') || '';
+          
+          // Check if link text looks like a title
+          const isSubstantialText = text.length >= 15 && text.length <= 200;
+          const startsWithCapital = /^[A-Z]/.test(text);
+          const notNavigationText = !/^(read more|click here|view|more|next|previous|home|back)$/i.test(text);
+          const hasActualHref = href && !href.startsWith('#') && href !== 'javascript:void(0)';
+          
+          if (isSubstantialText && startsWithCapital && notNavigationText && hasActualHref) {
+            const classes = el.getAttribute('class');
+            if (classes) {
+              titleSelectors.push(`.${classes.split(' ')[0]}`);
+            } else {
+              titleSelectors.push('a');
+            }
+            console.log(`  🔗 Found title in link text: "${text.substring(0, 50)}..."`);
+          }
+        }
+      }
 
       // Find date-like elements
       const dateCandidates = element.querySelectorAll('time, [class*="date"], [class*="time"], [datetime]');
@@ -151,6 +177,26 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
           dateSelectors.push(`.${classes.split(' ')[0]}`);
         } else if (el.tagName.toLowerCase() === 'time') {
           dateSelectors.push('time');
+        }
+      }
+      
+      // Fallback: Look for date patterns in text content of all child elements
+      if (dateCandidates.length === 0) {
+        const allTextElements = element.querySelectorAll('*');
+        for (const textEl of allTextElements) {
+          const el = textEl as Element;
+          const text = el.textContent?.trim() || '';
+          
+          // Match common date patterns
+          const datePattern = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|posted|published|updated/i;
+          if (datePattern.test(text) && text.length < 100) {
+            const classes = el.getAttribute('class');
+            if (classes) {
+              dateSelectors.push(`.${classes.split(' ')[0]}`);
+              console.log(`  📅 Found date pattern in: .${classes.split(' ')[0]}`);
+              break; // Only need one
+            }
+          }
         }
       }
 
@@ -168,12 +214,32 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
       }
 
       // Extract sample data
-      const titleEl = element.querySelector('h1, h2, h3, h4, [class*="title"]');
+      let titleEl = element.querySelector('h1, h2, h3, h4, [class*="title"]') as Element | null;
+      
+      // Fallback: Use link text as title if no heading found
+      if (!titleEl) {
+        const links = element.querySelectorAll('a[href]');
+        for (const link of links) {
+          const linkText = (link as Element).textContent?.trim() || '';
+          const href = (link as Element).getAttribute('href') || '';
+          
+          // Use link as title if it has substantial text
+          const isValidTitle = linkText.length >= 15 && linkText.length <= 200;
+          const hasActualHref = href && !href.startsWith('#');
+          const notNavText = !/^(read more|click here|view|more)$/i.test(linkText);
+          
+          if (isValidTitle && hasActualHref && notNavText) {
+            titleEl = link as Element;
+            break;
+          }
+        }
+      }
+      
       const dateEl = element.querySelector('time, [class*="date"]');
       
       if (titleEl) {
         sampleArticles.push({
-          title: (titleEl as Element).textContent?.trim() || '',
+          title: titleEl.textContent?.trim() || '',
           date: dateEl ? (dateEl as Element).textContent?.trim() : '',
           excerpt: element.textContent?.trim().substring(0, 150) || '',
         });
@@ -191,8 +257,12 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
 
     let confidence = 0;
     
-    // Core indicators
-    if (hasTitle) confidence += 40;
+    // Core indicators - check if titles came from fallback (link text)
+    const titlesFromFallback = titleSelectors.some(sel => sel === 'a' || sel.includes('menuA'));
+    if (hasTitle) {
+      confidence += titlesFromFallback ? 30 : 40; // Slightly lower confidence for fallback titles
+      if (titlesFromFallback) console.log(`  🔗 Using link text as titles (fallback)`);
+    }
     if (hasDate) confidence += 30;
     
     // Count-based scoring
