@@ -198,8 +198,16 @@ serve(async (req) => {
 
     console.log('🔑 Making request to Ghost API');
 
-    // Add source=html parameter for POST requests to tell Ghost we're sending HTML
-    const urlWithSource = method === 'POST' ? `${endpoint}?source=html` : endpoint;
+    // Log HTML content details
+    console.log('📦 HTML Content being sent:', {
+      htmlLength: htmlContent.length,
+      preview: htmlContent.substring(0, 300),
+      paragraphCount: (htmlContent.match(/<p>/g) || []).length,
+    });
+    console.log('📤 Post data payload (truncated):', JSON.stringify(postData).slice(0, 1000));
+
+    // Always send source=html so Ghost treats the payload as HTML (both POST and PUT)
+    const urlWithSource = `${endpoint}?source=html`;
 
     // Make request to Ghost API (POST for create, PUT for update)
     const response = await fetch(urlWithSource, {
