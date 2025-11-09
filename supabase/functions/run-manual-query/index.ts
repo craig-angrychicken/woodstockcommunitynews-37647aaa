@@ -612,7 +612,7 @@ function parseWithConfig(html: string, sourceUrl: string, config: any) {
 }
 
 // Main function to fetch and parse content from a source
-async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string, maxArticles: number | null, supabase: any) {
+async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string, maxArticles: number | null, supabase: any, historyId?: string) {
   try {
     console.log(`\n🔍 Fetching content from: ${source.url}`);
     const response = await fetch(source.url, {
@@ -700,6 +700,20 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
     const fullArticles = [];
     for (let i = 0; i < articlesToProcess.length; i++) {
       const article = articlesToProcess[i];
+      
+      // Check if query was cancelled before processing each article
+      if (historyId) {
+        const { data: statusCheck } = await supabase
+          .from('query_history')
+          .select('status')
+          .eq('id', historyId)
+          .single();
+        
+        if (statusCheck?.status === 'failed') {
+          console.log('⚠️ Query cancelled, stopping article processing');
+          break;
+        }
+      }
       
       // Apply human delay between processing
       if (i > 0) {
@@ -847,7 +861,29 @@ serve(async (req) => {
 
     // Fetch and parse real content from sources
     for (const source of sources) {
-      const articles = await fetchAndParseSource(source, dateFrom, dateTo, maxArticles, supabase);
+      // Check if query was cancelled before processing this source
+      const { data: historyCheck } = await supabase
+        .from('query_history')
+        .select('status')
+        .eq('id', historyId)
+        .single();
+      
+      if (historyCheck?.status === 'failed') {
+        console.log('⚠️ Query cancelled by user, stopping execution');
+        return new Response(
+          JSON.stringify({
+            success: false,
+            message: 'Query was cancelled by user',
+            artifactsCount,
+            storiesCount
+          }),
+          {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      const articles = await fetchAndParseSource(source, dateFrom, dateTo, maxArticles, supabase, historyId);
       
       console.log(`Total articles processed: ${articles.length} from ${source.name}`);
       
