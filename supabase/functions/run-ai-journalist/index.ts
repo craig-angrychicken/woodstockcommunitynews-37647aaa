@@ -194,10 +194,18 @@ Generate a compelling news story that synthesizes the above artifacts.`;
         const storyContent =
           aiData.choices?.[0]?.message?.content || "No content generated";
 
-        // Extract title from first line or use a default
-        const lines = storyContent.split("\n");
-        const title = lines[0].replace(/^#+\s*/, "").trim() || "Untitled Story";
+        // Extract title and content properly
+        const lines = storyContent.split("\n").filter((line: string) => line.trim());
+        let title = lines[0]
+          .replace(/^#+\s*/, "")  // Remove markdown headers
+          .replace(/^HEADLINE:\s*/i, "")  // Remove "HEADLINE:" prefix
+          .trim() || "Untitled Story";
+        
+        // Content starts after the title line
         const content = lines.slice(1).join("\n").trim();
+        
+        // Get source_id from the first artifact in the batch
+        const source_id = batch[0]?.source_id || null;
 
         // Insert story
         const { data: newStory, error: storyError } = await supabase
@@ -205,6 +213,7 @@ Generate a compelling news story that synthesizes the above artifacts.`;
           .insert({
             title,
             content,
+            source_id,
             prompt_version_id: promptVersionId,
             environment,
             is_test: environment === "test",
