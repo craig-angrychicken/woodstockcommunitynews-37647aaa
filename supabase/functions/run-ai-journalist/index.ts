@@ -96,42 +96,49 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({
           success: true,
-          message: "No artifacts found in the specified date range",
-          storiesCreated: 0,
+          message: "No artifacts found",
+          historyId,
         }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { 
+          status: 202,
+          headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        }
       );
     }
 
-    // Group artifacts for story generation (in batches of 3-5)
-    const storyBatches: any[][] = [];
-    let currentBatch: any[] = [];
+    // Start background processing
+    const processStories = async () => {
+      try {
 
-    for (const artifact of artifacts) {
-      currentBatch.push(artifact);
-      if (currentBatch.length >= 3) {
-        storyBatches.push([...currentBatch]);
-        currentBatch = [];
-      }
-    }
+        // Group artifacts for story generation (in batches of 3-5)
+        const storyBatches: any[][] = [];
+        let currentBatch: any[] = [];
 
-    if (currentBatch.length > 0) {
-      storyBatches.push(currentBatch);
-    }
+        for (const artifact of artifacts) {
+          currentBatch.push(artifact);
+          if (currentBatch.length >= 3) {
+            storyBatches.push([...currentBatch]);
+            currentBatch = [];
+          }
+        }
 
-    console.log(`Created ${storyBatches.length} story batches`);
+        if (currentBatch.length > 0) {
+          storyBatches.push(currentBatch);
+        }
 
-    // Generate stories from batches
-    let storiesCreated = 0;
+        console.log(`Created ${storyBatches.length} story batches`);
 
-    for (let i = 0; i < storyBatches.length; i++) {
-      const batch = storyBatches[i];
-      console.log(`Processing batch ${i + 1}/${storyBatches.length}`);
+        // Generate stories from batches
+        let storiesCreated = 0;
 
-      // Prepare the prompt with artifact data
-      const artifactSummaries = batch
-        .map(
-          (a, idx) => `
+        for (let i = 0; i < storyBatches.length; i++) {
+          const batch = storyBatches[i];
+          console.log(`Processing batch ${i + 1}/${storyBatches.length}`);
+
+          // Prepare the prompt with artifact data
+          const artifactSummaries = batch
+            .map(
+              (a, idx) => `
 ### Artifact ${idx + 1}
 Title: ${a.title || a.name}
 Date: ${a.date}
@@ -139,127 +146,145 @@ Source: ${a.source_id}
 Content: ${a.content || "No content"}
 ${a.image_url ? `Image: ${a.image_url}` : ""}
 `
-        )
-        .join("\n\n");
+            )
+            .join("\n\n");
 
-      const fullPrompt = `${promptVersion.content}
+          const fullPrompt = `${promptVersion.content}
 
 ## Artifacts to synthesize:
 ${artifactSummaries}
 
 Generate a compelling news story that synthesizes the above artifacts.`;
 
-      try {
-        // Determine API endpoint and key based on provider
-        const apiUrl = promptVersion.model_provider === "openrouter" 
-          ? "https://openrouter.ai/api/v1/chat/completions"
-          : "https://ai.gateway.lovable.dev/v1/chat/completions";
-        
-        const apiKey = openRouterApiKey;
-        const model = promptVersion.model_name || "google/gemini-2.0-flash-exp:free";
+          try {
+            // Determine API endpoint and key based on provider
+            const apiUrl = promptVersion.model_provider === "openrouter" 
+              ? "https://openrouter.ai/api/v1/chat/completions"
+              : "https://ai.gateway.lovable.dev/v1/chat/completions";
+            
+            const apiKey = openRouterApiKey;
+            const model = promptVersion.model_name || "google/gemini-2.0-flash-exp:free";
 
-        console.log(`Using ${promptVersion.model_provider} with model: ${model}`);
+            console.log(`Using ${promptVersion.model_provider} with model: ${model}`);
 
-        // Call AI API
-        const aiResponse = await fetch(apiUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            ...(promptVersion.model_provider === "openrouter" && {
-              "HTTP-Referer": supabaseUrl,
-              "X-Title": "Woodstock Wire AI Journalist",
-            }),
-          },
-          body: JSON.stringify({
-            model: model,
-            messages: [
-              {
-                role: "user",
-                content: fullPrompt,
+            // Call AI API
+            const aiResponse = await fetch(apiUrl, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                ...(promptVersion.model_provider === "openrouter" && {
+                  "HTTP-Referer": supabaseUrl,
+                  "X-Title": "Woodstock Wire AI Journalist",
+                }),
               },
-            ],
-            max_tokens: 5000, // Ensure enough tokens for full article
-            temperature: 0.7, // Add some creativity
-          }),
-        });
+              body: JSON.stringify({
+                model: model,
+                messages: [
+                  {
+                    role: "user",
+                    content: fullPrompt,
+                  },
+                ],
+                max_tokens: 5000,
+                temperature: 0.7,
+              }),
+            });
 
-        if (!aiResponse.ok) {
-          const errorText = await aiResponse.text();
-          console.error("AI API error:", aiResponse.status, errorText);
-          continue;
+            if (!aiResponse.ok) {
+              const errorText = await aiResponse.text();
+              console.error("AI API error:", aiResponse.status, errorText);
+              continue;
+            }
+
+            const aiData = await aiResponse.json();
+            const storyContent =
+              aiData.choices?.[0]?.message?.content || "No content generated";
+
+            // Extract title and content properly
+            const lines = storyContent.split("\n").filter((line: string) => line.trim());
+            let title = lines[0]
+              .replace(/^#+\s*/, "")
+              .replace(/^HEADLINE:\s*/i, "")
+              .trim() || "Untitled Story";
+            
+            const content = lines.slice(1).join("\n").trim();
+            const source_id = batch[0]?.source_id || null;
+
+            // Insert story
+            const { data: newStory, error: storyError } = await supabase
+              .from("stories")
+              .insert({
+                title,
+                content,
+                source_id,
+                prompt_version_id: promptVersionId,
+                environment,
+                is_test: environment === "test",
+              })
+              .select()
+              .single();
+
+            if (storyError || !newStory) {
+              console.error("Failed to insert story:", storyError);
+              continue;
+            }
+
+            // Link artifacts to story
+            const artifactLinks = batch.map((artifact) => ({
+              story_id: newStory.id,
+              artifact_id: artifact.id,
+            }));
+
+            await supabase.from("story_artifacts").insert(artifactLinks);
+
+            storiesCreated++;
+            console.log(`Story created: ${title}`);
+          } catch (error) {
+            console.error("Error generating story:", error);
+            continue;
+          }
         }
 
-        const aiData = await aiResponse.json();
-        const storyContent =
-          aiData.choices?.[0]?.message?.content || "No content generated";
-
-        // Extract title and content properly
-        const lines = storyContent.split("\n").filter((line: string) => line.trim());
-        let title = lines[0]
-          .replace(/^#+\s*/, "")  // Remove markdown headers
-          .replace(/^HEADLINE:\s*/i, "")  // Remove "HEADLINE:" prefix
-          .trim() || "Untitled Story";
-        
-        // Content starts after the title line
-        const content = lines.slice(1).join("\n").trim();
-        
-        // Get source_id from the first artifact in the batch
-        const source_id = batch[0]?.source_id || null;
-
-        // Insert story
-        const { data: newStory, error: storyError } = await supabase
-          .from("stories")
-          .insert({
-            title,
-            content,
-            source_id,
-            prompt_version_id: promptVersionId,
-            environment,
-            is_test: environment === "test",
+        // Update history record
+        await supabase
+          .from("query_history")
+          .update({
+            status: "completed",
+            stories_count: storiesCreated,
+            completed_at: new Date().toISOString(),
           })
-          .select()
-          .single();
+          .eq("id", historyId);
 
-        if (storyError || !newStory) {
-          console.error("Failed to insert story:", storyError);
-          continue;
-        }
-
-        // Link artifacts to story
-        const artifactLinks = batch.map((artifact) => ({
-          story_id: newStory.id,
-          artifact_id: artifact.id,
-        }));
-
-        await supabase.from("story_artifacts").insert(artifactLinks);
-
-        storiesCreated++;
-        console.log(`Story created: ${title}`);
+        console.log(`Background processing complete: ${storiesCreated} stories created`);
       } catch (error) {
-        console.error("Error generating story:", error);
-        continue;
+        console.error("Background processing error:", error);
+        await supabase
+          .from("query_history")
+          .update({
+            status: "failed",
+            error_message: error instanceof Error ? error.message : "Unknown error",
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", historyId);
       }
-    }
+    };
 
-    // Update history record
-    await supabase
-      .from("query_history")
-      .update({
-        status: "completed",
-        stories_count: storiesCreated,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", historyId);
+    // Start background processing without waiting for it to complete
+    processStories();
 
+    // Return immediately with 202 Accepted
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Generated ${storiesCreated} stories from ${artifacts.length} artifacts`,
-        storiesCreated,
-        artifactsProcessed: artifacts.length,
+        message: "AI Journalist started",
+        historyId,
+        artifactsCount: artifacts.length,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { 
+        status: 202,
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      }
     );
   } catch (error) {
     console.error("Error in run-ai-journalist:", error);

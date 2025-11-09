@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -214,23 +214,21 @@ const AIJournalist = () => {
       });
 
       if (error) throw error;
-      return data;
+      return { historyId: historyRecord.id, ...data };
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      queryClient.invalidateQueries({ queryKey: ['stories'] });
-      
+      // Show immediate success message
       toast({
-        title: "AI Journalist Complete!",
-        description: data.message,
+        title: "AI Journalist Started",
+        description: `Processing ${data.artifactsCount} artifacts in the background. Check history for progress.`,
       });
-      setIsRunning(false);
-      setCurrentHistoryId(null);
+      
+      // Invalidate queries to refresh history list
+      queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
     },
     onError: (error: Error) => {
       toast({
-        title: "AI Journalist Failed",
+        title: "Failed to Start AI Journalist",
         description: error.message,
         variant: "destructive"
       });
@@ -238,6 +236,53 @@ const AIJournalist = () => {
       setCurrentHistoryId(null);
     }
   });
+
+  // Poll for status updates when a job is running
+  useEffect(() => {
+    if (!currentHistoryId) return;
+
+    const pollInterval = setInterval(async () => {
+      const { data, error } = await supabase
+        .from('query_history')
+        .select('status, stories_count, error_message')
+        .eq('id', currentHistoryId)
+        .single();
+
+      if (error) {
+        console.error('Error polling status:', error);
+        return;
+      }
+
+      if (data.status === 'completed') {
+        clearInterval(pollInterval);
+        setIsRunning(false);
+        setCurrentHistoryId(null);
+        
+        queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+        queryClient.invalidateQueries({ queryKey: ['stories'] });
+        
+        toast({
+          title: "AI Journalist Complete!",
+          description: `Generated ${data.stories_count} stories`,
+        });
+      } else if (data.status === 'failed') {
+        clearInterval(pollInterval);
+        setIsRunning(false);
+        setCurrentHistoryId(null);
+        
+        queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
+        
+        toast({
+          title: "AI Journalist Failed",
+          description: data.error_message || "Unknown error",
+          variant: "destructive"
+        });
+      }
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [currentHistoryId, queryClient, toast]);
 
   const handleRun = () => {
     setIsRunning(true);
