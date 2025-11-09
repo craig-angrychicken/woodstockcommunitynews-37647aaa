@@ -91,6 +91,47 @@ serve(async (req) => {
       throw new Error('Ghost credentials not configured');
     }
 
+    // Parse story content to extract subhead and main content
+    const lines = content.split('\n');
+    let subhead = '';
+    let byline = '';
+    let mainContent = '';
+    let inMainContent = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      if (line.startsWith('SUBHEAD:')) {
+        subhead = line.replace('SUBHEAD:', '').trim();
+      } else if (line.startsWith('BYLINE:')) {
+        byline = line.replace('BYLINE:', '').trim();
+        inMainContent = true;
+        continue;
+      } else if (line.startsWith('SOURCE:')) {
+        // Stop processing when we hit the source line
+        break;
+      } else if (inMainContent && line.trim()) {
+        mainContent += line + '\n';
+      }
+    }
+
+    // Format content as HTML with proper paragraph tags
+    const paragraphs = mainContent
+      .split('\n')
+      .filter(p => p.trim())
+      .map(p => `<p>${p}</p>`)
+      .join('\n');
+
+    // Build the final HTML with subhead and byline
+    let htmlContent = '';
+    if (subhead) {
+      htmlContent += `<p><strong>${subhead}</strong></p>\n`;
+    }
+    if (byline) {
+      htmlContent += `<p><em>${byline}</em></p>\n`;
+    }
+    htmlContent += paragraphs;
+
     // Generate JWT token
     const token = await generateGhostToken(ghostApiKey);
 
@@ -98,11 +139,11 @@ serve(async (req) => {
     const postData = {
       posts: [{
         title,
-        html: content,
+        html: htmlContent,
         status: status || 'draft',
         tags: tags || [],
         featured: featured || false,
-        custom_excerpt: excerpt || null
+        custom_excerpt: excerpt || subhead || null
       }]
     };
 
