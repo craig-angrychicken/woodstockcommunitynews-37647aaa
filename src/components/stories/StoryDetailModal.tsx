@@ -25,6 +25,7 @@ interface StoryDetailModalProps {
     guid: string;
     created_at: string;
     environment: string;
+    ghost_url?: string | null;
   } | null;
   open: boolean;
   onClose: () => void;
@@ -121,11 +122,18 @@ export const StoryDetailModal = ({
             <Save className="h-4 w-4 mr-2" />
             Save Edits
           </Button>
-          {story.status === 'pending' && (
-            <Button variant="default" onClick={onPublish}>
-              <Send className="h-4 w-4 mr-2" />
-              Publish to Ghost
-            </Button>
+          {(story.status === 'pending' || story.status === 'published') && (
+            <>
+              <Button variant="default" onClick={onPublish}>
+                <Send className="h-4 w-4 mr-2" />
+                {story.ghost_url ? 'Update on Ghost' : 'Publish to Ghost'}
+              </Button>
+              {story.ghost_url && (
+                <Button variant="outline" onClick={() => window.open(story.ghost_url!, '_blank')}>
+                  View on Ghost →
+                </Button>
+              )}
+            </>
           )}
           <Button variant="outline" onClick={onReject} className="text-orange-600">
             <XCircle className="h-4 w-4 mr-2" />

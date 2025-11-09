@@ -13,6 +13,7 @@ interface StoryCardProps {
     prompt_version_id: string | null;
     created_at: string;
     environment: string;
+    ghost_url?: string | null;
   };
   sourceCount: number;
   onView: () => void;
@@ -82,8 +83,8 @@ export const StoryCard = ({ story, sourceCount, onView, onEdit, onPublish, onDel
         <Button variant="outline" size="sm" onClick={onEdit}>
           <Edit className="h-4 w-4" />
         </Button>
-        {story.status === 'pending' && (
-          <Button variant="default" size="sm" onClick={onPublish}>
+        {(story.status === 'pending' || story.status === 'published') && (
+          <Button variant="default" size="sm" onClick={onPublish} title={story.ghost_url ? 'Update on Ghost' : 'Publish to Ghost'}>
             <CheckCircle className="h-4 w-4" />
           </Button>
         )}
