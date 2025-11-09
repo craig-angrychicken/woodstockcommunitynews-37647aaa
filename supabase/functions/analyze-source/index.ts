@@ -71,14 +71,54 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
 
   console.log(`📦 Found ${containerCandidates.length} container candidates`);
 
+  // Step 1.5: Filter out navigation and UI elements
+  const filteredCandidates = containerCandidates.filter(candidate => {
+    const selector = candidate.selector.toLowerCase();
+    
+    // Exclude common navigation/UI patterns
+    const excludePatterns = [
+      'menu', 'nav', 'sidebar', 'header', 'footer', 'widget',
+      'social', 'share', 'button', 'search', 'filter', 'dropdown',
+      'tab', 'accordion', 'breadcrumb', 'pagination', 'toolbar',
+      'banner', 'ad', 'popup', 'modal', 'overlay'
+    ];
+    
+    // Check if selector contains any exclude pattern
+    for (const pattern of excludePatterns) {
+      if (selector.includes(pattern)) {
+        console.log(`⏭️  Skipping ${candidate.selector} - matches exclude pattern: ${pattern}`);
+        return false;
+      }
+    }
+    
+    return true;
+  });
+
+  console.log(`✅ After filtering: ${filteredCandidates.length} viable candidates`);
+
   // Step 2: For each container candidate, analyze its structure
   const analysisResults = [];
 
-  for (const candidate of containerCandidates.slice(0, 5)) { // Analyze top 5 candidates
+  for (const candidate of filteredCandidates.slice(0, 5)) { // Analyze top 5 candidates
     console.log(`\n🔬 Analyzing container: ${candidate.selector} (${candidate.count} instances)`);
 
     // Sample the first 3 elements
     const sampleElements = candidate.elements.slice(0, 3);
+    
+    // Analyze content richness
+    const firstElement = candidate.elements[0];
+    const paragraphs = firstElement.querySelectorAll('p');
+    const totalTextLength = firstElement.textContent?.trim().length || 0;
+    const hasParagraphs = paragraphs.length >= 1;
+    const hasSubstantialContent = totalTextLength > 100;
+    
+    // Check for article-specific patterns
+    const hasImages = firstElement.querySelectorAll('img').length > 0;
+    const hasLinks = firstElement.querySelectorAll('a[href]').length > 0;
+    const textContent = firstElement.textContent || '';
+    const hasDateKeywords = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2}\/\d{2,4}|posted|published|updated)\b/i.test(textContent);
+    
+    console.log(`  📊 Content analysis: paragraphs=${paragraphs.length}, textLength=${totalTextLength}, images=${hasImages}, dateKeywords=${hasDateKeywords}`);
     
     // Find common child patterns
     const titleSelectors: string[] = [];
@@ -144,13 +184,52 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
     const hasTitle = titleSelectors.length > 0;
     const hasDate = dateSelectors.length > 0;
     const hasMultipleInstances = candidate.count >= 3;
-    const hasReasonableCount = candidate.count <= 50; // Not too many (likely not articles)
+    
+    // Improved count-based scoring - articles typically appear in specific ranges
+    const isLikelyArticleCount = candidate.count >= 3 && candidate.count <= 30;
+    const isPerfectArticleCount = candidate.count >= 5 && candidate.count <= 20;
 
     let confidence = 0;
+    
+    // Core indicators
     if (hasTitle) confidence += 40;
     if (hasDate) confidence += 30;
-    if (hasMultipleInstances) confidence += 20;
-    if (hasReasonableCount) confidence += 10;
+    
+    // Count-based scoring
+    if (isPerfectArticleCount) confidence += 20;
+    else if (isLikelyArticleCount) confidence += 10;
+    else if (candidate.count > 50) confidence -= 15; // Too many, likely not articles
+    
+    // Content richness scoring
+    if (hasParagraphs) confidence += 15;
+    if (hasSubstantialContent) confidence += 15;
+    
+    // Article pattern scoring
+    if (hasImages) confidence += 5;
+    if (hasLinks) confidence += 5;
+    if (hasDateKeywords) confidence += 10;
+    
+    // Selector specificity check - penalize very short class names
+    const selectorName = candidate.selector.replace(/^\./, '');
+    if (selectorName.length <= 3 && !['li', 'div', 'article'].includes(selectorName)) {
+      confidence -= 15;
+      console.log(`  ⚠️ Penalized short class name: ${candidate.selector}`);
+    }
+    
+    // Validate sample articles
+    const validSamples = sampleArticles.filter(article => {
+      const hasValidTitle = article.title.length >= 15 && article.title.length <= 200;
+      const hasContent = article.excerpt.length >= 50;
+      return hasValidTitle && hasContent;
+    });
+    
+    if (validSamples.length === 0 && sampleArticles.length > 0) {
+      confidence -= 30;
+      console.log(`  ⚠️ No valid article samples found (samples had too short titles/content)`);
+    } else if (validSamples.length >= 2) {
+      confidence += 10;
+      console.log(`  ✅ Found ${validSamples.length} valid article samples`);
+    }
 
     // Determine recommended parser type
     let recommendedParser = 'custom';
