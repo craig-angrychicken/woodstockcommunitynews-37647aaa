@@ -109,52 +109,30 @@ Deno.serve(async (req) => {
     // Start background processing
     const processStories = async () => {
       try {
+        console.log(`Processing ${artifacts.length} artifacts (one story per artifact)`);
 
-        // Group artifacts for story generation (in batches of 3-5)
-        const storyBatches: any[][] = [];
-        let currentBatch: any[] = [];
-
-        for (const artifact of artifacts) {
-          currentBatch.push(artifact);
-          if (currentBatch.length >= 3) {
-            storyBatches.push([...currentBatch]);
-            currentBatch = [];
-          }
-        }
-
-        if (currentBatch.length > 0) {
-          storyBatches.push(currentBatch);
-        }
-
-        console.log(`Created ${storyBatches.length} story batches`);
-
-        // Generate stories from batches
+        // Generate one story per artifact
         let storiesCreated = 0;
 
-        for (let i = 0; i < storyBatches.length; i++) {
-          const batch = storyBatches[i];
-          console.log(`Processing batch ${i + 1}/${storyBatches.length}`);
+        for (let i = 0; i < artifacts.length; i++) {
+          const artifact = artifacts[i];
+          console.log(`Processing artifact ${i + 1}/${artifacts.length}: ${artifact.title || artifact.name}`);
 
-          // Prepare the prompt with artifact data
-          const artifactSummaries = batch
-            .map(
-              (a, idx) => `
-### Artifact ${idx + 1}
-Title: ${a.title || a.name}
-Date: ${a.date}
-Source: ${a.source_id}
-Content: ${a.content || "No content"}
-${a.image_url ? `Image: ${a.image_url}` : ""}
-`
-            )
-            .join("\n\n");
+          // Prepare the prompt with single artifact data
+          const artifactData = `
+Title: ${artifact.title || artifact.name}
+Date: ${artifact.date}
+Source: ${artifact.source_id}
+Content: ${artifact.content || "No content"}
+${artifact.image_url ? `Image: ${artifact.image_url}` : ""}
+`;
 
           const fullPrompt = `${promptVersion.content}
 
-## Artifacts to synthesize:
-${artifactSummaries}
+## Artifact:
+${artifactData}
 
-Generate a compelling news story that synthesizes the above artifacts.`;
+Generate a compelling news story based on this artifact.`;
 
           try {
             // Determine API endpoint and key based on provider
@@ -209,7 +187,7 @@ Generate a compelling news story that synthesizes the above artifacts.`;
               .trim() || "Untitled Story";
             
             const content = lines.slice(1).join("\n").trim();
-            const source_id = batch[0]?.source_id || null;
+            const source_id = artifact.source_id || null;
 
             // Insert story
             const { data: newStory, error: storyError } = await supabase
@@ -230,13 +208,11 @@ Generate a compelling news story that synthesizes the above artifacts.`;
               continue;
             }
 
-            // Link artifacts to story
-            const artifactLinks = batch.map((artifact) => ({
+            // Link single artifact to story
+            await supabase.from("story_artifacts").insert({
               story_id: newStory.id,
               artifact_id: artifact.id,
-            }));
-
-            await supabase.from("story_artifacts").insert(artifactLinks);
+            });
 
             storiesCreated++;
             console.log(`Story created: ${title}`);
