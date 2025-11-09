@@ -43,7 +43,14 @@ export const Navigation = () => {
                 className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
                 activeClassName="text-primary"
               >
-                Manual Query
+                Fetch Artifacts
+              </NavLink>
+              <NavLink
+                to="/ai-journalist"
+                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                activeClassName="text-primary"
+              >
+                AI Journalist
               </NavLink>
               <NavLink
                 to="/artifacts"

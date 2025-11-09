@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -16,40 +15,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarIcon, Loader2, Play, CheckCircle, XCircle, X } from "lucide-react";
+import { CalendarIcon, Loader2, Sparkles, CheckCircle, XCircle, X } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { TestBadge } from "@/components/ui/status-badge";
 
-const ManualQuery = () => {
+const AIJournalist = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   // Form state
   const [dateFrom, setDateFrom] = useState<Date>(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
   const [dateTo, setDateTo] = useState<Date>(new Date());
-  const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [environment, setEnvironment] = useState<"production" | "test">("test");
   const [promptMode, setPromptMode] = useState<"active" | "select">("active");
   const [selectedPromptVersion, setSelectedPromptVersion] = useState<string>("");
-  
-  const [maxArticles, setMaxArticles] = useState<number | null>(20);
+  const [maxArtifacts, setMaxArtifacts] = useState<number | null>(20);
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
-
-  // Fetch sources
-  const { data: sources } = useQuery({
-    queryKey: ['sources'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('sources')
-        .select('*')
-        .in('status', ['active', 'testing'])
-        .order('name');
-      if (error) throw error;
-      return data;
-    }
-  });
+  const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
 
   // Fetch prompt versions
   const { data: promptVersions } = useQuery({
@@ -64,9 +47,31 @@ const ManualQuery = () => {
     }
   });
 
-  // Fetch query history
+  // Fetch available artifacts count
+  const { data: artifactsCount } = useQuery({
+    queryKey: ['artifacts-count', dateFrom, dateTo, environment],
+    queryFn: async () => {
+      let query = supabase
+        .from('artifacts')
+        .select('*', { count: 'exact', head: true })
+        .gte('date', dateFrom.toISOString())
+        .lte('date', dateTo.toISOString());
+
+      if (environment === 'test') {
+        query = query.eq('is_test', true);
+      } else {
+        query = query.eq('is_test', false);
+      }
+
+      const { count, error } = await query;
+      if (error) throw error;
+      return count || 0;
+    }
+  });
+
+  // Fetch query history for AI runs
   const { data: queryHistory } = useQuery({
-    queryKey: ['query-history'],
+    queryKey: ['ai-journalist-history'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('query_history')
@@ -74,6 +79,7 @@ const ManualQuery = () => {
           *,
           prompt_versions (version_name)
         `)
+        .eq('run_stages', 'stage2')
         .order('created_at', { ascending: false })
         .limit(10);
       if (error) throw error;
@@ -87,18 +93,13 @@ const ManualQuery = () => {
   );
 
   const costEstimate = useMemo(() => {
-    const days = Math.ceil((dateTo.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24));
-    const sourcesCount = selectedSources.length;
-    const estimatedArticles = days * sourcesCount * 2; // Rough estimate
-    const costPerArticle = 0.02; // Rough cost estimate
-    return (estimatedArticles * costPerArticle).toFixed(2);
-  }, [dateFrom, dateTo, selectedSources]);
+    const estimatedStories = Math.min(artifactsCount || 0, maxArtifacts || 999999) / 3;
+    const costPerStory = 0.05; // Rough cost estimate
+    return (estimatedStories * costPerStory).toFixed(2);
+  }, [artifactsCount, maxArtifacts]);
 
-  // Track current running history ID
-  const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
-
-  // Cancel query mutation
-  const cancelQueryMutation = useMutation({
+  // Cancel mutation
+  const cancelMutation = useMutation({
     mutationFn: async (historyId: string) => {
       const { error } = await supabase
         .from('query_history')
@@ -112,10 +113,10 @@ const ManualQuery = () => {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['query-history'] });
+      queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
       toast({
-        title: "Query Cancelled",
-        description: "The query has been stopped.",
+        title: "AI Run Cancelled",
+        description: "The AI journalist run has been stopped.",
       });
       setIsRunning(false);
       setCurrentHistoryId(null);
@@ -129,13 +130,9 @@ const ManualQuery = () => {
     }
   });
 
-  // Run query mutation
-  const runQueryMutation = useMutation({
+  // Run AI journalist mutation
+  const runMutation = useMutation({
     mutationFn: async () => {
-      if (selectedSources.length === 0) {
-        throw new Error('Please select at least one source');
-      }
-
       const promptVersionId = promptMode === 'active' 
         ? activePromptVersion?.id 
         : selectedPromptVersion;
@@ -152,8 +149,8 @@ const ManualQuery = () => {
           date_to: dateTo.toISOString(),
           environment,
           prompt_version_id: promptVersionId,
-          source_ids: selectedSources,
-          run_stages: 'stage1',
+          source_ids: [],
+          run_stages: 'stage2',
           status: 'running'
         })
         .select()
@@ -161,20 +158,17 @@ const ManualQuery = () => {
 
       if (historyError) throw historyError;
 
-      // Store the history ID for potential cancellation
       setCurrentHistoryId(historyRecord.id);
 
       // Call edge function
-      const { data, error } = await supabase.functions.invoke('run-manual-query', {
+      const { data, error } = await supabase.functions.invoke('run-ai-journalist', {
         body: {
           dateFrom: dateFrom.toISOString(),
           dateTo: dateTo.toISOString(),
-          sourceIds: selectedSources,
           environment,
           promptVersionId,
-          runStages: 'stage1',
           historyId: historyRecord.id,
-          maxArticles
+          maxArtifacts
         }
       });
 
@@ -182,12 +176,12 @@ const ManualQuery = () => {
       return data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['query-history'] });
+      queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       queryClient.invalidateQueries({ queryKey: ['stories'] });
       
       toast({
-        title: "Query Complete!",
+        title: "AI Journalist Complete!",
         description: data.message,
       });
       setIsRunning(false);
@@ -195,7 +189,7 @@ const ManualQuery = () => {
     },
     onError: (error: Error) => {
       toast({
-        title: "Query Failed",
+        title: "AI Journalist Failed",
         description: error.message,
         variant: "destructive"
       });
@@ -204,14 +198,14 @@ const ManualQuery = () => {
     }
   });
 
-  const handleRunQuery = () => {
+  const handleRun = () => {
     setIsRunning(true);
-    runQueryMutation.mutate();
+    runMutation.mutate();
   };
 
-  const handleCancelQuery = () => {
+  const handleCancel = () => {
     if (currentHistoryId) {
-      cancelQueryMutation.mutate(currentHistoryId);
+      cancelMutation.mutate(currentHistoryId);
     }
   };
 
@@ -223,33 +217,12 @@ const ManualQuery = () => {
     setActiveQuickDate(days);
   };
 
-  const handleSelectAllSources = () => {
-    setSelectedSources(sources?.map(s => s.id) || []);
-  };
-
-  const handleSelectNoneSources = () => {
-    setSelectedSources([]);
-  };
-
-  const handleSelectTestSources = () => {
-    const testSources = sources?.filter(s => s.status === 'testing').map(s => s.id) || [];
-    setSelectedSources(testSources);
-  };
-
-  const toggleSource = (sourceId: string) => {
-    setSelectedSources(prev =>
-      prev.includes(sourceId)
-        ? prev.filter(id => id !== sourceId)
-        : [...prev, sourceId]
-    );
-  };
-
   return (
     <div className="container mx-auto py-8 px-4 space-y-8">
       <div>
-        <h1 className="text-3xl font-bold mb-2">Fetch Artifacts</h1>
+        <h1 className="text-3xl font-bold mb-2">AI Journalist</h1>
         <p className="text-muted-foreground">
-          Fetch and store articles from your sources as artifacts
+          Generate news stories from your stored artifacts using AI
         </p>
       </div>
 
@@ -258,8 +231,10 @@ const ManualQuery = () => {
           {/* Date Range Section */}
           <Card>
             <CardHeader>
-              <CardTitle>Date Range</CardTitle>
-              <CardDescription>Select the date range for source fetching</CardDescription>
+              <CardTitle>Artifact Date Range</CardTitle>
+              <CardDescription>
+                Select date range for artifacts to process ({artifactsCount || 0} artifacts available)
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid md:grid-cols-2 gap-4">
@@ -347,75 +322,72 @@ const ManualQuery = () => {
             </CardContent>
           </Card>
 
-          {/* Source Selection */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Source Selection</CardTitle>
-              <CardDescription>
-                Choose which sources to fetch from ({selectedSources.length} selected)
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={handleSelectAllSources}>
-                  Select All
-                </Button>
-                <Button variant="outline" size="sm" onClick={handleSelectNoneSources}>
-                  Select None
-                </Button>
-                <Button variant="outline" size="sm" onClick={handleSelectTestSources}>
-                  Select Test
-                </Button>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-3">
-                {sources?.map(source => (
-                  <div key={source.id} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={source.id}
-                      checked={selectedSources.includes(source.id)}
-                      onCheckedChange={() => toggleSource(source.id)}
-                    />
-                    <label
-                      htmlFor={source.id}
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex items-center gap-2"
-                    >
-                      <span>
-                        {source.name}
-                        <span className="text-muted-foreground text-xs ml-2">({source.type})</span>
-                      </span>
-                      {source.status === 'testing' && <TestBadge />}
-                    </label>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Environment Section */}
           <Card>
             <CardHeader>
               <CardTitle>Environment</CardTitle>
-              <CardDescription>Choose production or test mode</CardDescription>
+              <CardDescription>Choose which artifacts to process</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <RadioGroup value={environment} onValueChange={(v: any) => setEnvironment(v)}>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="production" id="prod" />
                   <Label htmlFor="prod" className="cursor-pointer">
-                    Production
+                    Production Artifacts
                   </Label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="test" id="test" />
                   <Label htmlFor="test" className="cursor-pointer">
-                    Test
+                    Test Artifacts
                   </Label>
                 </div>
               </RadioGroup>
-              <p className="text-sm text-muted-foreground">
-                Test mode adds a 🧪 badge and allows testing without affecting production data
-              </p>
+            </CardContent>
+          </Card>
+
+          {/* Prompt Version Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Prompt Version</CardTitle>
+              <CardDescription>Select which prompt version to use for generation</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <RadioGroup value={promptMode} onValueChange={(v: any) => setPromptMode(v)}>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="active" id="active-prompt" />
+                  <Label htmlFor="active-prompt" className="cursor-pointer">
+                    Use Active Version
+                    {activePromptVersion && (
+                      <span className="text-muted-foreground ml-2">
+                        ({activePromptVersion.version_name})
+                      </span>
+                    )}
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="select" id="select-prompt" />
+                  <Label htmlFor="select-prompt" className="cursor-pointer">
+                    Select Specific Version
+                  </Label>
+                </div>
+              </RadioGroup>
+
+              {promptMode === 'select' && (
+                <Select value={selectedPromptVersion} onValueChange={setSelectedPromptVersion}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a version" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {promptVersions?.map(version => (
+                      <SelectItem key={version.id} value={version.id}>
+                        {version.version_name}
+                        {version.is_active && " (Active)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </CardContent>
           </Card>
 
@@ -423,27 +395,34 @@ const ManualQuery = () => {
           <Card>
             <CardHeader>
               <CardTitle>Run Options</CardTitle>
-              <CardDescription>Configure article fetching limits</CardDescription>
+              <CardDescription>Configure AI processing limits</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Article Limit (for testing)</Label>
+                <Label>Artifact Limit (for testing)</Label>
                 <Select 
-                  value={maxArticles?.toString() || "all"} 
-                  onValueChange={(v) => setMaxArticles(v === "all" ? null : parseInt(v))}
+                  value={maxArtifacts?.toString() || "all"} 
+                  onValueChange={(v) => setMaxArtifacts(v === "all" ? null : parseInt(v))}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="10">First 10 articles</SelectItem>
-                    <SelectItem value="20">First 20 articles (recommended)</SelectItem>
-                    <SelectItem value="50">First 50 articles</SelectItem>
-                    <SelectItem value="all">All articles</SelectItem>
+                    <SelectItem value="10">First 10 artifacts</SelectItem>
+                    <SelectItem value="20">First 20 artifacts (recommended)</SelectItem>
+                    <SelectItem value="50">First 50 artifacts</SelectItem>
+                    <SelectItem value="100">First 100 artifacts</SelectItem>
+                    <SelectItem value="all">All artifacts</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Only articles within the selected date range will be processed and stored as artifacts
+                  The AI will process up to this many artifacts to generate stories
+                </p>
+              </div>
+
+              <div className="pt-2 border-t">
+                <p className="text-sm">
+                  <span className="font-semibold">Estimated cost:</span> ${costEstimate}
                 </p>
               </div>
             </CardContent>
@@ -453,18 +432,18 @@ const ManualQuery = () => {
             <Button
               size="lg"
               className="flex-1"
-              onClick={handleRunQuery}
-              disabled={isRunning || selectedSources.length === 0}
+              onClick={handleRun}
+              disabled={isRunning || !artifactsCount}
             >
               {isRunning ? (
                 <>
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Running Query...
+                  Generating Stories...
                 </>
               ) : (
                 <>
-                  <Play className="mr-2 h-5 w-5" />
-                  Fetch Artifacts
+                  <Sparkles className="mr-2 h-5 w-5" />
+                  Run AI Journalist
                 </>
               )}
             </Button>
@@ -473,8 +452,8 @@ const ManualQuery = () => {
               <Button
                 size="lg"
                 variant="destructive"
-                onClick={handleCancelQuery}
-                disabled={cancelQueryMutation.isPending}
+                onClick={handleCancel}
+                disabled={cancelMutation.isPending}
               >
                 <X className="h-5 w-5" />
               </Button>
@@ -482,18 +461,18 @@ const ManualQuery = () => {
           </div>
         </div>
 
-        {/* Query History Sidebar */}
+        {/* History Sidebar */}
         <div>
           <Card>
             <CardHeader>
-              <CardTitle>Query History</CardTitle>
-              <CardDescription>Recent query runs</CardDescription>
+              <CardTitle>AI Run History</CardTitle>
+              <CardDescription>Recent AI journalist runs</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 {queryHistory?.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    No query history yet
+                    No AI runs yet
                   </p>
                 ) : (
                   queryHistory?.map(query => (
@@ -518,7 +497,7 @@ const ManualQuery = () => {
                       <div className="text-xs space-y-1 text-muted-foreground">
                         <div>Environment: {query.environment}</div>
                         <div>Prompt: {query.prompt_versions?.version_name}</div>
-                        <div>Results: {query.artifacts_count} artifacts, {query.stories_count} stories</div>
+                        <div>Generated: {query.stories_count} stories</div>
                       </div>
                     </div>
                   ))
@@ -532,4 +511,4 @@ const ManualQuery = () => {
   );
 };
 
-export default ManualQuery;
+export default AIJournalist;
