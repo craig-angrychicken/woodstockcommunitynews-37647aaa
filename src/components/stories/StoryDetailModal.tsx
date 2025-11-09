@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -46,6 +46,11 @@ export const StoryDetailModal = ({
   onViewArtifacts,
 }: StoryDetailModalProps) => {
   const [editedContent, setEditedContent] = useState(story?.content || "");
+
+  // Update editedContent when story changes
+  useEffect(() => {
+    setEditedContent(story?.content || "");
+  }, [story?.content]);
 
   if (!story) return null;
 
