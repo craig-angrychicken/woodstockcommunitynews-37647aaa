@@ -68,6 +68,124 @@ function htmlToMarkdown(html: string): string {
   return markdown;
 }
 
+// Extract storyID from article elements (for JavaScript-based navigation)
+function extractStoryId(titleElement: Element | null, parentElement: Element): string | null {
+  if (!titleElement) return null;
+  
+  // Strategy 1: Parse onclick handler for common patterns
+  const onclick = titleElement.getAttribute('onclick') || '';
+  if (onclick) {
+    console.log(`  🔍 Analyzing onclick: ${onclick}`);
+    
+    // Look for patterns like:
+    // - showStory(504)
+    // - loadArticle('504')
+    // - window.location='media.php?storyID=504'
+    const patterns = [
+      /storyID[=:](\d+)/i,           // storyID=504 or storyID:504
+      /\([\'\"]?(\d+)[\'\"]?\)/,      // function(504) or function('504')
+      /media\.php\?.*?(\d+)/,         // media.php?...504
+      /story[\/\-_]?(\d+)/i,          // story/504, story-504, story_504
+    ];
+    
+    for (const pattern of patterns) {
+      const match = onclick.match(pattern);
+      if (match && match[1]) {
+        console.log(`  ✅ Found storyID via onclick pattern: ${match[1]}`);
+        return match[1];
+      }
+    }
+  }
+  
+  // Strategy 2: Check data attributes
+  const dataAttrs = ['data-story-id', 'data-id', 'data-article-id', 'data-post-id'];
+  for (const attr of dataAttrs) {
+    const value = titleElement.getAttribute(attr) || parentElement.getAttribute(attr);
+    if (value && /^\d+$/.test(value)) {
+      console.log(`  ✅ Found storyID in ${attr}: ${value}`);
+      return value;
+    }
+  }
+  
+  // Strategy 3: Check element IDs
+  const titleId = titleElement.getAttribute('id') || '';
+  const parentId = parentElement.getAttribute('id') || '';
+  const idMatch = (titleId + ' ' + parentId).match(/(\d+)/);
+  if (idMatch) {
+    console.log(`  ✅ Found storyID in element ID: ${idMatch[1]}`);
+    return idMatch[1];
+  }
+  
+  console.log('  ❌ No storyID found');
+  return null;
+}
+
+// Extract full article content from article page HTML
+function extractFullArticleContent(html: string, baseUrl: string): { content: string; images: string[] } {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (!doc) return { content: '', images: [] };
+  
+  // Try multiple selectors to find main content
+  const contentSelectors = [
+    '.normalStory',           // Cherokee County specific
+    '.story-content',
+    '.article-content',
+    '.main-content',
+    'article',
+    '.post-content',
+    '#content',
+    '.entry-content',
+    '[role="main"]'
+  ];
+  
+  let contentElement = null;
+  for (const selector of contentSelectors) {
+    contentElement = doc.querySelector(selector);
+    if (contentElement) {
+      console.log(`  ✅ Found content using selector: ${selector}`);
+      break;
+    }
+  }
+  
+  // If no specific content area, look for the largest text block
+  if (!contentElement) {
+    const allDivs = doc.querySelectorAll('div, section, article');
+    let maxParagraphs = 0;
+    for (const div of allDivs) {
+      const pCount = (div as Element).querySelectorAll('p').length;
+      if (pCount > maxParagraphs) {
+        maxParagraphs = pCount;
+        contentElement = div as Element;
+      }
+    }
+    if (contentElement) {
+      console.log(`  ⚠️ Using fallback: found ${maxParagraphs} paragraphs`);
+    }
+  }
+  
+  if (!contentElement) {
+    console.error('  ❌ Could not find main content area');
+    return { content: '', images: [] };
+  }
+  
+  // Extract images
+  const images: string[] = [];
+  const imgElements = contentElement.querySelectorAll('img');
+  for (const img of imgElements) {
+    const src = (img as Element).getAttribute('src');
+    if (src && !src.includes('logo') && !src.includes('icon') && !src.includes('sprite')) {
+      images.push(src);
+    }
+  }
+  
+  // Convert to markdown
+  const content = htmlToMarkdown(contentElement.innerHTML);
+  
+  console.log(`  📄 Extracted ${content.length} chars, ${images.length} images`);
+  
+  return { content, images };
+}
+
 // Download image and store in Supabase
 async function downloadAndStoreImage(
   imageUrl: string, 
@@ -184,12 +302,38 @@ function parseCherokeeCountyNews(html: string, sourceUrl: string) {
       const title = titleElement.textContent?.trim() || '';
       const dateText = dateElement?.textContent?.trim() || '';
       
+      console.log(`\n🔍 Examining title element for: ${title}`);
+      console.log(`  - href: ${titleElement.getAttribute('href')}`);
+      console.log(`  - onclick: ${titleElement.getAttribute('onclick')}`);
+      console.log(`  - data-id: ${titleElement.getAttribute('data-id')}`);
+      console.log(`  - data-story-id: ${titleElement.getAttribute('data-story-id')}`);
+      console.log(`  - id: ${titleElement.getAttribute('id')}`);
+      console.log(`  Parent element:`);
+      console.log(`    - id: ${el.getAttribute('id')}`);
+      console.log(`    - data-id: ${el.getAttribute('data-id')}`);
+      console.log(`    - onclick: ${el.getAttribute('onclick')}`);
+      
+      // Extract storyID and build article URL
+      const storyId = extractStoryId(titleElement, el);
+      const baseUrl = new URL(sourceUrl).origin;
+      const articleUrl = storyId 
+        ? `${baseUrl}/Communications/media.php?storyID=${storyId}`
+        : null;
+      
+      if (articleUrl) {
+        console.log(`  ✅ Article URL: ${articleUrl}`);
+      } else {
+        console.log(`  ⚠️ No article URL - will use snippet`);
+      }
+      
       // Extract full content HTML from this article element
       const contentHtml = el.outerHTML;
       
       results.push({
         title,
         date: dateText,
+        storyId,
+        articleUrl,
         contentHtml,
         sourceUrl
       });
@@ -222,6 +366,8 @@ function parseWoodstockNews(html: string, sourceUrl: string) {
       results.push({
         title,
         date: dateText,
+        storyId: null,
+        articleUrl: null,
         contentHtml,
         sourceUrl
       });
@@ -273,6 +419,8 @@ function parseGenericNews(html: string, sourceUrl: string) {
       results.push({
         title,
         date: dateText,
+        storyId: null,
+        articleUrl: null,
         contentHtml,
         sourceUrl
       });
@@ -304,6 +452,8 @@ function parseEvents(html: string, sourceUrl: string) {
       results.push({
         title: title.trim(),
         date: date.trim(),
+        storyId: null,
+        articleUrl: null,
         contentHtml,
         sourceUrl
       });
@@ -378,8 +528,44 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
       
       console.log(`\n📰 Processing article ${i + 1}/${parsedArticles.length}: ${article.title}`);
       
-      // Extract content and images from the HTML
-      const { content, images } = extractContentFromHtml(article.contentHtml);
+      let content = '';
+      let images: string[] = [];
+      
+      // Try to fetch full article if we have an articleUrl
+      if (article.articleUrl) {
+        console.log(`  📡 Fetching full article from: ${article.articleUrl}`);
+        try {
+          const articleResponse = await fetch(article.articleUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)'
+            }
+          });
+          
+          if (articleResponse.ok) {
+            const fullHtml = await articleResponse.text();
+            const extracted = extractFullArticleContent(fullHtml, source.url);
+            content = extracted.content;
+            images = extracted.images;
+            console.log(`  ✅ Fetched full article: ${content.length} chars`);
+          } else {
+            console.log(`  ⚠️ Failed to fetch article (${articleResponse.status}), using snippet`);
+            const extracted = extractContentFromHtml(article.contentHtml);
+            content = extracted.content;
+            images = extracted.images;
+          }
+        } catch (fetchError) {
+          console.log(`  ⚠️ Error fetching article, using snippet:`, fetchError);
+          const extracted = extractContentFromHtml(article.contentHtml);
+          content = extracted.content;
+          images = extracted.images;
+        }
+      } else {
+        // No URL found - fall back to snippet extraction
+        console.log(`  ⚠️ No article URL found, using snippet`);
+        const extracted = extractContentFromHtml(article.contentHtml);
+        content = extracted.content;
+        images = extracted.images;
+      }
       
       if (content) {
         // Generate unique artifact ID for this article
