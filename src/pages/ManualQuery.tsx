@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarIcon, Loader2, Play, CheckCircle, XCircle } from "lucide-react";
+import { CalendarIcon, Loader2, Play, CheckCircle, XCircle, X } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { TestBadge } from "@/components/ui/status-badge";
@@ -94,6 +94,41 @@ const ManualQuery = () => {
     return (estimatedArticles * costPerArticle).toFixed(2);
   }, [dateFrom, dateTo, selectedSources]);
 
+  // Track current running history ID
+  const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
+
+  // Cancel query mutation
+  const cancelQueryMutation = useMutation({
+    mutationFn: async (historyId: string) => {
+      const { error } = await supabase
+        .from('query_history')
+        .update({
+          status: 'failed',
+          error_message: 'Cancelled by user',
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', historyId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['query-history'] });
+      toast({
+        title: "Query Cancelled",
+        description: "The query has been stopped.",
+      });
+      setIsRunning(false);
+      setCurrentHistoryId(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to Cancel",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  });
+
   // Run query mutation
   const runQueryMutation = useMutation({
     mutationFn: async () => {
@@ -126,6 +161,9 @@ const ManualQuery = () => {
 
       if (historyError) throw historyError;
 
+      // Store the history ID for potential cancellation
+      setCurrentHistoryId(historyRecord.id);
+
       // Call edge function
       const { data, error } = await supabase.functions.invoke('run-manual-query', {
         body: {
@@ -153,6 +191,7 @@ const ManualQuery = () => {
         description: data.message,
       });
       setIsRunning(false);
+      setCurrentHistoryId(null);
     },
     onError: (error: Error) => {
       toast({
@@ -161,12 +200,19 @@ const ManualQuery = () => {
         variant: "destructive"
       });
       setIsRunning(false);
+      setCurrentHistoryId(null);
     }
   });
 
   const handleRunQuery = () => {
     setIsRunning(true);
     runQueryMutation.mutate();
+  };
+
+  const handleCancelQuery = () => {
+    if (currentHistoryId) {
+      cancelQueryMutation.mutate(currentHistoryId);
+    }
   };
 
   const handleQuickDate = (days: number) => {
@@ -477,24 +523,37 @@ const ManualQuery = () => {
             </CardContent>
           </Card>
 
-          <Button
-            size="lg"
-            className="w-full"
-            onClick={handleRunQuery}
-            disabled={isRunning || selectedSources.length === 0}
-          >
-            {isRunning ? (
-              <>
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                Running Query...
-              </>
-            ) : (
-              <>
-                <Play className="mr-2 h-5 w-5" />
-                Run Query
-              </>
+          <div className="flex gap-2">
+            <Button
+              size="lg"
+              className="flex-1"
+              onClick={handleRunQuery}
+              disabled={isRunning || selectedSources.length === 0}
+            >
+              {isRunning ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Running Query...
+                </>
+              ) : (
+                <>
+                  <Play className="mr-2 h-5 w-5" />
+                  Run Query
+                </>
+              )}
+            </Button>
+            
+            {isRunning && (
+              <Button
+                size="lg"
+                variant="destructive"
+                onClick={handleCancelQuery}
+                disabled={cancelQueryMutation.isPending}
+              >
+                <X className="h-5 w-5" />
+              </Button>
             )}
-          </Button>
+          </div>
         </div>
 
         {/* Query History Sidebar */}
