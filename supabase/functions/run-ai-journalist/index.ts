@@ -179,6 +179,8 @@ Generate a compelling news story that synthesizes the above artifacts.`;
                 content: fullPrompt,
               },
             ],
+            max_tokens: 2000, // Ensure enough tokens for full article
+            temperature: 0.7, // Add some creativity
           }),
         });
 
