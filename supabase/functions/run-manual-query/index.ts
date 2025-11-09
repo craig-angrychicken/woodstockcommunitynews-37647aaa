@@ -974,56 +974,70 @@ function parseWithConfig(html: string, sourceUrl: string, config: any) {
     const titleElement = el.querySelector(selectors.title);
     let dateElement = selectors.date ? el.querySelector(selectors.date) : null;
     const linkElement = selectors.link ? el.querySelector(selectors.link) : null;
+    const isAnchor = el.tagName.toLowerCase() === 'a';
 
-    if (titleElement) {
-      const title = titleElement.textContent?.trim() || '';
-      let dateText = dateElement?.textContent?.trim() || '';
-      
-      // Try image timestamp heuristic if no date found
-      if (!dateText) {
-        dateText = extractDateFromImageTimestamp(el) || '';
-      }
-      
-      // Fallback: Look for date patterns in direct children
-      if (!dateText) {
-        const directChildren = Array.from(el.children);
-        for (const child of directChildren) {
-          const text = (child as Element).textContent?.trim() || '';
-          const datePattern = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}$/i;
-          if (datePattern.test(text) && text.length < 50) {
-            dateText = text;
-            console.log(`   📅 Found date pattern "${dateText}" for "${title.substring(0, 40)}..."`);
-            break;
-          }
-        }
-      }
-      
-      if (dateText) {
-        console.log(`   📅 Found date "${dateText}" for "${title.substring(0, 40)}..."`);
-      }
-      
-      // Link fallback: use container's href if no linkElement found
-      let articleUrl = linkElement?.getAttribute('href') || null;
-      if (!articleUrl && el.tagName.toLowerCase() === 'a') {
-        articleUrl = el.getAttribute('href') || null;
-        if (articleUrl) {
-          console.log(`   🔗 Using container href as link for "${title.substring(0, 40)}..."`);
-        }
-      }
-      
-      if (articleUrl) {
-        articleUrl = normalizeUrl(articleUrl, sourceUrl);
-      }
-      
-      results.push({
-        title,
-        date: dateText,
-        storyId: null,
-        articleUrl,
-        contentHtml: el.outerHTML,
-        sourceUrl
-      });
+    // Flexible title extraction with fallbacks
+    let title = titleElement?.textContent?.trim() || '';
+    if (!title) {
+      // Fallback 1: Use link element's text
+      title = linkElement?.textContent?.trim() || '';
     }
+    if (!title && isAnchor) {
+      // Fallback 2: Use container's own text if it's an anchor
+      title = el.textContent?.trim() || '';
+    }
+
+    // Skip if still no title
+    if (!title) continue;
+
+    let dateText = dateElement?.textContent?.trim() || '';
+    
+    // Try image timestamp heuristic if no date found
+    if (!dateText) {
+      dateText = extractDateFromImageTimestamp(el) || '';
+    }
+    
+    // Fallback: Look for date patterns in direct children
+    if (!dateText) {
+      const directChildren = Array.from(el.children);
+      for (const child of directChildren) {
+        const text = (child as Element).textContent?.trim() || '';
+        const datePattern = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}$/i;
+        if (datePattern.test(text) && text.length < 50) {
+          dateText = text;
+          console.log(`   📅 Found date pattern "${dateText}" for "${title.substring(0, 40)}..."`);
+          break;
+        }
+      }
+    }
+    
+    if (dateText) {
+      console.log(`   📅 Found date "${dateText}" for "${title.substring(0, 40)}..."`);
+    }
+    
+    // Link extraction with fallbacks
+    let articleUrl = linkElement?.getAttribute('href') || null;
+    if (!articleUrl && isAnchor) {
+      const href = el.getAttribute('href') || '';
+      // Only use container href if it's an article/news link (not navigation)
+      if (href && (href.includes('/news/') || href.includes('/article/'))) {
+        articleUrl = href;
+        console.log(`   🔗 Using container href as link (anchor container): "${title.substring(0, 40)}..."`);
+      }
+    }
+    
+    if (articleUrl) {
+      articleUrl = normalizeUrl(articleUrl, sourceUrl);
+    }
+    
+    results.push({
+      title,
+      date: dateText,
+      storyId: null,
+      articleUrl,
+      contentHtml: el.outerHTML,
+      sourceUrl
+    });
   }
 
   console.log(`✅ Parsed ${results.length} articles using custom config`);
