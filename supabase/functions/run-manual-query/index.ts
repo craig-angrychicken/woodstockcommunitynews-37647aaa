@@ -1316,37 +1316,25 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
         
         console.log(`📄 Content length: ${content.length} chars, Images found: ${images.length}`);
         
-        // Download and store images, replace URLs in content
-        let finalContent = content;
-        const imageMap = new Map();
+        // Store image URLs without downloading (to avoid CPU timeout)
+        // Images will be downloaded later by the backfill-artifact-images function
+        const imageData = images.slice(0, 10).map((url, index) => ({
+          original_url: url,
+          stored_url: null, // Will be populated by backfill function
+          index
+        }));
         
-        for (let imgIndex = 0; imgIndex < images.length && imgIndex < 10; imgIndex++) {
-          await randomDelay(200, 500); // Minimal delay between image downloads
-          const supabaseUrl = await downloadAndStoreImage(images[imgIndex], artifactGuid, imgIndex, supabase, source.url);
-          if (supabaseUrl) {
-            imageMap.set(images[imgIndex], supabaseUrl);
-          }
-        }
-        
-        console.log(`✅ Stored ${imageMap.size} images`);
-        
-        // Replace image URLs in markdown content
-        for (const [originalUrl, supabaseUrl] of imageMap.entries()) {
-          finalContent = finalContent.replace(new RegExp(originalUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), supabaseUrl);
-        }
+        console.log(`📋 Stored ${imageData.length} image URLs for later processing`);
         
         fullArticles.push({
           artifactGuid,
           artifactName,
           title: article.title,
-          content: finalContent,
+          content,
           date: article.date,
-          imageCount: imageMap.size,
+          imageCount: imageData.length,
           sourceUrl: article.sourceUrl,
-          images: Array.from(imageMap.entries()).map(([original, stored]) => ({
-            original_url: original,
-            stored_url: stored
-          }))
+          images: imageData
         });
       }
     }
