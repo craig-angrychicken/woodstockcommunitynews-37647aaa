@@ -60,12 +60,16 @@ export const SourceCard = ({
       return;
     }
 
+    // Clean the URL - remove common prefixes
+    let cleanUrl = url.trim();
+    cleanUrl = cleanUrl.replace(/^(URL:\s*|url:\s*)/i, '');
+
     setIsAnalyzing(true);
     setShowAnalysisModal(true);
 
     try {
       const { data, error } = await supabase.functions.invoke('analyze-source', {
-        body: { sourceUrl: url }
+        body: { sourceUrl: cleanUrl }
       });
 
       if (error) throw error;

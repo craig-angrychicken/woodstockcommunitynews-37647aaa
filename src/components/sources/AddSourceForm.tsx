@@ -29,12 +29,21 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
       return;
     }
 
+    // Clean the URL - remove common prefixes that users might type
+    let cleanUrl = url.trim();
+    cleanUrl = cleanUrl.replace(/^(URL:\s*|url:\s*)/i, '');
+    
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      toast.error("Please enter a valid URL starting with http:// or https://");
+      return;
+    }
+
     setIsAnalyzing(true);
     setShowAnalysisModal(true);
 
     try {
       const { data, error } = await supabase.functions.invoke('analyze-source', {
-        body: { sourceUrl: url.trim() }
+        body: { sourceUrl: cleanUrl }
       });
 
       if (error) throw error;
