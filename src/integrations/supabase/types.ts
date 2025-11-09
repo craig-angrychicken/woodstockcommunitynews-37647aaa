@@ -21,6 +21,7 @@ export type Database = {
           date: string | null
           guid: string | null
           id: string
+          images: Json | null
           is_test: boolean
           name: string
           size_mb: number
@@ -34,6 +35,7 @@ export type Database = {
           date?: string | null
           guid?: string | null
           id?: string
+          images?: Json | null
           is_test?: boolean
           name: string
           size_mb?: number
@@ -47,6 +49,7 @@ export type Database = {
           date?: string | null
           guid?: string | null
           id?: string
+          images?: Json | null
           is_test?: boolean
           name?: string
           size_mb?: number

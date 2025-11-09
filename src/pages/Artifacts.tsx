@@ -25,11 +25,12 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
-const countImagesInContent = (content: string | null): number => {
-  if (!content) return 0;
-  // Match markdown image syntax: ![alt](url)
-  const imageMatches = content.match(/!\[.*?\]\(.*?\)/g);
-  return imageMatches ? imageMatches.length : 0;
+const countImages = (artifact: any): number => {
+  if (!artifact.images) return 0;
+  const images = typeof artifact.images === 'string' 
+    ? JSON.parse(artifact.images) 
+    : artifact.images;
+  return Array.isArray(images) ? images.length : 0;
 };
 
 const Artifacts = () => {
@@ -433,7 +434,7 @@ const Artifacts = () => {
                           sourceName={sourceName}
                           isTest={false} // TODO: Determine from related stories
                           storiesCount={artifactUsage.get(artifact.id) || 0}
-                          imageCount={countImagesInContent(artifact.content)}
+                          imageCount={countImages(artifact)}
                           onViewContent={() => handleViewContent(artifact)}
                           onViewStory={() => handleViewStory(artifact.id)}
                           onDelete={() => handleDelete(artifact.id)}

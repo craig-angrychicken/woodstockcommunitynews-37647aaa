@@ -600,7 +600,11 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
           content: finalContent,
           date: article.date,
           imageCount: imageMap.size,
-          sourceUrl: article.sourceUrl
+          sourceUrl: article.sourceUrl,
+          images: Array.from(imageMap.entries()).map(([original, stored]) => ({
+            original_url: original,
+            stored_url: stored
+          }))
         });
       }
     }
@@ -687,7 +691,8 @@ serve(async (req) => {
         size_mb: new Blob([article.content]).size / (1024 * 1024),
         source_id: source.id,
         date: article.date ? new Date(article.date).toISOString() : new Date().toISOString(),
-        is_test: isTest
+        is_test: isTest,
+        images: article.images || []
       }));
 
       const { error: insertError } = await supabase
