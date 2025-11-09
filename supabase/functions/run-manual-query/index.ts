@@ -1318,7 +1318,7 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
         
         // Store image URLs without downloading (to avoid CPU timeout)
         // Images will be downloaded later by the backfill-artifact-images function
-        const imageData = images.slice(0, 10).map((url, index) => ({
+        const imageData = images.slice(0, 1).map((url, index) => ({
           original_url: url,
           stored_url: null, // Will be populated by backfill function
           index
