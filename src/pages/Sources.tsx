@@ -193,9 +193,11 @@ const Sources = () => {
                   lastFetchAt={source.last_fetch_at}
                   itemsFetched={source.items_fetched || 0}
                   status={source.status}
+                  parserConfig={source.parser_config}
                   onEdit={() => handleEdit(source)}
                   onPause={() => handlePause(source)}
                   onRemove={() => handleRemove(source.id)}
+                  onRefresh={() => refetchActive()}
                 />
               ))}
             </div>

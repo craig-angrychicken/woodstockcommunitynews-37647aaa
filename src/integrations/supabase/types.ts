@@ -186,6 +186,7 @@ export type Database = {
           items_fetched: number | null
           last_fetch_at: string | null
           name: string
+          parser_config: Json | null
           status: string
           type: string
           updated_at: string
@@ -197,6 +198,7 @@ export type Database = {
           items_fetched?: number | null
           last_fetch_at?: string | null
           name: string
+          parser_config?: Json | null
           status?: string
           type: string
           updated_at?: string
@@ -208,6 +210,7 @@ export type Database = {
           items_fetched?: number | null
           last_fetch_at?: string | null
           name?: string
+          parser_config?: Json | null
           status?: string
           type?: string
           updated_at?: string

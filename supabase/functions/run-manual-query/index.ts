@@ -377,43 +377,86 @@ function parseWoodstockNews(html: string, sourceUrl: string) {
   return results;
 }
 
-// Helper function to parse generic news pages
+// Helper function to parse generic news pages (Phase 5: Enhanced)
 function parseGenericNews(html: string, sourceUrl: string) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   if (!doc) return [];
 
-  // Try multiple generic selectors
-  const articleSelectors = [
-    'article',
-    '.article',
-    '.news-item',
-    '.post',
-    '[class*="news"]',
-    '[class*="article"]'
+  // Phase 1: Try specific selectors
+  const specificSelectors = [
+    'article', '.article', '.news-item', '.post',
+    '[itemtype*="Article"]', '[class*="news"]',
+    '[class*="post"]', '[id*="news"]'
   ];
 
   let articles: any = [];
-  for (const selector of articleSelectors) {
+  let usedSelector = '';
+  
+  for (const selector of specificSelectors) {
     articles = doc.querySelectorAll(selector);
-    if (articles.length > 0) break;
+    if (articles.length > 0) {
+      usedSelector = selector;
+      console.log(`✅ Found ${articles.length} articles using selector: ${selector}`);
+      break;
+    }
   }
 
+  // Phase 2: If no articles found, look for repeating patterns
+  if (articles.length === 0) {
+    console.log('⚠️ No articles found with specific selectors, trying pattern detection...');
+    const allDivs = doc.querySelectorAll('div[class], li[class]');
+    const classCounts = new Map<string, Element[]>();
+    
+    for (const div of allDivs) {
+      const className = (div as Element).getAttribute('class');
+      if (className && typeof className === 'string') {
+        const classes = className.split(' ')[0]; // Use first class only
+        if (classes && classes.length > 2) {
+          if (!classCounts.has(classes)) {
+            classCounts.set(classes, []);
+          }
+          classCounts.get(classes)!.push(div as Element);
+        }
+      }
+    }
+    
+    // Find classes that appear 3+ times
+    for (const [className, elements] of classCounts) {
+      if (elements.length >= 3) {
+        articles = elements;
+        usedSelector = `.${className}`;
+        console.log(`✅ Found ${articles.length} repeating elements with class: ${className}`);
+        break;
+      }
+    }
+  }
+
+  // Phase 3: Parse each article
   const results = [];
 
   for (const article of articles) {
     const el = article as Element;
     
-    // Try to find title
-    const titleElement = el.querySelector('h1, h2, h3, .title, [class*="title"]');
+    // Try multiple title selectors
+    const titleSelectors = ['h1', 'h2', 'h3', '.title', '[class*="title"]', '[class*="headline"]'];
+    let titleElement = null;
+    for (const selector of titleSelectors) {
+      titleElement = el.querySelector(selector);
+      if (titleElement) break;
+    }
     
     if (titleElement) {
       const title = titleElement.textContent?.trim() || '';
       
-      // Try to find date
-      const dateElement = el.querySelector('time, .date, [class*="date"]');
+      // Try multiple date selectors
+      const dateSelectors = ['time', '.date', '[class*="date"]', '[datetime]', '[class*="published"]'];
+      let dateElement = null;
+      for (const selector of dateSelectors) {
+        dateElement = el.querySelector(selector);
+        if (dateElement) break;
+      }
       const dateText = dateElement?.textContent?.trim() || '';
       
-      // Extract full content HTML from this article element
       const contentHtml = el.outerHTML;
 
       results.push({
@@ -427,6 +470,7 @@ function parseGenericNews(html: string, sourceUrl: string) {
     }
   }
 
+  console.log(`📋 Extracted ${results.length} articles from ${usedSelector || 'unknown selector'}`);
   return results;
 }
 
@@ -481,6 +525,44 @@ function isDateInRange(dateStr: string, dateFrom: string, dateTo: string): boole
   }
 }
 
+// Parse with custom configuration
+function parseWithConfig(html: string, sourceUrl: string, config: any) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (!doc) return [];
+
+  const { selectors } = config;
+  const articles = doc.querySelectorAll(selectors.container);
+  const results = [];
+
+  console.log(`🔧 Using custom parser config with selector: ${selectors.container}`);
+  console.log(`   Found ${articles.length} container elements`);
+
+  for (const article of articles) {
+    const el = article as Element;
+    const titleElement = el.querySelector(selectors.title);
+    const dateElement = selectors.date ? el.querySelector(selectors.date) : null;
+    const linkElement = selectors.link ? el.querySelector(selectors.link) : null;
+
+    if (titleElement) {
+      const title = titleElement.textContent?.trim() || '';
+      const dateText = dateElement?.textContent?.trim() || '';
+      const articleUrl = linkElement?.getAttribute('href') || null;
+      
+      results.push({
+        title,
+        date: dateText,
+        storyId: null,
+        articleUrl,
+        contentHtml: el.outerHTML,
+        sourceUrl
+      });
+    }
+  }
+
+  console.log(`✅ Parsed ${results.length} articles using custom config`);
+  return results;
+}
+
 // Main function to fetch and parse content from a source
 async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string, supabase: any) {
   try {
@@ -498,20 +580,44 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
 
     const html = await response.text();
     let parsedArticles = [];
+    let parserUsed = 'unknown';
 
-    // Parse listing page to extract full article content
-    if (source.url.includes('cherokeecountyga.gov')) {
-      parsedArticles = parseCherokeeCountyNews(html, source.url);
-    } else if (source.url.includes('woodstockga.gov/newslist')) {
-      parsedArticles = parseWoodstockNews(html, source.url);
-    } else if (source.url.includes('/events')) {
-      parsedArticles = parseEvents(html, source.url);
-    } else if (source.url.includes('cherokeecountyfire.org') || 
-               source.url.includes('cherokeek12.net') || 
-               source.url.includes('cherokeega.org')) {
-      parsedArticles = parseGenericNews(html, source.url);
+    // Phase 4: Check if source has parser_config first
+    if (source.parser_config && source.parser_config.selectors) {
+      console.log(`✅ Using custom parser config for ${source.name}`);
+      parsedArticles = parseWithConfig(html, source.url, source.parser_config);
+      parserUsed = 'custom';
     } else {
-      parsedArticles = parseGenericNews(html, source.url);
+      // Fall back to URL-based detection (existing logic)
+      if (source.url.includes('cherokeecountyga.gov')) {
+        parsedArticles = parseCherokeeCountyNews(html, source.url);
+        parserUsed = 'cherokee';
+      } else if (source.url.includes('woodstockga.gov/newslist')) {
+        parsedArticles = parseWoodstockNews(html, source.url);
+        parserUsed = 'woodstock';
+      } else if (source.url.includes('/events')) {
+        parsedArticles = parseEvents(html, source.url);
+        parserUsed = 'events';
+      } else if (source.url.includes('cherokeecountyfire.org') || 
+                 source.url.includes('cherokeek12.net') || 
+                 source.url.includes('cherokeega.org')) {
+        parsedArticles = parseGenericNews(html, source.url);
+        parserUsed = 'generic';
+      } else {
+        parsedArticles = parseGenericNews(html, source.url);
+        parserUsed = 'generic';
+      }
+    }
+
+    console.log(`📊 Parser Results for ${source.name}:`);
+    console.log(`   - Articles found: ${parsedArticles.length}`);
+    console.log(`   - Parser used: ${parserUsed}`);
+    
+    // Phase 4: Diagnostic info for 0 articles
+    if (parsedArticles.length === 0) {
+      console.warn(`⚠️ No articles found for ${source.name}`);
+      console.warn(`   Suggestion: Run source analysis to detect proper selectors`);
+      console.log(`   HTML preview (first 500 chars): ${html.substring(0, 500)}...`);
     }
 
     console.log(`📋 Found ${parsedArticles.length} articles from ${source.name}`);

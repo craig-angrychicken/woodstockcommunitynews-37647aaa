@@ -6,6 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { SourceAnalysisModal } from "./SourceAnalysisModal";
+import { FlaskConical } from "lucide-react";
 
 interface AddSourceFormProps {
   onSuccess: () => void;
@@ -16,6 +18,47 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
   const [url, setUrl] = useState("");
   const [type, setType] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+  const [parserConfig, setParserConfig] = useState<any>(null);
+
+  const handleAnalyze = async () => {
+    if (!url.trim()) {
+      toast.error("Please enter a URL first");
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setShowAnalysisModal(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-source', {
+        body: { sourceUrl: url.trim() }
+      });
+
+      if (error) throw error;
+
+      setAnalysisResult(data);
+      
+      if (data.success) {
+        toast.success("Analysis complete!");
+      } else {
+        toast.error(data.error || "Analysis failed");
+      }
+    } catch (error) {
+      console.error("Error analyzing source:", error);
+      toast.error("Failed to analyze source");
+      setAnalysisResult({ success: false, error: "Failed to analyze source" });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleSaveConfig = (config: any) => {
+    setParserConfig(config);
+    toast.success("Configuration saved! You can now add the source.");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +76,7 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
         type,
         status: "testing",
         items_fetched: 0,
+        parser_config: parserConfig,
       });
 
       if (error) throw error;
@@ -41,6 +85,8 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
       setName("");
       setUrl("");
       setType("");
+      setParserConfig(null);
+      setAnalysisResult(null);
       onSuccess();
     } catch (error) {
       console.error("Error adding source:", error);
@@ -70,13 +116,30 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
             </div>
             <div className="space-y-2">
               <Label htmlFor="url">URL</Label>
-              <Input
-                id="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://example.com/feed"
-                type="url"
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://example.com/feed"
+                  type="url"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleAnalyze}
+                  disabled={!url.trim() || isAnalyzing}
+                >
+                  <FlaskConical className="h-4 w-4 mr-2" />
+                  Analyze
+                </Button>
+              </div>
+              {parserConfig && (
+                <div className="text-sm text-green-600 dark:text-green-400">
+                  ✓ Configuration ready (confidence: {parserConfig.confidence}%)
+                </div>
+              )}
             </div>
           </div>
           <div className="space-y-2">
@@ -102,6 +165,14 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
             </Button>
           </div>
         </form>
+
+        <SourceAnalysisModal
+          open={showAnalysisModal}
+          onOpenChange={setShowAnalysisModal}
+          analysisResult={analysisResult}
+          isAnalyzing={isAnalyzing}
+          onSaveConfig={handleSaveConfig}
+        />
       </CardContent>
     </Card>
   );
