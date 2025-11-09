@@ -92,6 +92,8 @@ serve(async (req) => {
     }
 
     // Parse story content to extract subhead and main content
+    console.log('📄 Raw content received:', content);
+    
     const lines = content.split('\n');
     let subhead = '';
     let byline = '';
@@ -103,17 +105,26 @@ serve(async (req) => {
       
       if (line.startsWith('SUBHEAD:')) {
         subhead = line.replace('SUBHEAD:', '').trim();
+        console.log('✅ Found subhead:', subhead);
       } else if (line.startsWith('BYLINE:')) {
         byline = line.replace('BYLINE:', '').trim();
         inMainContent = true;
+        console.log('✅ Found byline:', byline);
         continue;
       } else if (line.startsWith('SOURCE:')) {
-        // Stop processing when we hit the source line
+        console.log('🛑 Hit SOURCE marker, stopping content extraction');
         break;
       } else if (inMainContent && line.trim()) {
         mainContent += line + '\n';
       }
     }
+
+    console.log('📝 Extracted content:', { 
+      subheadLength: subhead.length, 
+      bylineLength: byline.length, 
+      mainContentLength: mainContent.length,
+      mainContentPreview: mainContent.substring(0, 200)
+    });
 
     // Format content as HTML with proper paragraph tags
     const paragraphs = mainContent
