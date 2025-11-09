@@ -30,6 +30,7 @@ const Prompts = () => {
       const { data, error } = await supabase
         .from("prompt_versions")
         .select("*")
+        .eq("prompt_type", "journalism")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -179,7 +180,7 @@ const Prompts = () => {
                       )}
                     </CardTitle>
                     <CardDescription className="text-xs space-y-1">
-                      <div>Type: {prompt.prompt_type}</div>
+                      
                       <div>Updated: {format(new Date(prompt.updated_at), "MMM d, yyyy")}</div>
                       {prompt.author && <div>By: {prompt.author}</div>}
                     </CardDescription>
@@ -236,7 +237,7 @@ const Prompts = () => {
         open={editModalOpen}
         onOpenChange={setEditModalOpen}
         promptId={selectedPrompt?.id}
-        promptType={selectedPrompt?.prompt_type || "journalism"}
+        
         currentContent={selectedPrompt?.content || ""}
         currentVersionName={selectedPrompt?.version_name || ""}
         isTestDraft={false}
