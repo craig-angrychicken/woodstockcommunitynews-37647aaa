@@ -119,6 +119,52 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
       noSubstantialContent: sampleElements.every(el => {
         const paragraphs = el.querySelectorAll('p');
         return paragraphs.length === 0;
+      }),
+      // NEW: Check if inside navigation/menu structure
+      insideNavigation: sampleElements.some(el => {
+        let parent = el.parentElement;
+        let depth = 0;
+        while (parent && depth < 5) {
+          const tag = parent.tagName?.toLowerCase() || '';
+          const className = parent.getAttribute('class')?.toLowerCase() || '';
+          const id = parent.getAttribute('id')?.toLowerCase() || '';
+          
+          if (tag === 'nav' || 
+              className.includes('menu') || 
+              className.includes('navigation') ||
+              id.includes('menu') || 
+              id.includes('nav')) {
+            return true;
+          }
+          parent = parent.parentElement;
+          depth++;
+        }
+        return false;
+      }),
+      // NEW: Check if items are single links with no content
+      onlySingleLinks: sampleElements.every(el => {
+        const links = el.querySelectorAll('a');
+        const textNodes = Array.from(el.childNodes).filter(node => 
+          node.nodeType === 3 && (node.textContent?.trim().length || 0) > 5
+        );
+        // Navigation: single link, no other significant content
+        return links.length === 1 && textNodes.length === 0;
+      }),
+      // NEW: Check for department/category naming
+      departmentNames: sampleElements.some(el => {
+        const text = (el.textContent?.trim() || '').toLowerCase();
+        const deptPatterns = [
+          'police', 'fire', 'water', 'sewer', 'utility', 'court', 'clerk',
+          'planning', 'zoning', 'development', 'licensing', 'permits',
+          'inspections', 'recreation', 'parks', 'library', 'finance',
+          'human resources', 'it department', 'public works', 'administration'
+        ];
+        return deptPatterns.some(dept => text.includes(dept)) && text.length < 100;
+      }),
+      // NEW: No dates anywhere (news MUST have dates)
+      noDatesAnywhere: sourceUrl.includes('news') && sampleElements.every(el => {
+        const text = el.textContent || '';
+        return !/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2}\/\d{2,4})\b/i.test(text);
       })
     };
     
@@ -346,6 +392,22 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
     if (navigationPatterns.noSubstantialContent) {
       confidence -= 25;
       console.log(`  ⚠️ No paragraphs or substantial content found`);
+    }
+    if (navigationPatterns.insideNavigation) {
+      confidence -= 60;
+      console.log(`  ⚠️ Container is inside navigation/menu structure`);
+    }
+    if (navigationPatterns.onlySingleLinks) {
+      confidence -= 45;
+      console.log(`  ⚠️ Items are single links with no content - typical navigation`);
+    }
+    if (navigationPatterns.departmentNames) {
+      confidence -= 50;
+      console.log(`  ⚠️ Contains department/category names - likely site navigation`);
+    }
+    if (navigationPatterns.noDatesAnywhere) {
+      confidence -= 70;
+      console.log(`  ⚠️ CRITICAL: News page with NO dates found - definitely not articles`);
     }
     
     // ENHANCED ARTICLE PREVIEW LENGTH DETECTION
