@@ -587,6 +587,53 @@ function extractDateFromImageTimestamp(el: Element): string | null {
   return null;
 }
 
+// Helper to parse common date formats from text
+function parseDateFromText(text: string): string | null {
+  // Pattern 1: Month Day, Year (e.g., "October 8, 2025")
+  const monthDayYearPattern = /([A-Z][a-z]+\s+\d{1,2},\s+\d{4})/;
+  const monthMatch = text.match(monthDayYearPattern);
+  if (monthMatch) {
+    try {
+      const parsed = new Date(monthMatch[1]);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString();
+      }
+    } catch (e) {
+      // Continue to next pattern
+    }
+  }
+  
+  // Pattern 2: MM/DD/YYYY
+  const slashPattern = /(\d{1,2}\/\d{1,2}\/\d{4})/;
+  const slashMatch = text.match(slashPattern);
+  if (slashMatch) {
+    try {
+      const parsed = new Date(slashMatch[1]);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString();
+      }
+    } catch (e) {
+      // Continue to next pattern
+    }
+  }
+  
+  // Pattern 3: YYYY-MM-DD
+  const isoPattern = /(\d{4}-\d{2}-\d{2})/;
+  const isoMatch = text.match(isoPattern);
+  if (isoMatch) {
+    try {
+      const parsed = new Date(isoMatch[1]);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString();
+      }
+    } catch (e) {
+      // Continue
+    }
+  }
+  
+  return null;
+}
+
 // Extract date from detail page HTML
 async function extractDateFromDetailPage(articleUrl: string, config: any, sourceUrl: string): Promise<string | null> {
   try {
@@ -600,6 +647,20 @@ async function extractDateFromDetailPage(articleUrl: string, config: any, source
     if (!response.ok) {
       console.log(`   ⚠️ Failed to fetch detail page: ${response.status}`);
       return null;
+    }
+    
+    // Fallback A: Try Last-Modified header
+    const lastModified = response.headers.get('last-modified');
+    if (lastModified) {
+      try {
+        const parsed = new Date(lastModified);
+        if (!isNaN(parsed.getTime())) {
+          console.log(`   📅 Found date via Last-Modified header: ${lastModified}`);
+          return parsed.toISOString();
+        }
+      } catch (e) {
+        // Continue to other methods
+      }
     }
     
     const html = await response.text();
@@ -624,6 +685,8 @@ async function extractDateFromDetailPage(articleUrl: string, config: any, source
       'time[datetime]',
       'meta[property*="published_time"]',
       'meta[property*="article:published"]',
+      'meta[name*="publish"]',
+      'meta[itemprop*="datePublished"]',
       '.date',
       '[class*="date"]',
       '[class*="published"]',
@@ -643,7 +706,43 @@ async function extractDateFromDetailPage(articleUrl: string, config: any, source
       }
     }
     
-    console.log(`   ⚠️ No date found on detail page`);
+    // Fallback B: Try regex on visible text
+    // Look for main content first
+    const contentSelectors = ['main', '#main', '[id*="content"]', '[class*="content"]', 'article', '.article'];
+    let textToSearch = '';
+    
+    for (const selector of contentSelectors) {
+      const contentEl = doc.querySelector(selector);
+      if (contentEl) {
+        textToSearch = contentEl.textContent?.substring(0, 2000) || ''; // First 2000 chars
+        break;
+      }
+    }
+    
+    // Fallback to body if no content container found
+    if (!textToSearch) {
+      textToSearch = doc.body?.textContent?.substring(0, 2000) || '';
+    }
+    
+    if (textToSearch) {
+      const dateFromText = parseDateFromText(textToSearch);
+      if (dateFromText) {
+        console.log(`   📅 Found date via body text regex`);
+        return dateFromText;
+      }
+    }
+    
+    // Fallback C: Image timestamp heuristic from detail page
+    const allElements = doc.querySelectorAll('[style*="background"]');
+    for (const el of allElements) {
+      const dateFromImage = extractDateFromImageTimestamp(el as Element);
+      if (dateFromImage) {
+        console.log(`   📅 Found date via image timestamp on detail page`);
+        return dateFromImage;
+      }
+    }
+    
+    console.log(`   ⚠️ No date found after all strategies`);
     return null;
   } catch (error) {
     console.log(`   ⚠️ Error fetching detail page:`, error);
