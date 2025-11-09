@@ -132,7 +132,7 @@ ${a.image_url ? `Image: ${a.image_url}` : ""}
         )
         .join("\n\n");
 
-      const fullPrompt = `${promptVersion.prompt_text}
+      const fullPrompt = `${promptVersion.content}
 
 ## Artifacts to synthesize:
 ${artifactSummaries}

@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -32,7 +31,6 @@ export const EditPromptModal = ({
   const [content, setContent] = useState(currentContent);
   const [updateNotes, setUpdateNotes] = useState("");
   const [versionName, setVersionName] = useState(currentVersionName);
-  const [selectedType, setSelectedType] = useState(promptType);
   const [isSaving, setIsSaving] = useState(false);
 
   const isCreating = !promptId;
@@ -60,7 +58,7 @@ export const EditPromptModal = ({
         const { error } = await supabase.from("prompt_versions").insert({
           version_name: versionName,
           content,
-          prompt_type: selectedType,
+          prompt_type: "journalism",
           is_active: false,
           is_test_draft: false,
           update_notes: updateNotes || "Initial version",
@@ -89,7 +87,7 @@ export const EditPromptModal = ({
         const { error } = await supabase.from("prompt_versions").insert({
           version_name: versionName,
           content,
-          prompt_type: selectedType,
+          prompt_type: "journalism",
           is_active: false,
           is_test_draft: true,
           update_notes: updateNotes,
@@ -131,21 +129,6 @@ export const EditPromptModal = ({
               placeholder="e.g., Journalism v1.0"
             />
           </div>
-          
-          {isCreating && (
-            <div>
-              <Label htmlFor="promptType">Prompt Type *</Label>
-              <Select value={selectedType} onValueChange={setSelectedType}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="journalism">Journalism</SelectItem>
-                  <SelectItem value="retrieval">Retrieval</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
           
           <div>
             <Label htmlFor="content">Prompt Content *</Label>
