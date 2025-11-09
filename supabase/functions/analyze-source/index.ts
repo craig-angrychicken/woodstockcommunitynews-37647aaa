@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { DOMParser, Element } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
+import { launch } from "jsr:@astral/astral";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -643,36 +644,45 @@ serve(async (req) => {
     }
 
     console.log(`\n🌐 Analyzing source: ${sourceUrl}`);
+    console.log('🚀 Launching browser to render JavaScript...');
 
-    // Fetch HTML
-    const response = await fetch(sourceUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)'
-      }
-    });
-
-    if (!response.ok) {
+    let browser;
+    try {
+      // Launch headless browser
+      browser = await launch({ headless: true });
+      
+      // Create new page and navigate
+      const page = await browser.newPage(sourceUrl);
+      
+      // Wait for network to be idle (content fully loaded)
+      console.log('⏳ Waiting for page to fully load...');
+      await page.waitForNetworkIdle({ 
+        idleConnections: 0, 
+        idleTime: 2000,
+        timeout: 30000
+      });
+      
+      // Get the fully rendered HTML
+      const html = await page.evaluate(() => document.documentElement.outerHTML);
+      console.log(`✅ Rendered ${html.length} characters of HTML`);
+      
+      // Analyze the rendered HTML
+      const result = analyzeHtmlStructure(html, sourceUrl);
+      
       return new Response(
-        JSON.stringify({ 
-          success: false,
-          error: `Failed to fetch URL: ${response.status} ${response.statusText}` 
-        }),
+        JSON.stringify(result),
         {
-          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         }
       );
-    }
-
-    const html = await response.text();
-    const result = analyzeHtmlStructure(html, sourceUrl);
-
-    return new Response(
-      JSON.stringify(result),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      
+    } finally {
+      // Always close browser to free memory
+      if (browser) {
+        await browser.close();
+        console.log('🔒 Browser closed');
       }
-    );
+    }
 
   } catch (error) {
     console.error('Error in analyze-source:', error);
