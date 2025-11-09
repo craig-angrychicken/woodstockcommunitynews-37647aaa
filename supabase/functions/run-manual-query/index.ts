@@ -577,6 +577,19 @@ function parseWithConfig(html: string, sourceUrl: string, config: any) {
       
       // Fallback: Look for date patterns in direct children if no selector matched
       if (!dateText) {
+        // Log HTML structure for debugging (only for first article)
+        if (results.length === 0) {
+          console.log(`\n🔍 DEBUG: No date found for "${title.substring(0, 40)}..."`);
+          console.log(`📋 HTML structure of article container (${selectors.container}):`);
+          console.log(el.outerHTML.substring(0, 1000));
+          console.log(`\n🔍 Direct children of container:`);
+          Array.from(el.children).forEach((child, idx) => {
+            const childEl = child as Element;
+            console.log(`  [${idx}] <${childEl.tagName.toLowerCase()}${childEl.className ? ` class="${childEl.className}"` : ''}${childEl.id ? ` id="${childEl.id}"` : ''}>`);
+            console.log(`      Text: "${childEl.textContent?.trim().substring(0, 100)}"`);
+          });
+        }
+        
         const directChildren = Array.from(el.children);
         for (const child of directChildren) {
           const text = (child as Element).textContent?.trim() || '';
