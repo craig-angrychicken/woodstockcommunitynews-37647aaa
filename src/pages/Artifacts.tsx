@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, Search, FileText, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Search, FileText, Trash2, RefreshCw } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -174,6 +174,25 @@ const Artifacts = () => {
     setBulkDeleteDialogOpen(true);
   };
 
+  // Backfill images mutation
+  const backfillImagesMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('backfill-artifact-images', {
+        body: {}
+      });
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['artifacts'] });
+      toast.success(data.message || `Updated ${data.updatedCount} artifacts`);
+    },
+    onError: (error: any) => {
+      toast.error(`Failed to backfill images: ${error.message}`);
+    }
+  });
+
   // Get usage count for each artifact
   const artifactUsage = useMemo(() => {
     const usage = new Map<string, number>();
@@ -288,16 +307,26 @@ const Artifacts = () => {
             Showing {filteredArtifacts.length} of {artifacts?.length || 0} artifacts
           </p>
         </div>
-        {environmentFilter === "test" && testArtifactsCount > 0 && (
+        <div className="flex gap-2">
           <Button
-            variant="destructive"
-            onClick={handleBulkDelete}
-            disabled={bulkDeleteMutation.isPending}
+            variant="outline"
+            onClick={() => backfillImagesMutation.mutate()}
+            disabled={backfillImagesMutation.isPending}
           >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete All Test Data ({testArtifactsCount})
+            <RefreshCw className={`h-4 w-4 mr-2 ${backfillImagesMutation.isPending ? 'animate-spin' : ''}`} />
+            {backfillImagesMutation.isPending ? 'Processing...' : 'Backfill Images'}
           </Button>
-        )}
+          {environmentFilter === "test" && testArtifactsCount > 0 && (
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={bulkDeleteMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete All Test Data ({testArtifactsCount})
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filter Bar */}

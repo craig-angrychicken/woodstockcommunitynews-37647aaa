@@ -2,3 +2,6 @@ project_id = "xuikcvxwgwqyeulflitn"
 
 [functions.run-manual-query]
 verify_jwt = false
+
+[functions.backfill-artifact-images]
+verify_jwt = false
