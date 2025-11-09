@@ -552,6 +552,160 @@ function normalizeUrl(url: string, baseUrl: string): string {
   }
 }
 
+// Extract date from background image timestamp (e.g., t=202511071254300)
+function extractDateFromImageTimestamp(el: Element): string | null {
+  try {
+    const style = el.getAttribute('style') || '';
+    const urlMatch = style.match(/background[^:]*:url\(['"]?([^'")]+)['"]?\)/);
+    if (!urlMatch) return null;
+    
+    const url = urlMatch[1];
+    const timestampMatch = url.match(/[?&]t=(\d{8,})/);
+    if (!timestampMatch) return null;
+    
+    const timestamp = timestampMatch[1];
+    // Parse YYYYMMDD[HHmmss]
+    if (timestamp.length >= 8) {
+      const year = timestamp.substring(0, 4);
+      const month = timestamp.substring(4, 6);
+      const day = timestamp.substring(6, 8);
+      const hour = timestamp.length >= 10 ? timestamp.substring(8, 10) : '00';
+      const minute = timestamp.length >= 12 ? timestamp.substring(10, 12) : '00';
+      const second = timestamp.length >= 14 ? timestamp.substring(12, 14) : '00';
+      
+      const dateStr = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+      const date = new Date(dateStr);
+      
+      if (!isNaN(date.getTime())) {
+        console.log(`   📅 Found date via image timestamp: ${date.toISOString()}`);
+        return date.toISOString();
+      }
+    }
+  } catch (error) {
+    console.log(`   ⚠️ Error parsing image timestamp:`, error);
+  }
+  return null;
+}
+
+// Extract date from detail page HTML
+async function extractDateFromDetailPage(articleUrl: string, config: any, sourceUrl: string): Promise<string | null> {
+  try {
+    console.log(`   📡 Fetching detail page for date: ${articleUrl}`);
+    const response = await fetch(articleUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)'
+      }
+    });
+    
+    if (!response.ok) {
+      console.log(`   ⚠️ Failed to fetch detail page: ${response.status}`);
+      return null;
+    }
+    
+    const html = await response.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    if (!doc) return null;
+    
+    // Try custom selector first if provided
+    const customSelector = config?.detailPage?.date;
+    if (customSelector) {
+      const dateEl = doc.querySelector(customSelector);
+      if (dateEl) {
+        const dateText = dateEl.textContent?.trim() || dateEl.getAttribute('datetime') || dateEl.getAttribute('content') || '';
+        if (dateText) {
+          console.log(`   📅 Found detail page date via custom selector "${customSelector}": ${dateText}`);
+          return dateText;
+        }
+      }
+    }
+    
+    // Robust default selectors
+    const defaultSelectors = [
+      'time[datetime]',
+      'meta[property*="published_time"]',
+      'meta[property*="article:published"]',
+      '.date',
+      '[class*="date"]',
+      '[class*="published"]',
+      '[itemprop*="datePublished"]'
+    ];
+    
+    for (const selector of defaultSelectors) {
+      const dateEl = doc.querySelector(selector);
+      if (dateEl) {
+        const dateText = dateEl.getAttribute('datetime') || 
+                        dateEl.getAttribute('content') || 
+                        dateEl.textContent?.trim() || '';
+        if (dateText && dateText.length > 0 && dateText.length < 100) {
+          console.log(`   📅 Found detail page date via "${selector}": ${dateText}`);
+          return dateText;
+        }
+      }
+    }
+    
+    console.log(`   ⚠️ No date found on detail page`);
+    return null;
+  } catch (error) {
+    console.log(`   ⚠️ Error fetching detail page:`, error);
+    return null;
+  }
+}
+
+// Enrich articles with dates from detail pages
+async function enrichArticleDatesByDetailPage(
+  articles: any[], 
+  config: any, 
+  sourceUrl: string, 
+  maxToEnrich: number,
+  supabase: any,
+  historyId?: string
+): Promise<void> {
+  const undatedArticles = articles.filter(a => !a.date);
+  const toEnrich = undatedArticles.slice(0, Math.min(undatedArticles.length, maxToEnrich));
+  
+  if (toEnrich.length === 0) {
+    console.log(`✅ All articles already have dates, no enrichment needed`);
+    return;
+  }
+  
+  console.log(`🔄 Enriching dates for ${toEnrich.length} articles (max: ${maxToEnrich})...`);
+  
+  for (let i = 0; i < toEnrich.length; i++) {
+    const article = toEnrich[i];
+    
+    // Check cancellation
+    if (historyId) {
+      const { data: statusCheck } = await supabase
+        .from('query_history')
+        .select('status')
+        .eq('id', historyId)
+        .single();
+      
+      if (statusCheck?.status === 'failed') {
+        console.log('⚠️ Query cancelled during date enrichment');
+        return;
+      }
+    }
+    
+    // Try to fetch date from detail page
+    if (article.articleUrl) {
+      const detailDate = await extractDateFromDetailPage(article.articleUrl, config, sourceUrl);
+      if (detailDate) {
+        article.date = detailDate;
+        console.log(`   ✅ Enriched date for "${article.title.substring(0, 40)}..."`);
+      }
+    }
+    
+    // Small delay between requests
+    if (i < toEnrich.length - 1) {
+      await sleep(Math.floor(Math.random() * 300) + 200); // 200-500ms
+    }
+  }
+  
+  const enrichedCount = toEnrich.filter(a => a.date).length;
+  console.log(`✅ Date enrichment complete: ${enrichedCount}/${toEnrich.length} articles now have dates`);
+}
+
 // Parse with custom configuration
 function parseWithConfig(html: string, sourceUrl: string, config: any) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -575,21 +729,13 @@ function parseWithConfig(html: string, sourceUrl: string, config: any) {
       const title = titleElement.textContent?.trim() || '';
       let dateText = dateElement?.textContent?.trim() || '';
       
-      // Fallback: Look for date patterns in direct children if no selector matched
+      // Try image timestamp heuristic if no date found
       if (!dateText) {
-        // Log HTML structure for debugging (only for first article)
-        if (results.length === 0) {
-          console.log(`\n🔍 DEBUG: No date found for "${title.substring(0, 40)}..."`);
-          console.log(`📋 HTML structure of article container (${selectors.container}):`);
-          console.log(el.outerHTML.substring(0, 1000));
-          console.log(`\n🔍 Direct children of container:`);
-          Array.from(el.children).forEach((child, idx) => {
-            const childEl = child as Element;
-            console.log(`  [${idx}] <${childEl.tagName.toLowerCase()}${childEl.className ? ` class="${childEl.className}"` : ''}${childEl.id ? ` id="${childEl.id}"` : ''}>`);
-            console.log(`      Text: "${childEl.textContent?.trim().substring(0, 100)}"`);
-          });
-        }
-        
+        dateText = extractDateFromImageTimestamp(el) || '';
+      }
+      
+      // Fallback: Look for date patterns in direct children
+      if (!dateText) {
         const directChildren = Array.from(el.children);
         for (const child of directChildren) {
           const text = (child as Element).textContent?.trim() || '';
@@ -600,11 +746,21 @@ function parseWithConfig(html: string, sourceUrl: string, config: any) {
             break;
           }
         }
-      } else {
+      }
+      
+      if (dateText) {
         console.log(`   📅 Found date "${dateText}" for "${title.substring(0, 40)}..."`);
       }
       
+      // Link fallback: use container's href if no linkElement found
       let articleUrl = linkElement?.getAttribute('href') || null;
+      if (!articleUrl && el.tagName.toLowerCase() === 'a') {
+        articleUrl = el.getAttribute('href') || null;
+        if (articleUrl) {
+          console.log(`   🔗 Using container href as link for "${title.substring(0, 40)}..."`);
+        }
+      }
+      
       if (articleUrl) {
         articleUrl = normalizeUrl(articleUrl, sourceUrl);
       }
@@ -683,7 +839,18 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
 
     console.log(`📋 Found ${parsedArticles.length} articles from ${source.name}`);
     
-    // ⚡ CRITICAL: Filter by date IMMEDIATELY, BEFORE expensive operations
+    // ⚡ NEW: Enrich dates from detail pages BEFORE date filtering
+    const enrichCap = maxArticles || 15;
+    await enrichArticleDatesByDetailPage(
+      parsedArticles, 
+      source.parser_config, 
+      source.url, 
+      enrichCap,
+      supabase,
+      historyId
+    );
+    
+    // NOW apply date filtering after enrichment
     console.log(`🔍 Filtering articles by date range (${dateFrom} to ${dateTo})...`);
     const dateFilteredArticles = parsedArticles.filter(article => {
       if (!article.date) {
