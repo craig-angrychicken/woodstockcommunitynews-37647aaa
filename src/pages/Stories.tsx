@@ -198,7 +198,8 @@ const Stories = () => {
         {
           status: 'published',
           tags: [],
-          featured: false
+          featured: false,
+          ghostUrl: storyToPublish.ghost_url || undefined // Pass existing URL for updates
         }
       );
       
@@ -213,13 +214,13 @@ const Stories = () => {
         });
         
         toast({
-          title: "Published to Ghost!",
+          title: storyToPublish.ghost_url ? "Updated on Ghost!" : "Published to Ghost!",
           description: result.url ? (
             <a href={result.url} target="_blank" rel="noopener noreferrer" 
                className="text-primary hover:underline">
               View on Ghost →
             </a>
-          ) : "Story published successfully"
+          ) : (storyToPublish.ghost_url ? "Story updated successfully" : "Story published successfully")
         });
         
         setShowDetailModal(false);

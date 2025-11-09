@@ -25,6 +25,7 @@ export async function publishToGhost(
     tags?: string[];
     featured?: boolean;
     excerpt?: string;
+    ghostUrl?: string; // Optional: URL of existing Ghost post to update
   }
 ): Promise<{ success: boolean; postId?: string; url?: string }> {
   try {
@@ -38,6 +39,7 @@ export async function publishToGhost(
         tags: options?.tags,
         featured: options?.featured || false,
         excerpt: options?.excerpt,
+        ghostUrl: options?.ghostUrl, // Pass existing URL for updates
       },
     });
 
@@ -53,7 +55,7 @@ export async function publishToGhost(
       return { success: false };
     }
 
-    toast.success("Story published to Ghost successfully!");
+    toast.success(options?.ghostUrl ? "Story updated on Ghost!" : "Story published to Ghost successfully!");
 
     return {
       success: true,

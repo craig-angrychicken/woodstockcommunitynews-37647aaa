@@ -80,9 +80,9 @@ serve(async (req) => {
   }
 
   try {
-    const { title, content, status, tags, featured, excerpt } = await req.json();
+    const { title, content, status, tags, featured, excerpt, ghostUrl } = await req.json();
 
-    console.log('📝 Publishing to Ghost:', { title, status: status || 'draft' });
+    console.log('📝 Publishing to Ghost:', { title, status: status || 'draft', isUpdate: !!ghostUrl });
 
     const ghostApiKey = Deno.env.get('GHOST_ADMIN_API_KEY');
     const ghostApiUrl = Deno.env.get('GHOST_API_URL');
@@ -135,6 +135,39 @@ serve(async (req) => {
     // Generate JWT token
     const token = await generateGhostToken(ghostApiKey);
 
+    // Extract post ID from ghostUrl if updating
+    let postId = null;
+    let method = 'POST';
+    let endpoint = `${ghostApiUrl}/ghost/api/admin/posts/`;
+    
+    if (ghostUrl) {
+      // Extract slug from URL (last part of path before query/hash)
+      const urlParts = ghostUrl.split('/').filter((p: string) => p);
+      const slug = urlParts[urlParts.length - 1].split('?')[0].split('#')[0];
+      
+      // Get the post by slug to find its ID
+      const getResponse = await fetch(`${ghostApiUrl}/ghost/api/admin/posts/slug/${slug}/`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Ghost ${token}`,
+          'Content-Type': 'application/json',
+          'Accept-Version': 'v5.0',
+        },
+      });
+      
+      if (getResponse.ok) {
+        const getResult = await getResponse.json();
+        postId = getResult.posts[0]?.id;
+        if (postId) {
+          method = 'PUT';
+          endpoint = `${ghostApiUrl}/ghost/api/admin/posts/${postId}/`;
+          console.log('🔄 Updating existing post:', postId);
+        }
+      } else {
+        console.warn('⚠️ Could not find existing post, will create new one');
+      }
+    }
+
     // Prepare post data
     const postData = {
       posts: [{
@@ -149,9 +182,9 @@ serve(async (req) => {
 
     console.log('🔑 Making request to Ghost API');
 
-    // Make request to Ghost API
-    const response = await fetch(`${ghostApiUrl}/ghost/api/admin/posts/`, {
-      method: 'POST',
+    // Make request to Ghost API (POST for create, PUT for update)
+    const response = await fetch(endpoint, {
+      method,
       headers: {
         'Authorization': `Ghost ${token}`,
         'Content-Type': 'application/json',
@@ -169,7 +202,7 @@ serve(async (req) => {
     const result = await response.json();
     const post = result.posts[0];
 
-    console.log('✅ Post published successfully:', post.id);
+    console.log(method === 'PUT' ? '✅ Post updated successfully:' : '✅ Post published successfully:', post.id);
 
     return new Response(
       JSON.stringify({
