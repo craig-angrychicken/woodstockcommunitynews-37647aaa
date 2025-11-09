@@ -156,6 +156,35 @@ function pickFromSrcset(srcset: string): string | null {
   return last || null;
 }
 
+// Clean up messy titles from Finalsite and other sources
+function cleanTitle(raw: string): string {
+  return (raw || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^read\s+more\s+about\s+/i, '')
+    .replace(/^read\s+more\b/i, '')
+    .replace(/^\:+/, '')
+    .replace(/…$/, '')
+    .replace(/\.$/, '')
+    .trim();
+}
+
+// Deduplicate articles by URL or normalized title
+function dedupeArticles(articles: any[]): any[] {
+  const byKey = new Map<string, any>();
+  for (const a of articles) {
+    const key = (a.articleUrl ? a.articleUrl.split('#')[0] : cleanTitle(a.title).toLowerCase());
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, a);
+    } else {
+      // Prefer the one that has a usable URL (so we can fetch the full article)
+      if (!existing.articleUrl && a.articleUrl) byKey.set(key, a);
+    }
+  }
+  return Array.from(byKey.values());
+}
+
 // Extract full article content from article page HTML
 function extractFullArticleContent(html: string, baseUrl: string, customSelectors?: string | string[]): { content: string; images: string[] } {
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -1002,6 +1031,9 @@ function parseWithConfig(html: string, sourceUrl: string, config: any) {
 
     // Skip if still no title
     if (!title) continue;
+    
+    // Clean up title
+    title = cleanTitle(title);
 
     let dateText = dateElement?.textContent?.trim() || '';
     
@@ -1115,6 +1147,11 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
     }
 
     console.log(`📋 Found ${parsedArticles.length} articles from ${source.name}`);
+    
+    // Deduplicate articles
+    const beforeDedup = parsedArticles.length;
+    parsedArticles = dedupeArticles(parsedArticles);
+    console.log(`🧹 Deduped articles: ${parsedArticles.length} (from ${beforeDedup})`);
     
     // ⚡ NEW: Enrich dates from detail pages BEFORE date filtering
     const enrichCap = maxArticles || 15;
