@@ -11,3 +11,9 @@ verify_jwt = false
 
 [functions.analyze-source]
 verify_jwt = false
+
+[functions.scheduled-fetch-artifacts]
+verify_jwt = false
+
+[functions.scheduled-run-journalism]
+verify_jwt = false
