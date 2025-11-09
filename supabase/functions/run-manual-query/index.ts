@@ -120,6 +120,33 @@ function extractStoryId(titleElement: Element | null, parentElement: Element): s
   return null;
 }
 
+// Helper to extract URLs from CSS background properties
+function extractUrlsFromCssBackground(styleString: string): string[] {
+  const urls: string[] = [];
+  
+  // Match url(...) patterns, handling quotes and no quotes
+  const urlPattern = /url\s*\(\s*['"]?([^'"()]+)['"]?\s*\)/gi;
+  let match;
+  
+  while ((match = urlPattern.exec(styleString)) !== null) {
+    const url = match[1].trim();
+    
+    // Skip data URIs, gradients, and common non-content images
+    if (url.startsWith('data:') || 
+        url.includes('gradient') ||
+        url.includes('logo') ||
+        url.includes('icon') ||
+        url.includes('sprite') ||
+        url.includes('banner')) {
+      continue;
+    }
+    
+    urls.push(url);
+  }
+  
+  return urls;
+}
+
 // Extract full article content from article page HTML
 function extractFullArticleContent(html: string, baseUrl: string): { content: string; images: string[] } {
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -168,9 +195,10 @@ function extractFullArticleContent(html: string, baseUrl: string): { content: st
     return { content: '', images: [] };
   }
   
-  // Extract images
+  // Extract images from <img> tags
   const images: string[] = [];
   const imgElements = contentElement.querySelectorAll('img');
+  const imgCount = imgElements.length;
   for (const img of imgElements) {
     const src = (img as Element).getAttribute('src');
     if (src && !src.includes('logo') && !src.includes('icon') && !src.includes('sprite')) {
@@ -178,12 +206,24 @@ function extractFullArticleContent(html: string, baseUrl: string): { content: st
     }
   }
   
+  // Extract images from CSS background properties
+  const elementsWithBackground = contentElement.querySelectorAll('[style*="background"]');
+  for (const el of elementsWithBackground) {
+    const style = (el as Element).getAttribute('style') || '';
+    const backgroundUrls = extractUrlsFromCssBackground(style);
+    images.push(...backgroundUrls);
+  }
+  
+  // Deduplicate images
+  const uniqueImages = Array.from(new Set(images));
+  const cssBackgroundCount = images.length - imgCount;
+  
   // Convert to markdown
   const content = htmlToMarkdown(contentElement.innerHTML);
   
-  console.log(`  📄 Extracted ${content.length} chars, ${images.length} images`);
+  console.log(`  📄 Extracted ${content.length} chars, ${imgCount} <img> tags, ${cssBackgroundCount} CSS backgrounds, ${uniqueImages.length} total unique images`);
   
-  return { content, images };
+  return { content, images: uniqueImages };
 }
 
 // Download image and store in Supabase
@@ -268,7 +308,7 @@ function extractContentFromHtml(htmlFragment: string): { content: string; images
   const doc = new DOMParser().parseFromString(htmlFragment, 'text/html');
   if (!doc) return { content: '', images: [] };
   
-  // Extract images
+  // Extract images from <img> tags
   const images: string[] = [];
   const imgElements = doc.querySelectorAll('img');
   for (const img of imgElements) {
@@ -278,11 +318,22 @@ function extractContentFromHtml(htmlFragment: string): { content: string; images
     }
   }
   
+  // Extract images from CSS background properties
+  const elementsWithBackground = doc.querySelectorAll('[style*="background"]');
+  for (const el of elementsWithBackground) {
+    const style = (el as Element).getAttribute('style') || '';
+    const backgroundUrls = extractUrlsFromCssBackground(style);
+    images.push(...backgroundUrls);
+  }
+  
+  // Deduplicate images
+  const uniqueImages = Array.from(new Set(images));
+  
   // Extract content - use the entire fragment
   const htmlContent = doc.body?.innerHTML || htmlFragment;
   const markdownContent = htmlToMarkdown(htmlContent);
   
-  return { content: markdownContent, images };
+  return { content: markdownContent, images: uniqueImages };
 }
 
 // Helper function to parse Cherokee County style news pages
