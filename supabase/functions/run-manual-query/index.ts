@@ -568,8 +568,9 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
       }
       
       if (content) {
-        // Generate unique artifact ID for this article
-        const artifactId = `${source.name.replace(/\s+/g, '-')}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        // Generate UUID for artifact GUID and readable name
+        const artifactGuid = crypto.randomUUID();
+        const artifactName = `${source.name.replace(/\s+/g, '-')}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         
         console.log(`📄 Content length: ${content.length} chars, Images found: ${images.length}`);
         
@@ -579,7 +580,7 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
         
         for (let imgIndex = 0; imgIndex < images.length && imgIndex < 10; imgIndex++) {
           await randomDelay(1000, 2000); // Small delay between image downloads
-          const supabaseUrl = await downloadAndStoreImage(images[imgIndex], artifactId, imgIndex, supabase, source.url);
+          const supabaseUrl = await downloadAndStoreImage(images[imgIndex], artifactGuid, imgIndex, supabase, source.url);
           if (supabaseUrl) {
             imageMap.set(images[imgIndex], supabaseUrl);
           }
@@ -593,7 +594,8 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
         }
         
         fullArticles.push({
-          artifactId,
+          artifactGuid,
+          artifactName,
           title: article.title,
           content: finalContent,
           date: article.date,
@@ -677,7 +679,8 @@ serve(async (req) => {
 
       // Create artifacts from filtered articles
       const artifactsToInsert = filteredArticles.map(article => ({
-        name: article.artifactId,
+        guid: article.artifactGuid,
+        name: article.artifactName,
         title: article.title,
         type: source.type,
         content: article.content,
