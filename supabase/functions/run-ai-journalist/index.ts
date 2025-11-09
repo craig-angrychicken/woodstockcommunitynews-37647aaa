@@ -71,17 +71,38 @@ Deno.serve(async (req) => {
       artifactsQuery = artifactsQuery.eq("is_test", false);
     }
 
-    if (maxArtifacts && (!artifactIds || artifactIds.length === 0)) {
-      artifactsQuery = artifactsQuery.limit(maxArtifacts);
+    // Get all artifact IDs that are already used in stories
+    const { data: usedArtifacts, error: usedError } = await supabase
+      .from('story_artifacts')
+      .select('artifact_id');
+
+    if (usedError) {
+      console.error('⚠️ Error fetching used artifacts:', usedError);
+      // Continue anyway - better to process duplicates than fail completely
     }
 
-    const { data: artifacts, error: artifactsError } = await artifactsQuery;
+    const usedArtifactIds = new Set(usedArtifacts?.map(sa => sa.artifact_id) || []);
+    console.log(`📊 Found ${usedArtifactIds.size} artifacts already used in stories`);
+
+    // Fetch artifacts without applying maxArtifacts limit yet (we'll apply it after filtering)
+    const { data: allArtifacts, error: artifactsError } = await artifactsQuery;
 
     if (artifactsError) {
       throw new Error(`Failed to fetch artifacts: ${artifactsError.message}`);
     }
 
-    console.log(`Found ${artifacts?.length || 0} artifacts to process`);
+    // Filter out artifacts that are already used in stories
+    let artifacts = allArtifacts?.filter(a => !usedArtifactIds.has(a.id)) || [];
+
+    // Apply maxArtifacts limit AFTER filtering (only if not using specific artifact IDs)
+    if (maxArtifacts && (!artifactIds || artifactIds.length === 0) && artifacts.length > maxArtifacts) {
+      artifacts = artifacts.slice(0, maxArtifacts);
+    }
+
+    console.log(`📊 Artifact filtering results:`);
+    console.log(`  - Total artifacts in query range: ${allArtifacts?.length || 0}`);
+    console.log(`  - Already used (filtered out): ${(allArtifacts?.length || 0) - artifacts.length}`);
+    console.log(`  - Available for processing: ${artifacts.length}`);
 
     if (!artifacts || artifacts.length === 0) {
       await supabase
