@@ -15,6 +15,7 @@ interface EditPromptModalProps {
   currentContent?: string;
   currentVersionName?: string;
   isTestDraft?: boolean;
+  editMode?: "direct" | "new_version";
   onSuccess: () => void;
 }
 
@@ -26,6 +27,7 @@ export const EditPromptModal = ({
   currentContent = "",
   currentVersionName = "",
   isTestDraft = false,
+  editMode = "new_version",
   onSuccess,
 }: EditPromptModalProps) => {
   const [content, setContent] = useState(currentContent);
@@ -68,6 +70,20 @@ export const EditPromptModal = ({
 
         if (error) throw error;
         toast.success("Prompt created successfully");
+      } else if (editMode === "direct") {
+        // Direct edit - update the existing prompt in place
+        const { error } = await supabase
+          .from("prompt_versions")
+          .update({
+            content,
+            version_name: versionName,
+            update_notes: updateNotes,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", promptId);
+
+        if (error) throw error;
+        toast.success("Prompt updated successfully");
       } else if (isTestDraft) {
         // Update existing test draft
         const { error } = await supabase
@@ -116,7 +132,7 @@ export const EditPromptModal = ({
       <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {isCreating ? "Create New Prompt" : isTestDraft ? "Edit Prompt" : "Create New Version"}
+            {isCreating ? "Create New Prompt" : editMode === "direct" ? "Edit Prompt" : isTestDraft ? "Edit Test Draft" : "Create New Version"}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
@@ -159,7 +175,7 @@ export const EditPromptModal = ({
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={isSaving}>
-              {isSaving ? "Saving..." : isCreating ? "Create Prompt" : "Save Changes"}
+              {isSaving ? "Saving..." : isCreating ? "Create Prompt" : editMode === "direct" ? "Save Changes" : "Create Version"}
             </Button>
           </div>
         </div>

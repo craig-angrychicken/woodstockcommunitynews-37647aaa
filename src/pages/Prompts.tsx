@@ -17,6 +17,9 @@ const Prompts = () => {
   const [selectedPrompt, setSelectedPrompt] = useState<any>(null);
   const [promptToDelete, setPromptToDelete] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [editMode, setEditMode] = useState<"direct" | "new_version">("direct");
+  const [editConfirmOpen, setEditConfirmOpen] = useState(false);
+  const [pendingEdit, setPendingEdit] = useState<{ prompt: any; mode: "direct" | "new_version" } | null>(null);
 
   // Fetch all prompts
   const {
@@ -70,10 +73,18 @@ const Prompts = () => {
     }
   };
 
-  const handleEdit = (prompt: any) => {
-    setSelectedPrompt(prompt);
-    setIsCreating(false);
-    setEditModalOpen(true);
+  const handleEdit = (prompt: any, mode: "direct" | "new_version") => {
+    if (mode === "direct" && prompt.is_active) {
+      // Show confirmation for active prompts
+      setPendingEdit({ prompt, mode });
+      setEditConfirmOpen(true);
+    } else {
+      // Proceed directly for non-active prompts or new versions
+      setSelectedPrompt(prompt);
+      setEditMode(mode);
+      setIsCreating(false);
+      setEditModalOpen(true);
+    }
   };
 
   const handleCreateNew = () => {
@@ -201,15 +212,22 @@ const Prompts = () => {
                   </div>
                 )}
               </CardContent>
-              <CardFooter className="flex gap-2">
+              <CardFooter className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handleEdit(prompt)}
-                  className="flex-1"
+                  onClick={() => handleEdit(prompt, "direct")}
                 >
                   <Edit className="mr-1 h-3 w-3" />
                   Edit
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleEdit(prompt, "new_version")}
+                >
+                  <Plus className="mr-1 h-3 w-3" />
+                  New Version
                 </Button>
                 {!prompt.is_active && (
                   <Button
@@ -217,7 +235,6 @@ const Prompts = () => {
                     size="sm"
                     onClick={() => makeActiveMutation.mutate(prompt.id)}
                     disabled={makeActiveMutation.isPending}
-                    className="flex-1"
                   >
                     <CheckCircle className="mr-1 h-3 w-3" />
                     Activate
@@ -240,14 +257,34 @@ const Prompts = () => {
       <EditPromptModal
         open={editModalOpen}
         onOpenChange={setEditModalOpen}
-        promptId={selectedPrompt?.id}
-        
+        promptId={isCreating ? null : selectedPrompt?.id}
         currentContent={selectedPrompt?.content || ""}
         currentVersionName={selectedPrompt?.version_name || ""}
         isTestDraft={false}
+        editMode={editMode}
         onSuccess={() => {
           queryClient.invalidateQueries({ queryKey: ["prompts"] });
           setEditModalOpen(false);
+        }}
+      />
+
+      {/* Edit Active Prompt Confirmation Dialog */}
+      <ConfirmDialog
+        open={editConfirmOpen}
+        onOpenChange={setEditConfirmOpen}
+        title="Edit Active Prompt?"
+        description="This prompt is currently active and being used in production. Changes will take effect immediately. Consider creating a new version instead if you want to test changes first."
+        confirmLabel="Edit Anyway"
+        variant="default"
+        onConfirm={() => {
+          if (pendingEdit) {
+            setSelectedPrompt(pendingEdit.prompt);
+            setEditMode(pendingEdit.mode);
+            setIsCreating(false);
+            setEditModalOpen(true);
+            setPendingEdit(null);
+          }
+          setEditConfirmOpen(false);
         }}
       />
 
