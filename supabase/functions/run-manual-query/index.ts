@@ -157,13 +157,23 @@ function pickFromSrcset(srcset: string): string | null {
 }
 
 // Extract full article content from article page HTML
-function extractFullArticleContent(html: string, baseUrl: string): { content: string; images: string[] } {
+function extractFullArticleContent(html: string, baseUrl: string, customSelectors?: string | string[]): { content: string; images: string[] } {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   if (!doc) return { content: '', images: [] };
   
-  // Try multiple selectors to find main content
-  const contentSelectors = [
-    '.normalStory',           // Cherokee County specific
+  // Parse custom selectors
+  let customSelectorArray: string[] = [];
+  if (customSelectors) {
+    if (typeof customSelectors === 'string') {
+      customSelectorArray = customSelectors.split(',').map(s => s.trim()).filter(s => s);
+    } else {
+      customSelectorArray = customSelectors;
+    }
+  }
+  
+  // Default selectors as fallback
+  const defaultSelectors = [
+    '.normalStory',
     '.story-content',
     '.article-content',
     '.main-content',
@@ -173,6 +183,9 @@ function extractFullArticleContent(html: string, baseUrl: string): { content: st
     '.entry-content',
     '[role="main"]'
   ];
+  
+  // Try custom selectors FIRST, then defaults
+  const contentSelectors = [...customSelectorArray, ...defaultSelectors];
   
   let contentElement = null;
   for (const selector of contentSelectors) {
@@ -1181,7 +1194,11 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
           
           if (articleResponse.ok) {
             const fullHtml = await articleResponse.text();
-            const extracted = extractFullArticleContent(fullHtml, source.url);
+            
+            // Get custom content selectors from parser_config
+            const customContentSelectors = source.parser_config?.detailPage?.content;
+            
+            const extracted = extractFullArticleContent(fullHtml, source.url, customContentSelectors);
             content = extracted.content;
             images = extracted.images;
             console.log(`  ✅ Fetched full article: ${content.length} chars`);
