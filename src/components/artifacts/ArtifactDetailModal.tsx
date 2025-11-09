@@ -100,7 +100,7 @@ export const ArtifactDetailModal = ({
             <div>
               <h3 className="text-sm font-semibold mb-2">Content</h3>
               <ScrollArea className="h-[300px] w-full rounded-md border p-4">
-                <pre className="text-sm whitespace-pre-wrap font-mono">
+                <pre className="text-sm whitespace-pre-wrap break-words font-mono">
                   {artifact.content || 'No content available'}
                 </pre>
               </ScrollArea>
