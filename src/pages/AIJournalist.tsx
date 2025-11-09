@@ -112,7 +112,7 @@ const AIJournalist = () => {
           *,
           prompt_versions (version_name)
         `)
-        .eq('run_stages', 'stage2')
+        .eq('run_stages', 'manual')
         .order('created_at', { ascending: false })
         .limit(10);
       if (error) throw error;
@@ -183,7 +183,7 @@ const AIJournalist = () => {
           environment,
           prompt_version_id: promptVersionId,
           source_ids: [],
-          run_stages: 'stage2',
+          run_stages: 'manual',
           status: 'running'
         })
         .select()

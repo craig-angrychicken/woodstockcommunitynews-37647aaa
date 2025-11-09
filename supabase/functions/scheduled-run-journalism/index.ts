@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
         prompt_version_id: activePrompt.id,
         source_ids: [],
         environment: "production",
-        run_stages: "automated_daily_run",
+        run_stages: "automated",
         status: "running",
       })
       .select()
