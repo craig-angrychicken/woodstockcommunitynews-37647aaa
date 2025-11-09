@@ -1204,7 +1204,7 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
     console.log(`🧹 Deduped articles: ${parsedArticles.length} (from ${beforeDedup})`);
     
     // ⚡ NEW: Enrich dates from detail pages BEFORE date filtering
-    const enrichCap = maxArticles || 15;
+    const enrichCap = Math.min(maxArticles ?? 15, 5);
     await enrichArticleDatesByDetailPage(
       parsedArticles, 
       source.parser_config, 
@@ -1231,11 +1231,12 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
     
     console.log(`✅ After date filter: ${dateFilteredArticles.length} articles (from ${parsedArticles.length} total)`);
     
-    // Apply article limit if specified
+    // Apply article limit if specified (hard-cap to protect resources)
     let articlesToProcess = dateFilteredArticles;
-    if (maxArticles && maxArticles > 0 && dateFilteredArticles.length > maxArticles) {
-      articlesToProcess = dateFilteredArticles.slice(0, maxArticles);
-      console.log(`📊 Limited to first ${maxArticles} articles for testing`);
+    const perSourceCap = Math.min(maxArticles ?? 10, 10);
+    if (dateFilteredArticles.length > perSourceCap) {
+      articlesToProcess = dateFilteredArticles.slice(0, perSourceCap);
+      console.log(`📊 Limited to first ${perSourceCap} articles per source to avoid timeouts`);
     }
     
     console.log(`🚀 Processing ${articlesToProcess.length} articles...`);
