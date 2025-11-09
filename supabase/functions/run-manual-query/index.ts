@@ -1019,8 +1019,8 @@ function parseWithConfig(html: string, sourceUrl: string, config: any) {
     let articleUrl = linkElement?.getAttribute('href') || null;
     if (!articleUrl && isAnchor) {
       const href = el.getAttribute('href') || '';
-      // Only use container href if it's an article/news link (not navigation)
-      if (href && (href.includes('/news/') || href.includes('/article/'))) {
+      // Accept any valid href (exclude anchors, JS, mailto)
+      if (href && !href.startsWith('#') && !href.toLowerCase().startsWith('javascript:') && !href.toLowerCase().startsWith('mailto:')) {
         articleUrl = href;
         console.log(`   🔗 Using container href as link (anchor container): "${title.substring(0, 40)}..."`);
       }
