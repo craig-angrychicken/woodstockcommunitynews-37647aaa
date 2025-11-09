@@ -34,7 +34,7 @@ export const TestSourceCard = ({
       state: {
         environment: "test",
         sourceIds: [id],
-        runStages: "stage1",
+        runStages: "manual",
         dateRange: "last7days",
       },
     });

@@ -1477,102 +1477,8 @@ serve(async (req) => {
 
     console.log(`Stage 1 complete: Created ${artifactsCount} artifacts`);
 
-    // Stage 2: Generate stories using AI (if requested)
-    if (runStages === 'both') {
-      console.log('Stage 2: Generating stories with AI...');
-
-      // Get prompt version
-      const { data: promptVersion, error: promptError } = await supabase
-        .from('prompt_versions')
-        .select('*')
-        .eq('id', promptVersionId)
-        .single();
-
-      if (promptError) throw promptError;
-
-      // Get recent artifacts to generate stories from
-      const { data: recentArtifacts, error: artifactsError } = await supabase
-        .from('artifacts')
-        .select('*')
-        .in('source_id', sourceIds)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      if (artifactsError) throw artifactsError;
-
-      // Generate stories from artifacts using AI
-      for (const artifact of recentArtifacts) {
-        const aiPrompt = `${promptVersion.content}\n\nSource material:\nTitle: ${artifact.title}\nContent: ${artifact.content}\n\nGenerate a news article based on this source material.`;
-
-        try {
-          const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${lovableApiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'google/gemini-2.5-flash',
-              messages: [
-                { role: 'system', content: 'You are a professional news article writer.' },
-                { role: 'user', content: aiPrompt }
-              ],
-            }),
-          });
-
-          if (!aiResponse.ok) {
-            if (aiResponse.status === 429) {
-              console.error('Rate limit exceeded');
-              continue;
-            }
-            if (aiResponse.status === 402) {
-              console.error('Payment required - out of credits');
-              break;
-            }
-            throw new Error(`AI API error: ${aiResponse.status}`);
-          }
-
-          const aiData = await aiResponse.json();
-          const generatedContent = aiData.choices[0].message.content;
-
-          // Create story
-          const { data: newStory, error: storyError } = await supabase
-            .from('stories')
-            .insert({
-              title: artifact.title,
-              content: generatedContent,
-              status: 'pending',
-              is_test: isTest,
-              environment,
-              article_type: 'full',
-              prompt_version_id: promptVersion.version_name,
-              source_id: artifact.source_id
-            })
-            .select()
-            .single();
-
-          if (storyError) {
-            console.error('Error creating story:', storyError);
-            continue;
-          }
-
-          // Link artifact to story
-          await supabase
-            .from('story_artifacts')
-            .insert({
-              story_id: newStory.id,
-              artifact_id: artifact.id
-            });
-
-          storiesCount++;
-          console.log(`Created story: ${newStory.title}`);
-        } catch (aiError) {
-          console.error('Error generating story with AI:', aiError);
-        }
-      }
-
-      console.log(`Stage 2 complete: Generated ${storiesCount} stories`);
-    }
+    // Note: Story generation (Stage 2) is not part of manual artifact fetching
+    // Stories are generated separately via the AI Journalist workflow
 
     // Update query history
     const { error: historyError } = await supabase
@@ -1594,7 +1500,7 @@ serve(async (req) => {
         success: true,
         artifactsCount,
         storiesCount,
-        message: `Successfully completed. Created ${artifactsCount} artifacts${runStages === 'both' ? ` and ${storiesCount} stories` : ''}.`
+        message: `Successfully completed. Created ${artifactsCount} artifacts.`
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

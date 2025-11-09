@@ -153,7 +153,7 @@ const ManualQuery = () => {
           environment,
           prompt_version_id: promptVersionId,
           source_ids: selectedSources,
-          run_stages: 'stage1',
+          run_stages: 'manual',
           status: 'running'
         })
         .select()
@@ -172,7 +172,7 @@ const ManualQuery = () => {
           sourceIds: selectedSources,
           environment,
           promptVersionId,
-          runStages: 'stage1',
+          runStages: 'manual',
           historyId: historyRecord.id,
           maxArticles
         }
