@@ -110,9 +110,10 @@ const AIJournalist = () => {
         .from('query_history')
         .select(`
           *,
-          prompt_versions (version_name)
+          prompt_versions!inner (version_name, prompt_type)
         `)
         .eq('run_stages', 'manual')
+        .eq('prompt_versions.prompt_type', 'journalism')
         .order('created_at', { ascending: false })
         .limit(10);
       if (error) throw error;
