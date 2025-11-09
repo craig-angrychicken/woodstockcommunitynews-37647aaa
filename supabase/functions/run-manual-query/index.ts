@@ -523,7 +523,7 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
       
       // Apply human delay between processing
       if (i > 0) {
-        await randomDelay(2000, 3000);
+        await randomDelay(500, 500);
       }
       
       console.log(`\n📰 Processing article ${i + 1}/${parsedArticles.length}: ${article.title}`);
@@ -579,7 +579,7 @@ async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string
         const imageMap = new Map();
         
         for (let imgIndex = 0; imgIndex < images.length && imgIndex < 10; imgIndex++) {
-          await randomDelay(1000, 2000); // Small delay between image downloads
+          await randomDelay(200, 500); // Minimal delay between image downloads
           const supabaseUrl = await downloadAndStoreImage(images[imgIndex], artifactGuid, imgIndex, supabase, source.url);
           if (supabaseUrl) {
             imageMap.set(images[imgIndex], supabaseUrl);
