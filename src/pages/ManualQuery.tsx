@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -16,10 +16,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarIcon, Loader2, Play, CheckCircle, XCircle, X } from "lucide-react";
+import { CalendarIcon, Loader2, Play, CheckCircle, XCircle, X, Info } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { TestBadge } from "@/components/ui/status-badge";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const ManualQuery = () => {
   const { toast } = useToast();
@@ -77,7 +79,7 @@ const ManualQuery = () => {
         .order('created_at', { ascending: false })
         .limit(10);
       if (error) throw error;
-      return data;
+      return data as any[]; // Cast to any until types are regenerated
     }
   });
 
@@ -96,6 +98,32 @@ const ManualQuery = () => {
 
   // Track current running history ID
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
+
+  // Poll for progress updates when query is running
+  const { data: currentProgress } = useQuery({
+    queryKey: ['query-progress', currentHistoryId],
+    queryFn: async () => {
+      if (!currentHistoryId) return null;
+      
+      const { data, error } = await supabase
+        .from('query_history')
+        .select('*')
+        .eq('id', currentHistoryId)
+        .single();
+      
+      if (error) throw error;
+      
+      // Stop running state if query completed or failed
+      if (data.status !== 'running') {
+        setIsRunning(false);
+        setCurrentHistoryId(null);
+      }
+      
+      return data as any; // Cast to any until types are regenerated
+    },
+    enabled: !!currentHistoryId && isRunning,
+    refetchInterval: 2000, // Poll every 2 seconds
+  });
 
   // Cancel query mutation
   const cancelQueryMutation = useMutation({
@@ -252,6 +280,66 @@ const ManualQuery = () => {
           Fetch and store articles from your sources as artifacts
         </p>
       </div>
+
+      {/* Resource Limits Alert */}
+      <Alert>
+        <Info className="h-4 w-4" />
+        <AlertTitle>Resource Limits</AlertTitle>
+        <AlertDescription>
+          To prevent timeouts, queries are limited to <strong>5 date enrichments</strong> and <strong>10 articles per source</strong>. 
+          This ensures reliable processing while keeping response times reasonable.
+        </AlertDescription>
+      </Alert>
+
+      {/* Progress Display */}
+      {isRunning && currentProgress && (
+        <Card className="border-primary">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Processing Query
+            </CardTitle>
+            <CardDescription>
+              {currentProgress.current_source_name 
+                ? `Currently processing: ${currentProgress.current_source_name}`
+                : 'Initializing...'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Sources Progress</span>
+                <span className="text-muted-foreground">
+                  {currentProgress.sources_processed || 0} / {currentProgress.sources_total || selectedSources.length}
+                </span>
+              </div>
+              <Progress 
+                value={currentProgress.sources_total 
+                  ? ((currentProgress.sources_processed || 0) / currentProgress.sources_total) * 100 
+                  : 0
+                } 
+              />
+            </div>
+            
+            {currentProgress.sources_failed > 0 && (
+              <div className="text-sm text-yellow-600 dark:text-yellow-500">
+                ⚠️ {currentProgress.sources_failed} source(s) failed to process
+              </div>
+            )}
+            
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <div className="text-muted-foreground">Artifacts Found</div>
+                <div className="text-2xl font-bold">{currentProgress.artifacts_count || 0}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Stories Created</div>
+                <div className="text-2xl font-bold">{currentProgress.stories_count || 0}</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
@@ -436,14 +524,14 @@ const ManualQuery = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="10">First 10 articles</SelectItem>
-                    <SelectItem value="20">First 20 articles (recommended)</SelectItem>
+                    <SelectItem value="10">First 10 articles (max per source)</SelectItem>
+                    <SelectItem value="20">First 20 articles</SelectItem>
                     <SelectItem value="50">First 50 articles</SelectItem>
                     <SelectItem value="all">All articles</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Only articles within the selected date range will be processed and stored as artifacts
+                  ⚠️ Capped at 10 articles per source maximum to prevent timeouts. Only articles within the selected date range will be processed.
                 </p>
               </div>
             </CardContent>
@@ -518,7 +606,15 @@ const ManualQuery = () => {
                       <div className="text-xs space-y-1 text-muted-foreground">
                         <div>Environment: {query.environment}</div>
                         <div>Prompt: {query.prompt_versions?.version_name}</div>
-                        <div>Results: {query.artifacts_count} artifacts, {query.stories_count} stories</div>
+                        {query.status === 'running' && query.sources_total > 0 && (
+                          <div className="text-primary font-medium">
+                            Progress: {query.sources_processed}/{query.sources_total} sources
+                          </div>
+                        )}
+                        <div>Results: {query.artifacts_count || 0} artifacts, {query.stories_count || 0} stories</div>
+                        {query.sources_failed > 0 && (
+                          <div className="text-yellow-600">⚠️ {query.sources_failed} failed</div>
+                        )}
                       </div>
                     </div>
                   ))
