@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { publishToGhost } from "@/lib/ghost-api";
 import { Plus } from "lucide-react";
 
 const Stories = () => {
@@ -181,23 +182,55 @@ const Stories = () => {
     });
   };
 
-  const handlePublish = (story?: any) => {
+  const handlePublish = async (story?: any) => {
     const storyToPublish = story || selectedStory;
     if (!storyToPublish) return;
     
-    updateStoryMutation.mutate({
-      id: storyToPublish.id,
-      updates: { 
-        status: 'published',
-        published_at: new Date().toISOString()
+    try {
+      toast({
+        title: "Publishing to Ghost",
+        description: "Please wait..."
+      });
+      
+      const result = await publishToGhost(
+        storyToPublish.content,
+        storyToPublish.title,
+        {
+          status: 'published',
+          tags: [],
+          featured: false
+        }
+      );
+      
+      if (result.success) {
+        await updateStoryMutation.mutateAsync({
+          id: storyToPublish.id,
+          updates: { 
+            status: 'published',
+            published_at: new Date().toISOString(),
+            ghost_url: result.url
+          }
+        });
+        
+        toast({
+          title: "Published to Ghost!",
+          description: result.url ? (
+            <a href={result.url} target="_blank" rel="noopener noreferrer" 
+               className="text-primary hover:underline">
+              View on Ghost →
+            </a>
+          ) : "Story published successfully"
+        });
+        
+        setShowDetailModal(false);
       }
-    });
-    
-    // TODO: Add Ghost API integration here
-    toast({
-      title: "Publishing",
-      description: "Story will be published to Ghost (API integration pending)"
-    });
+    } catch (error: any) {
+      toast({
+        title: "Publishing Failed",
+        description: error.message || "Failed to publish to Ghost",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleReject = () => {

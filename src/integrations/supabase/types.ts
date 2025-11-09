@@ -230,6 +230,7 @@ export type Database = {
           content: string | null
           created_at: string
           environment: string | null
+          ghost_url: string | null
           guid: string | null
           id: string
           is_test: boolean | null
@@ -245,6 +246,7 @@ export type Database = {
           content?: string | null
           created_at?: string
           environment?: string | null
+          ghost_url?: string | null
           guid?: string | null
           id?: string
           is_test?: boolean | null
@@ -260,6 +262,7 @@ export type Database = {
           content?: string | null
           created_at?: string
           environment?: string | null
+          ghost_url?: string | null
           guid?: string | null
           id?: string
           is_test?: boolean | null
