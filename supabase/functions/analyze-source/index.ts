@@ -105,6 +105,23 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
     // Sample the first 3 elements
     const sampleElements = candidate.elements.slice(0, 3);
     
+    // NAVIGATION CONTENT ANALYSIS - detect if this looks like navigation
+    const navigationPatterns = {
+      shortText: sampleElements.every(el => {
+        const text = el.textContent?.trim() || '';
+        return text.length < 50; // Navigation items are usually < 50 chars
+      }),
+      genericTerms: sampleElements.some(el => {
+        const text = (el.textContent?.trim() || '').toLowerCase();
+        const navTerms = ['about', 'services', 'home', 'contact', 'government', 'business', 'calendar', 'departments', 'residents', 'doing business'];
+        return navTerms.some(term => text === term || text === `${term} \u00bb`);
+      }),
+      noSubstantialContent: sampleElements.every(el => {
+        const paragraphs = el.querySelectorAll('p');
+        return paragraphs.length === 0;
+      })
+    };
+    
     // Analyze content richness
     const firstElement = candidate.elements[0];
     const paragraphs = firstElement.querySelectorAll('p');
@@ -303,11 +320,60 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
     if (hasLinks) confidence += 5;
     if (hasDateKeywords) confidence += 10;
     
-    // Selector specificity check - penalize very short class names
-    const selectorName = candidate.selector.replace(/^\./, '');
+    // Selector specificity check - penalize very short class names and navigation-like patterns
+    const selectorName = candidate.selector.replace(/^\./, '').toLowerCase();
     if (selectorName.length <= 3 && !['li', 'div', 'article'].includes(selectorName)) {
       confidence -= 15;
       console.log(`  ⚠️ Penalized short class name: ${candidate.selector}`);
+    }
+    
+    // Check for navigation-like naming patterns
+    const navLikePatterns = ['level', 'tier', 'layer', 'depth', 'menu'];
+    if (navLikePatterns.some(pattern => selectorName.includes(pattern))) {
+      confidence -= 30;
+      console.log(`  ⚠️ Selector contains navigation-like pattern: ${selectorName}`);
+    }
+    
+    // NAVIGATION PATTERN PENALTIES
+    if (navigationPatterns.shortText) {
+      confidence -= 40;
+      console.log(`  ⚠️ All samples have short text (< 50 chars) - likely navigation`);
+    }
+    if (navigationPatterns.genericTerms) {
+      confidence -= 35;
+      console.log(`  ⚠️ Contains generic navigation terms`);
+    }
+    if (navigationPatterns.noSubstantialContent) {
+      confidence -= 25;
+      console.log(`  ⚠️ No paragraphs or substantial content found`);
+    }
+    
+    // ARTICLE QUALITY SCORE
+    let articleQualityScore = 0;
+    
+    // Check for article-like features in samples
+    const hasLongTitles = sampleElements.some(el => {
+      const titleEl = el.querySelector('h1, h2, h3, h4, a');
+      const titleText = titleEl?.textContent?.trim() || '';
+      return titleText.length > 30; // Real article titles are usually > 30 chars
+    });
+    
+    const hasVisibleDates = sampleElements.some(el => {
+      const text = el.textContent || '';
+      return /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2},?\s+\d{4}\b/i.test(text);
+    });
+    
+    const hasThumbnails = sampleElements.some(el => {
+      return el.querySelectorAll('img').length > 0;
+    });
+    
+    if (hasLongTitles) articleQualityScore += 25;
+    if (hasVisibleDates) articleQualityScore += 25;
+    if (hasThumbnails) articleQualityScore += 15;
+    
+    confidence += articleQualityScore;
+    if (articleQualityScore > 0) {
+      console.log(`  📰 Article quality score: +${articleQualityScore}`);
     }
     
     // Validate sample articles
@@ -352,7 +418,16 @@ function analyzeHtmlStructure(html: string, sourceUrl: string) {
   // Sort by confidence
   analysisResults.sort((a, b) => b.confidence - a.confidence);
 
-  const bestResult = analysisResults[0];
+  // Filter out candidates that are clearly navigation (very low confidence)
+  const contentRichCandidates = analysisResults.filter(result => {
+    if (result.confidence < 30) {
+      console.log(`⏭️  Filtering out ${result.containerSelector} - too low confidence after content analysis (${result.confidence}%)`);
+      return false;
+    }
+    return true;
+  });
+
+  const bestResult = contentRichCandidates[0] || analysisResults[0];
 
   if (!bestResult) {
     return {
