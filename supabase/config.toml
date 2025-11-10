@@ -1,16 +1,16 @@
 project_id = "xuikcvxwgwqyeulflitn"
 
 [functions.run-manual-query]
-verify_jwt = false
+verify_jwt = true
 
 [functions.run-ai-journalist]
-verify_jwt = false
+verify_jwt = true
 
 [functions.backfill-artifact-images]
-verify_jwt = false
+verify_jwt = true
 
 [functions.analyze-source]
-verify_jwt = false
+verify_jwt = true
 
 [functions.scheduled-fetch-artifacts]
 verify_jwt = false
@@ -22,4 +22,4 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.publish-to-ghost]
-verify_jwt = false
+verify_jwt = true

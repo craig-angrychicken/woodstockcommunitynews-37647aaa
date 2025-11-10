@@ -132,8 +132,11 @@ export type Database = {
       query_history: {
         Row: {
           artifacts_count: number | null
+          batch_results: Json | null
           completed_at: string | null
           created_at: string
+          current_source_id: string | null
+          current_source_name: string | null
           date_from: string
           date_to: string
           environment: string
@@ -142,13 +145,19 @@ export type Database = {
           prompt_version_id: string | null
           run_stages: string
           source_ids: string[]
+          sources_failed: number | null
+          sources_processed: number | null
+          sources_total: number | null
           status: string
           stories_count: number | null
         }
         Insert: {
           artifacts_count?: number | null
+          batch_results?: Json | null
           completed_at?: string | null
           created_at?: string
+          current_source_id?: string | null
+          current_source_name?: string | null
           date_from: string
           date_to: string
           environment: string
@@ -157,13 +166,19 @@ export type Database = {
           prompt_version_id?: string | null
           run_stages: string
           source_ids: string[]
+          sources_failed?: number | null
+          sources_processed?: number | null
+          sources_total?: number | null
           status?: string
           stories_count?: number | null
         }
         Update: {
           artifacts_count?: number | null
+          batch_results?: Json | null
           completed_at?: string | null
           created_at?: string
+          current_source_id?: string | null
+          current_source_name?: string | null
           date_from?: string
           date_to?: string
           environment?: string
@@ -172,6 +187,9 @@ export type Database = {
           prompt_version_id?: string | null
           run_stages?: string
           source_ids?: string[]
+          sources_failed?: number | null
+          sources_processed?: number | null
+          sources_total?: number | null
           status?: string
           stories_count?: number | null
         }
@@ -319,6 +337,27 @@ export type Database = {
           },
         ]
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -328,9 +367,16 @@ export type Database = {
         Args: { artifact_guid: string }
         Returns: number
       }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -457,6 +503,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+    },
   },
 } as const
