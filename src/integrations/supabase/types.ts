@@ -20,6 +20,7 @@ export type Database = {
           created_at: string
           date: string | null
           guid: string | null
+          hero_image_url: string | null
           id: string
           images: Json | null
           is_test: boolean
@@ -34,6 +35,7 @@ export type Database = {
           created_at?: string
           date?: string | null
           guid?: string | null
+          hero_image_url?: string | null
           id?: string
           images?: Json | null
           is_test?: boolean
@@ -48,6 +50,7 @@ export type Database = {
           created_at?: string
           date?: string | null
           guid?: string | null
+          hero_image_url?: string | null
           id?: string
           images?: Json | null
           is_test?: boolean

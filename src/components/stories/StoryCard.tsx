@@ -14,6 +14,7 @@ interface StoryCardProps {
     created_at: string;
     environment: string;
     ghost_url?: string | null;
+    hero_image_url?: string | null;
   };
   sourceCount: number;
   onView: () => void;
@@ -48,6 +49,16 @@ export const StoryCard = ({ story, sourceCount, onView, onEdit, onPublish, onDel
           </div>
         </div>
         <h3 className="text-lg font-semibold line-clamp-2 mt-2">{story.title}</h3>
+        
+        {story.hero_image_url && (
+          <div className="mt-3">
+            <img 
+              src={story.hero_image_url} 
+              alt={story.title}
+              className="w-full h-32 object-cover rounded-md"
+            />
+          </div>
+        )}
       </CardHeader>
       
       <CardContent className="pb-3">
