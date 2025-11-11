@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { SourceAnalysisModal } from "./SourceAnalysisModal";
+import { SourceAnalysisModalV2 } from "./SourceAnalysisModalV2";
 import { FlaskConical } from "lucide-react";
 
 interface AddSourceFormProps {
@@ -42,7 +42,7 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
     setShowAnalysisModal(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('analyze-source', {
+      const { data, error } = await supabase.functions.invoke('analyze-source-v2', {
         body: { sourceUrl: cleanUrl }
       });
 
@@ -65,10 +65,11 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
   };
 
   const handleSaveConfig = (config: any) => {
-    // Store as scrapeConfig for Browserless
+    // Store the complete scrape configuration
     setParserConfig({
-      scrapeConfig: config.suggestedSelectors,
-      confidence: config.confidence
+      scrapeConfig: config.suggestedConfig,
+      confidence: config.confidence,
+      diagnostics: config.diagnostics
     });
     toast.success("Configuration saved! You can now add the source.");
   };
@@ -179,7 +180,7 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
           </div>
         </form>
 
-        <SourceAnalysisModal
+        <SourceAnalysisModalV2
           open={showAnalysisModal}
           onOpenChange={setShowAnalysisModal}
           analysisResult={analysisResult}

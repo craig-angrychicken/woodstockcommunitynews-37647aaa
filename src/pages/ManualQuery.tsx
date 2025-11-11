@@ -193,7 +193,7 @@ const ManualQuery = () => {
       setCurrentHistoryId(historyRecord.id);
 
       // Call edge function
-      const { data, error } = await supabase.functions.invoke('run-manual-query', {
+      const { data, error } = await supabase.functions.invoke('scrape-articles', {
         body: {
           dateFrom: dateFrom.toISOString(),
           dateTo: dateTo.toISOString(),
