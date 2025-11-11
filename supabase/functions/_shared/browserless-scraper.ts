@@ -152,6 +152,25 @@ async function scrapeWithSelectors(
 function detectArticleSelectors(html: string): ScrapeConfig {
   console.log('🔍 Analyzing HTML structure for article patterns...');
 
+  // Fast path for Civic/Granicus/FS-style sites
+  const hasFsPostLink = /class=["'][^"']*\bfsPostLink\b[^"']*["']/i.test(html);
+  const hasFsPostDate = /class=["'][^"']*\bfsPostDate\b[^"']*["']/i.test(html);
+  const hasFsTimeStamp = /class=["'][^"']*\bfsTimeStamp\b[^"']*["']/i.test(html);
+  const hasFsResourceContent = /class=["'][^"']*\bfsResourceContent\b[^"']*["']/i.test(html);
+
+  if (hasFsPostLink) {
+    console.log('✅ Detected fsPostLink pattern - using anchor-based selectors');
+    return {
+      containerSelector: 'a.fsPostLink',
+      titleSelector: 'a.fsPostLink',
+      dateSelector: hasFsPostDate ? '.fsPostDate' : (hasFsTimeStamp ? '.fsTimeStamp' : 'time'),
+      linkSelector: 'a.fsPostLink',
+      contentSelector: hasFsResourceContent ? '.fsResourceContent' : 'p',
+      imageSelector: 'img[src]',
+      timeout: 30000,
+    };
+  }
+
   // Priority-ordered selectors for different parts
   const containerPatterns = [
     // Semantic HTML
@@ -160,13 +179,14 @@ function detectArticleSelectors(html: string): ScrapeConfig {
     '.news-item', '.article', '.post', '.entry',
     '.news-card', '.story', '.news-article',
     // CMS-specific patterns
-    '.fsPostLink', '.fsResource', '.elementor-post',
+    'a.fsPostLink', '.fsResource', '.elementor-post',
     // Generic containers (last resort)
     '.item', '.card',
   ];
 
-  const titlePatterns = ['h1', 'h2', 'h3', '.title', '.headline', '.entry-title'];
-  const datePatterns = ['time', '.date', '.published', '.post-date', '[datetime]'];
+  // Prefer h2/h3 before h1 to avoid strict headlines under article
+  const titlePatterns = ['h2', 'h3', '.entry-title', '.headline', '.title', 'h1', 'a[href]'];
+  const datePatterns = ['.fsPostDate', 'time', '.date', '.published', '.post-date', '[datetime]'];
   const contentPatterns = ['.excerpt', '.description', '.content', '.body', 'p'];
   
   // Find the best container selector
@@ -186,16 +206,16 @@ function detectArticleSelectors(html: string): ScrapeConfig {
   console.log(`✅ Best container: ${containerSelector} (score: ${maxScore})`);
 
   // Find child selectors within containers
-  const titleSelector = findBestChildSelector(html, containerSelector, titlePatterns);
-  const dateSelector = findBestChildSelector(html, containerSelector, datePatterns);
-  const contentSelector = findBestChildSelector(html, containerSelector, contentPatterns);
+  const titleSelector = findBestChildSelector(html, containerSelector, titlePatterns) || 'a[href]';
+  const dateSelector = findBestChildSelector(html, containerSelector, datePatterns) || 'time';
+  const contentSelector = findBestChildSelector(html, containerSelector, contentPatterns) || 'p';
 
   return {
     containerSelector,
-    titleSelector: titleSelector || 'h2',
-    dateSelector: dateSelector || 'time',
+    titleSelector,
+    dateSelector,
     linkSelector: 'a[href]',
-    contentSelector: contentSelector || 'p',
+    contentSelector,
     imageSelector: 'img[src]',
     timeout: 30000,
   };
