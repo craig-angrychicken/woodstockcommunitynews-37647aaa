@@ -230,15 +230,34 @@ function scoreArticleLikeness(group: StructureGroup): number {
     score += 15;
   }
   
-  // Small penalty for navigation-like patterns, but don't disqualify
-  // (because some sites use weird class names)
-  if (/\bnavbar\b|\bnavigation\b|\bsidebar\b/i.test(group.selector)) {
-    score -= 10; // Reduced penalty
-  }
-  
+  // Compute link-based signals
+  const totalAnchors = group.items.reduce((sum, item) => sum + ((item.html.match(/<a\b[^>]*href=["'][^"']+["']/gi) || []).length), 0);
+  const newsAnchors = group.items.reduce((sum, item) => sum + ((item.html.match(/<a\b[^>]*href=["'][^"']*(news|newsroom|press|article|stories?)[^"']*["']/gi) || []).length), 0);
+  const newsRatio = totalAnchors > 0 ? newsAnchors / totalAnchors : 0;
+  const avgAnchorsPerItem = totalAnchors / Math.max(1, group.items.length);
+
   // Check if items have paragraph tags (strong article signal)
   const itemsWithParagraphs = group.items.filter(item => /<p[^>]*>/i.test(item.html)).length;
-  if (itemsWithParagraphs > group.items.length * 0.5) {
+  const paragraphRatio = itemsWithParagraphs / Math.max(1, group.items.length);
+
+  // Heuristics: reward news-like links
+  if (newsRatio >= 0.5) score += 20;
+  if (newsRatio >= 0.8) score += 10;
+
+  // Heuristics: penalize obvious menu lists
+  if ((group.tagName === 'ul' || group.tagName === 'ol') && paragraphRatio < 0.2 && group.hasTitles === 0) {
+    score -= 25; // list menus with few/no paragraphs and no headings
+    if (newsRatio <= 0.1) score -= 15; // and links are not news-like
+    if (avgAnchorsPerItem > 6) score -= 10; // lots of links per item
+  }
+
+  // Small penalty for navigation-like patterns in selector, but don't disqualify
+  if (/\bnavbar\b|\bnavigation\b|\bsidebar\b|\bmenu\b/i.test(group.selector)) {
+    score -= 8; // reduced; content checks dominate
+  }
+
+  // Paragraph-heavy groups are likely article lists
+  if (paragraphRatio > 0.5) {
     score += 10; // More than half have paragraphs
   }
   
