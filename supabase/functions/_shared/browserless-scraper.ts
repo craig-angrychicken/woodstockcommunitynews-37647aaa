@@ -164,6 +164,72 @@ interface StructureGroup {
 }
 
 /**
+ * Determines if a selector/element looks like navigation rather than article content.
+ * Uses heuristics to filter out menus, headers, footers, etc.
+ */
+function isNavigationElement(selector: string, className: string, html: string, text: string): boolean {
+  // Check class/selector for navigation indicators
+  const navKeywords = /menu|nav|header|footer|sidebar|breadcrumb|toolbar|topbar|bottombar/i;
+  if (navKeywords.test(selector) || navKeywords.test(className)) {
+    return true;
+  }
+  
+  // Check if element is inside navigation/header/footer containers
+  const beforeElement = html.substring(Math.max(0, html.length - 500), 0);
+  if (/<(?:nav|header|footer)[^>]*>/i.test(beforeElement)) {
+    return true;
+  }
+  
+  // Navigation items typically have very short text (just link labels)
+  const avgTextLength = text.length;
+  if (avgTextLength < 30) { // Less than ~30 chars suggests navigation
+    return true;
+  }
+  
+  // Check if it lacks article-like content indicators
+  const hasContentIndicators = 
+    /<p[^>]*>/i.test(html) ||           // Has paragraphs
+    /\b\w+\s+\w+\s+\w+\s+\w+/i.test(text) || // Has multiple words (4+)
+    text.length > 100;                  // Has substantial text
+    
+  if (!hasContentIndicators) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Scores a structure group for article-likeness.
+ * Higher scores = more likely to be article content.
+ */
+function scoreArticleLikeness(group: StructureGroup): number {
+  let score = 0;
+  
+  // Base score from article indicators
+  score += group.hasLinks * 3;
+  score += group.hasTitles * 2;
+  score += group.hasDates * 5; // Dates are strong article indicators
+  
+  // Bonus for being in article-friendly containers
+  if (/article|post|entry|item|card|story|news/i.test(group.selector)) {
+    score += 10;
+  }
+  
+  // Penalty for navigation-like patterns
+  if (/menu|nav|header|footer/i.test(group.selector)) {
+    score -= 20;
+  }
+  
+  // Average text length bonus (more content = more likely article)
+  const avgTextLength = group.items.reduce((sum, item) => sum + item.text.length, 0) / group.items.length;
+  if (avgTextLength > 100) score += 5;
+  if (avgTextLength > 200) score += 5;
+  
+  return score;
+}
+
+/**
  * Finds repeated HTML structures that could be article containers.
  * No assumptions - just looks for patterns that repeat 3-20 times with links.
  */
@@ -212,12 +278,16 @@ function findRepeatedStructures(html: string): StructureGroup[] {
     
     for (const match of matches) {
       const fullHtml = match[0];
+      const text = htmlToText(fullHtml);
       
       // Must contain a link
       if (!/<a[^>]*href=/i.test(fullHtml)) continue;
       
+      // Filter out navigation elements
+      if (isNavigationElement(key, className, fullHtml, text)) continue;
+      
       validCount++;
-      items.push({ html: fullHtml, text: htmlToText(fullHtml) });
+      items.push({ html: fullHtml, text });
       
       if (/<a[^>]*href=/i.test(fullHtml)) hasLinks++;
       if (/date|time/i.test(fullHtml)) hasDates++;
@@ -243,10 +313,10 @@ function findRepeatedStructures(html: string): StructureGroup[] {
   const validGroups = Array.from(groups.values())
     .filter(g => g.count >= 3);
   
-  // Sort by quality score: prefer groups with links, titles, and dates
+  // Sort by article-likeness score: prefer groups with article indicators, penalize navigation
   validGroups.sort((a, b) => {
-    const scoreA = (a.hasLinks * 3) + (a.hasTitles * 2) + (a.hasDates * 1);
-    const scoreB = (b.hasLinks * 3) + (b.hasTitles * 2) + (b.hasDates * 1);
+    const scoreA = scoreArticleLikeness(a);
+    const scoreB = scoreArticleLikeness(b);
     return scoreB - scoreA;
   });
   
