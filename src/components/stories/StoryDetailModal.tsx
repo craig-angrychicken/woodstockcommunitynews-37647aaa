@@ -26,6 +26,7 @@ interface StoryDetailModalProps {
     created_at: string;
     environment: string;
     ghost_url?: string | null;
+    hero_image_url?: string | null;
   } | null;
   open: boolean;
   onClose: () => void;
@@ -100,6 +101,25 @@ export const StoryDetailModal = ({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {story.hero_image_url && (
+            <div>
+              <Label>Hero Image</Label>
+              <div className="mt-2 border rounded-lg overflow-hidden">
+                <img 
+                  src={story.hero_image_url} 
+                  alt={story.title}
+                  className="w-full h-auto object-cover max-h-[300px]"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Selected by AI image analysis
+              </p>
+            </div>
+          )}
+          
           <div>
             <Label htmlFor="content">Story Content</Label>
             <Textarea

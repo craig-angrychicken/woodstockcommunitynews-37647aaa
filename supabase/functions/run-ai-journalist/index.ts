@@ -35,6 +35,7 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const openRouterApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -155,6 +156,190 @@ Deno.serve(async (req) => {
       throw new Error("Max retries exceeded for rate limiting");
     };
 
+    // Phase 1: URL Pattern Filtering - Filter out unwanted image types
+    const isValidImageUrl = (url: string): boolean => {
+      const urlLower = url.toLowerCase();
+      
+      // Filter out common non-hero image patterns
+      const invalidPatterns = [
+        '/icon', '/logo', '/avatar', '/thumbnail',
+        'tracking', 'pixel', 'beacon', 'analytics',
+        'social-share', 'facebook', 'twitter', 'linkedin',
+        'badge', 'button', 'banner-ad',
+        '.gif', // Often used for tracking/ads
+        '1x1', '2x2', 'spacer' // Tracking pixels
+      ];
+      
+      return !invalidPatterns.some(pattern => urlLower.includes(pattern));
+    };
+
+    // Phase 2: Metadata Validation - Check image dimensions and quality
+    const validateImageMetadata = async (url: string): Promise<{ valid: boolean; score: number; reason?: string }> => {
+      try {
+        const response = await fetch(url, { method: 'HEAD' });
+        
+        if (!response.ok) {
+          return { valid: false, score: 0, reason: 'Image not accessible' };
+        }
+
+        // Check content type
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.startsWith('image/')) {
+          return { valid: false, score: 0, reason: 'Not an image' };
+        }
+
+        // Check file size (prefer 50KB - 5MB)
+        const contentLength = parseInt(response.headers.get('content-length') || '0');
+        if (contentLength < 50000) {
+          return { valid: false, score: 0, reason: 'Image too small (< 50KB)' };
+        }
+        if (contentLength > 5000000) {
+          return { valid: false, score: 0.3, reason: 'Image very large (> 5MB)' };
+        }
+
+        // Score based on file size (prefer 200KB - 2MB)
+        let score = 0.5;
+        if (contentLength >= 200000 && contentLength <= 2000000) {
+          score = 1.0;
+        } else if (contentLength >= 100000 && contentLength < 200000) {
+          score = 0.8;
+        } else if (contentLength > 2000000 && contentLength <= 5000000) {
+          score = 0.6;
+        }
+
+        return { valid: true, score };
+      } catch (error) {
+        console.error('Error validating image metadata:', error);
+        return { valid: false, score: 0, reason: 'Metadata validation failed' };
+      }
+    };
+
+    // Phase 3: AI Visual Analysis - Use Lovable AI to score image quality
+    const analyzeImageWithAI = async (imageUrl: string, storyTitle: string): Promise<{ score: number; reasoning: string }> => {
+      try {
+        console.log(`🤖 Analyzing image with AI: ${imageUrl}`);
+        
+        const response = await callAIWithRetry(
+          "https://ai.gateway.lovable.dev/v1/chat/completions",
+          {
+            Authorization: `Bearer ${lovableApiKey}`,
+            "Content-Type": "application/json",
+          },
+          {
+            model: "google/gemini-2.5-flash",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: `You are an expert image curator for a news website. Analyze this image and determine if it would make a good hero image for an article titled "${storyTitle}".
+
+Score the image on a scale of 0-10 based on:
+- Visual quality and resolution
+- Relevance to the story title
+- Professional appearance (not a logo, icon, or generic stock photo)
+- Composition (is it a proper photo/illustration vs a UI element)
+- Newsworthiness (does it look like editorial content)
+
+Respond with ONLY a JSON object in this exact format:
+{"score": <number 0-10>, "reasoning": "<brief explanation>"}`
+                  },
+                  {
+                    type: "image_url",
+                    image_url: { url: imageUrl }
+                  }
+                ]
+              }
+            ],
+            max_tokens: 200
+          }
+        );
+
+        if (!response.ok) {
+          console.error('AI analysis failed:', response.status);
+          return { score: 5, reasoning: 'AI analysis unavailable, using neutral score' };
+        }
+
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content || '{"score": 5, "reasoning": "No response"}';
+        
+        // Parse the JSON response
+        const result = JSON.parse(content);
+        console.log(`✅ AI score: ${result.score}/10 - ${result.reasoning}`);
+        
+        return { score: result.score / 10, reasoning: result.reasoning }; // Normalize to 0-1
+      } catch (error) {
+        console.error('Error in AI image analysis:', error);
+        return { score: 0.5, reasoning: 'AI analysis error, using neutral score' };
+      }
+    };
+
+    // Select best hero image from artifact
+    const selectBestHeroImage = async (artifact: any, storyTitle: string): Promise<string | null> => {
+      if (!artifact.images || !Array.isArray(artifact.images) || artifact.images.length === 0) {
+        console.log('No images available for artifact');
+        return null;
+      }
+
+      console.log(`🖼️ Evaluating ${artifact.images.length} images for story: ${storyTitle}`);
+
+      const imageScores: Array<{ url: string; totalScore: number; details: any }> = [];
+
+      for (const imageUrl of artifact.images) {
+        console.log(`\n--- Evaluating image: ${imageUrl} ---`);
+        
+        // Phase 1: URL Pattern Filtering
+        if (!isValidImageUrl(imageUrl)) {
+          console.log('❌ Phase 1 FAILED: Invalid URL pattern');
+          continue;
+        }
+        console.log('✅ Phase 1 PASSED: Valid URL pattern');
+
+        // Phase 2: Metadata Validation
+        const metadataResult = await validateImageMetadata(imageUrl);
+        if (!metadataResult.valid) {
+          console.log(`❌ Phase 2 FAILED: ${metadataResult.reason}`);
+          continue;
+        }
+        console.log(`✅ Phase 2 PASSED: Metadata score ${metadataResult.score}`);
+
+        // Phase 3: AI Visual Analysis
+        const aiResult = await analyzeImageWithAI(imageUrl, storyTitle);
+        console.log(`✅ Phase 3 COMPLETE: AI score ${aiResult.score} - ${aiResult.reasoning}`);
+
+        // Calculate weighted total score
+        const totalScore = (metadataResult.score * 0.3) + (aiResult.score * 0.7);
+        
+        imageScores.push({
+          url: imageUrl,
+          totalScore,
+          details: {
+            metadataScore: metadataResult.score,
+            aiScore: aiResult.score,
+            aiReasoning: aiResult.reasoning
+          }
+        });
+
+        console.log(`📊 Total score: ${totalScore.toFixed(2)}`);
+      }
+
+      // Select image with highest score
+      if (imageScores.length === 0) {
+        console.log('❌ No images passed validation');
+        return null;
+      }
+
+      imageScores.sort((a, b) => b.totalScore - a.totalScore);
+      const winner = imageScores[0];
+      
+      console.log(`\n🏆 Selected hero image: ${winner.url}`);
+      console.log(`   Final score: ${winner.totalScore.toFixed(2)}`);
+      console.log(`   AI reasoning: ${winner.details.aiReasoning}`);
+
+      return winner.url;
+    };
+
     // Start background processing
     const processStories = async () => {
       try {
@@ -267,6 +452,14 @@ ${artifactData}`;
             const content = lines.slice(1).join("\n").trim();
             const source_id = artifact.source_id || null;
 
+            // Select best hero image
+            let heroImageUrl: string | null = null;
+            try {
+              heroImageUrl = await selectBestHeroImage(artifact, title);
+            } catch (error) {
+              console.error('Error selecting hero image:', error);
+            }
+
             // Insert story
             const { data: newStory, error: storyError } = await supabase
               .from("stories")
@@ -277,6 +470,7 @@ ${artifactData}`;
                 prompt_version_id: promptVersionId,
                 environment,
                 is_test: environment === "test",
+                hero_image_url: heroImageUrl,
               })
               .select()
               .single();

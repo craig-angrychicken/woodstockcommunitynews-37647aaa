@@ -80,9 +80,9 @@ serve(async (req) => {
   }
 
   try {
-    const { title, content, status, tags, featured, excerpt, ghostUrl, publishedAt } = await req.json();
+    const { title, content, status, tags, featured, excerpt, ghostUrl, publishedAt, heroImageUrl } = await req.json();
 
-    console.log('📝 Publishing to Ghost:', { title, status: status || 'draft', isUpdate: !!ghostUrl });
+    console.log('📝 Publishing to Ghost:', { title, status: status || 'draft', isUpdate: !!ghostUrl, hasHeroImage: !!heroImageUrl });
 
     const ghostApiKey = Deno.env.get('GHOST_ADMIN_API_KEY');
     const ghostApiUrl = Deno.env.get('GHOST_API_URL');
@@ -189,6 +189,7 @@ serve(async (req) => {
         featured: featured || false,
         custom_excerpt: excerpt || subhead || null,
         published_at: publishedAt,
+        feature_image: heroImageUrl || null,
         // Include updated_at for PUT requests (required by Ghost API)
         ...(method === 'PUT' && updatedAt ? { updated_at: updatedAt } : {})
       }]

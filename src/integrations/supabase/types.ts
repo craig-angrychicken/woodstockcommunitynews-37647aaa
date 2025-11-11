@@ -250,6 +250,7 @@ export type Database = {
           environment: string | null
           ghost_url: string | null
           guid: string | null
+          hero_image_url: string | null
           id: string
           is_test: boolean | null
           prompt_version_id: string | null
@@ -266,6 +267,7 @@ export type Database = {
           environment?: string | null
           ghost_url?: string | null
           guid?: string | null
+          hero_image_url?: string | null
           id?: string
           is_test?: boolean | null
           prompt_version_id?: string | null
@@ -282,6 +284,7 @@ export type Database = {
           environment?: string | null
           ghost_url?: string | null
           guid?: string | null
+          hero_image_url?: string | null
           id?: string
           is_test?: boolean | null
           prompt_version_id?: string | null

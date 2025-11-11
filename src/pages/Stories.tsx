@@ -39,7 +39,7 @@ const Stories = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('stories')
-        .select('*')
+        .select('id, title, content, status, is_test, article_type, prompt_version_id, created_at, environment, ghost_url, hero_image_url, published_at, source_id, guid')
         .order('created_at', { ascending: false });
       
       if (error) throw error;
@@ -223,7 +223,8 @@ const Stories = () => {
           tags: [],
           featured: false,
           ghostUrl: storyToPublish.ghost_url || undefined,
-          publishedAt: artifactDate || storyToPublish.created_at
+          publishedAt: artifactDate || storyToPublish.created_at,
+          heroImageUrl: storyToPublish.hero_image_url
         }
       );
       

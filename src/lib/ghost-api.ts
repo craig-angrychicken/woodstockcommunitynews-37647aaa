@@ -27,6 +27,7 @@ export async function publishToGhost(
     excerpt?: string;
     ghostUrl?: string;
     publishedAt?: string;
+    heroImageUrl?: string | null;
   }
 ): Promise<{ success: boolean; postId?: string; url?: string }> {
   try {
@@ -42,6 +43,7 @@ export async function publishToGhost(
         excerpt: options?.excerpt,
         ghostUrl: options?.ghostUrl,
         publishedAt: options?.publishedAt,
+        heroImageUrl: options?.heroImageUrl,
       },
     });
 
