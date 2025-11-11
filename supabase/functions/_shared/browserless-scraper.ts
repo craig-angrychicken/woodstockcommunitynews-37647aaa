@@ -110,12 +110,9 @@ async function scrapeWithSelectors(
   console.log(`🌐 Scraping: ${url}`);
   console.log(`📋 Using ${elements.length} selectors`);
 
-  // Set a short per-element timeout to avoid long waits on missing selectors
-  const elementsWithTimeout = elements.map((el) => ({ ...el, timeout: 4000 }));
-
   const requestBody = {
     url,
-    elements: elementsWithTimeout,
+    elements, // no per-element timeout - rely on networkidle2
     gotoOptions: {
       waitUntil: 'networkidle2',
       timeout: 30000,
@@ -139,7 +136,7 @@ async function scrapeWithSelectors(
     console.error('❌ Browserless request failed:', {
       status: response.status,
       url,
-      elements: elementsWithTimeout.map((e) => e.selector),
+      elements: elements.map((e) => e.selector),
       error: errorText
     });
     throw new Error(`Browserless error (${response.status}): ${errorText}`);
@@ -325,6 +322,7 @@ async function testConfiguration(
   const html = await fetchHTML(url);
 
   const candidateContainers = Array.from(new Set([
+    'li',
     config.containerSelector,
     'article',
     '.item',
@@ -333,10 +331,7 @@ async function testConfiguration(
     '.post',
     '.card',
     '.news-card',
-    '.story',
-    'li',
-    'a[href*="/news_detail_"]',
-    'a[href*="news_detail_"]'
+    '.story'
   ]));
 
   const ranked = candidateContainers
@@ -354,11 +349,16 @@ async function testConfiguration(
   for (const { selector } of ranked) {
     try {
       console.log(`  ▶️ Trying selector: ${selector}`);
-      const res = await scrapeWithSelectors(url, [{ selector, timeout: 4000 }]);
+      const res = await scrapeWithSelectors(url, [{ selector }]);
       const group = res[0]?.results || [];
-      if (group.length > 0) {
+      // Filter to only items that have a link with news_detail or similar
+      const validGroup = group.filter(r => {
+        const html = r.html || '';
+        return /<a[^>]*href=["'][^"']*(?:news_detail|\/news\/)[^"']*["']/i.test(html);
+      });
+      if (validGroup.length > 0) {
         chosenSelector = selector;
-        containers = group.map(r => ({ html: r.html, text: r.text }));
+        containers = validGroup.map(r => ({ html: r.html, text: r.text }));
         break;
       }
     } catch (err) {
@@ -367,15 +367,18 @@ async function testConfiguration(
     }
   }
 
-  // 3) Last-resort fallback: scrape <body> and split into <li> items locally
+  // 3) Last-resort fallback: scrape <body> and parse items locally
   if (containers.length === 0) {
     try {
-      console.log('  ⤵️ Fallback to <body> and local parsing of <li> items');
-      const bodyRes = await scrapeWithSelectors(url, [{ selector: 'body', timeout: 4000 }]);
+      console.log('  ⤵️ Fallback to <body> and local parsing');
+      const bodyRes = await scrapeWithSelectors(url, [{ selector: 'body' }]);
       const bodyHtml = bodyRes[0]?.results?.[0]?.html || '';
       const liMatches = bodyHtml.match(/<li[\s\S]*?<\/li>/gi) || [];
-      containers = liMatches.map(html => ({ html, text: htmlToText(html) }));
-      chosenSelector = 'body>li*';
+      const validLis = liMatches.filter(html =>
+        /<a[^>]*href=["'][^"']*(?:news_detail|\/news\/)[^"']*["']/i.test(html)
+      );
+      containers = validLis.map(html => ({ html, text: htmlToText(html) }));
+      chosenSelector = 'body>li* (filtered)';
     } catch (err) {
       console.warn('  ⚠️ Body fallback failed:', err);
     }
@@ -555,6 +558,12 @@ function extractDate(html: string): string | null {
   if (m) return m[1] || htmlToText(m[2]);
   m = html.match(/<time[^>]*>([\s\S]*?)<\/time>/i);
   if (m) return htmlToText(m[1]);
+  
+  // Plain text date: "Nov 7, 2025" or "November 7, 2025"
+  const plainText = htmlToText(html);
+  const dateMatch = plainText.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\.?\s+\d{1,2},?\s+\d{4}\b/i);
+  if (dateMatch) return dateMatch[0];
+  
   return null;
 }
 
