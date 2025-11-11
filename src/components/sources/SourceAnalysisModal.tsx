@@ -7,19 +7,25 @@ import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 interface AnalysisResult {
   success: boolean;
   analysis?: {
-    containerSelectors: string[];
-    titleSelectors: string[];
-    dateSelectors: string[];
-    linkSelectors: string[];
+    suggestedSelectors: {
+      elements: Array<{
+        selector: string;
+        name?: string;
+        timeout?: number;
+      }>;
+      gotoOptions?: {
+        waitUntil?: string;
+        timeout?: number;
+      };
+    };
     sampleArticles: Array<{
       title: string;
       date: string;
+      link: string;
       excerpt: string;
     }>;
-    recommendedParser: string;
     confidence: number;
-    totalElements: number;
-    htmlStructure: string;
+    recommendedParser: string;
   };
   error?: string;
 }
@@ -48,19 +54,20 @@ export const SourceAnalysisModal = ({
   const handleSaveConfig = () => {
     if (analysisResult?.analysis && onSaveConfig) {
       const config = {
-        parserType: analysisResult.analysis.recommendedParser,
-        selectors: {
-          container: analysisResult.analysis.containerSelectors[0],
-          title: analysisResult.analysis.titleSelectors[0],
-          date: analysisResult.analysis.dateSelectors[0],
-          link: analysisResult.analysis.linkSelectors[0],
-        },
+        scrapeConfig: analysisResult.analysis.suggestedSelectors,
         confidence: analysisResult.analysis.confidence,
-        lastAnalyzed: new Date().toISOString(),
       };
       onSaveConfig(config);
       onOpenChange(false);
     }
+  };
+
+  // Helper to get selector by name from elements array
+  const getSelector = (name: string) => {
+    const element = analysisResult?.analysis?.suggestedSelectors.elements.find(
+      el => el.name === name
+    );
+    return element?.selector || 'N/A';
   };
 
   return (
@@ -113,25 +120,25 @@ export const SourceAnalysisModal = ({
                   <div>
                     <span className="text-sm text-muted-foreground">Container:</span>
                     <code className="block mt-1 p-2 bg-muted rounded text-sm">
-                      {analysisResult.analysis.containerSelectors[0] || 'N/A'}
+                      {getSelector('container')}
                     </code>
                   </div>
                   <div>
                     <span className="text-sm text-muted-foreground">Title:</span>
                     <code className="block mt-1 p-2 bg-muted rounded text-sm">
-                      {analysisResult.analysis.titleSelectors[0] || 'N/A'}
+                      {getSelector('title')}
                     </code>
                   </div>
                   <div>
                     <span className="text-sm text-muted-foreground">Date:</span>
                     <code className="block mt-1 p-2 bg-muted rounded text-sm">
-                      {analysisResult.analysis.dateSelectors[0] || 'N/A'}
+                      {getSelector('date')}
                     </code>
                   </div>
                   <div>
                     <span className="text-sm text-muted-foreground">Link:</span>
                     <code className="block mt-1 p-2 bg-muted rounded text-sm">
-                      {analysisResult.analysis.linkSelectors[0] || 'N/A'}
+                      {getSelector('link')}
                     </code>
                   </div>
                 </div>
@@ -139,7 +146,7 @@ export const SourceAnalysisModal = ({
             </div>
 
             {/* Sample Articles */}
-            {analysisResult.analysis.sampleArticles.length > 0 && (
+            {analysisResult.analysis.sampleArticles && analysisResult.analysis.sampleArticles.length > 0 && (
               <div>
                 <h3 className="font-semibold mb-2">Sample Articles Found</h3>
                 <div className="space-y-3">
@@ -149,6 +156,11 @@ export const SourceAnalysisModal = ({
                       {article.date && (
                         <div className="text-sm text-muted-foreground mt-1">
                           Date: {article.date}
+                        </div>
+                      )}
+                      {article.link && (
+                        <div className="text-sm text-muted-foreground mt-1 truncate">
+                          Link: {article.link}
                         </div>
                       )}
                       {article.excerpt && (
@@ -162,14 +174,13 @@ export const SourceAnalysisModal = ({
               </div>
             )}
 
-            {/* HTML Structure Info */}
+            {/* Configuration Preview */}
             <div>
-              <h3 className="font-semibold mb-2">Structure Information</h3>
+              <h3 className="font-semibold mb-2">Configuration Preview</h3>
               <div className="p-3 bg-muted rounded-lg text-sm">
-                <div>{analysisResult.analysis.htmlStructure}</div>
-                <div className="mt-1 text-muted-foreground">
-                  Total elements analyzed: {analysisResult.analysis.totalElements}
-                </div>
+                <pre className="text-xs overflow-x-auto">
+                  {JSON.stringify(analysisResult.analysis.suggestedSelectors, null, 2)}
+                </pre>
               </div>
             </div>
 
