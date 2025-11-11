@@ -1,93 +1,59 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { DOMParser, Element } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
+import { scrapeWithBrowserless, normalizeUrl } from "../_shared/browserless-service.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Delay utilities for human-like scraping
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function randomDelay(minMs: number = 2000, maxMs: number = 3000): Promise<void> {
-  const delay = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
-  console.log(`⏱️ Waiting ${delay}ms before next request...`);
-  return sleep(delay);
-}
-
 // HTML to Markdown converter
 function htmlToMarkdown(html: string): string {
   let markdown = html;
   
-  // Convert headers
   markdown = markdown.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n');
   markdown = markdown.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n\n');
   markdown = markdown.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n\n');
   markdown = markdown.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '#### $1\n\n');
-  
-  // Convert paragraphs
   markdown = markdown.replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n');
-  
-  // Convert links
   markdown = markdown.replace(/<a[^>]*href=["']([^"']*)["'][^>]*>(.*?)<\/a>/gi, '[$2]($1)');
-  
-  // Convert bold and italic
   markdown = markdown.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**');
   markdown = markdown.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**');
   markdown = markdown.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*');
   markdown = markdown.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*');
-  
-  // Convert lists
   markdown = markdown.replace(/<ul[^>]*>/gi, '\n');
   markdown = markdown.replace(/<\/ul>/gi, '\n');
   markdown = markdown.replace(/<ol[^>]*>/gi, '\n');
   markdown = markdown.replace(/<\/ol>/gi, '\n');
   markdown = markdown.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n');
-  
-  // Convert line breaks
   markdown = markdown.replace(/<br[^>]*>/gi, '\n');
-  
-  // Remove remaining HTML tags
   markdown = markdown.replace(/<[^>]+>/g, '');
-  
-  // Decode HTML entities
   markdown = markdown.replace(/&nbsp;/g, ' ');
   markdown = markdown.replace(/&amp;/g, '&');
   markdown = markdown.replace(/&lt;/g, '<');
   markdown = markdown.replace(/&gt;/g, '>');
   markdown = markdown.replace(/&quot;/g, '"');
   markdown = markdown.replace(/&#39;/g, "'");
-  
-  // Clean up extra whitespace
   markdown = markdown.replace(/\n{3,}/g, '\n\n');
   markdown = markdown.trim();
   
   return markdown;
 }
 
-// ============= IMAGE FILTERING HELPERS =============
-
-// Phase 1: URL Pattern Filtering - Filter out unwanted image types
+// Phase 1: URL Pattern Filtering
 function isValidImageUrl(url: string): boolean {
   const urlLower = url.toLowerCase();
-  
-  // Filter out common non-hero image patterns
   const invalidPatterns = [
     '/icon', '/logo', '/avatar', '/thumbnail',
     'tracking', 'pixel', 'beacon', 'analytics',
     'social-share', 'facebook', 'twitter', 'linkedin',
     'badge', 'button', 'banner-ad',
-    '.gif', // Often used for tracking/ads
-    '1x1', '2x2', 'spacer' // Tracking pixels
+    '.gif', '1x1', '2x2', 'spacer'
   ];
-  
   return !invalidPatterns.some(pattern => urlLower.includes(pattern));
 }
 
-// Phase 2: Metadata Validation - Check image dimensions and quality
+// Phase 2: Metadata Validation
 async function validateImageMetadata(url: string): Promise<{ valid: boolean; score: number; reason?: string }> {
   try {
     const response = await fetch(url, { method: 'HEAD' });
@@ -96,13 +62,11 @@ async function validateImageMetadata(url: string): Promise<{ valid: boolean; sco
       return { valid: false, score: 0, reason: 'Image not accessible' };
     }
 
-    // Check content type
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.startsWith('image/')) {
       return { valid: false, score: 0, reason: 'Not an image' };
     }
 
-    // Check file size (prefer 50KB - 5MB)
     const contentLength = parseInt(response.headers.get('content-length') || '0');
     if (contentLength < 50000) {
       return { valid: false, score: 0, reason: 'Image too small (< 50KB)' };
@@ -111,7 +75,6 @@ async function validateImageMetadata(url: string): Promise<{ valid: boolean; sco
       return { valid: false, score: 0.3, reason: 'Image very large (> 5MB)' };
     }
 
-    // Score based on file size (prefer 200KB - 2MB)
     let score = 0.5;
     if (contentLength >= 200000 && contentLength <= 2000000) {
       score = 1.0;
@@ -128,7 +91,7 @@ async function validateImageMetadata(url: string): Promise<{ valid: boolean; sco
   }
 }
 
-// Phase 3: AI Visual Analysis - Use AI to score image quality
+// Phase 3: AI Visual Analysis
 async function analyzeImageWithAI(imageUrl: string, title: string, lovableApiKey: string): Promise<{ score: number; reasoning: string }> {
   try {
     console.log(`  🤖 Analyzing image with AI: ${imageUrl.substring(0, 80)}...`);
@@ -177,22 +140,20 @@ Respond with ONLY a JSON object in this exact format:
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '{"score": 5, "reasoning": "No response"}';
-    
-    // Parse the JSON response
     const result = JSON.parse(content);
     console.log(`  ✅ AI score: ${result.score}/10 - ${result.reasoning}`);
     
-    return { score: result.score / 10, reasoning: result.reasoning }; // Normalize to 0-1
+    return { score: result.score / 10, reasoning: result.reasoning };
   } catch (error) {
     console.error('  ❌ Error in AI image analysis:', error);
     return { score: 0.5, reasoning: 'AI analysis error, using neutral score' };
   }
 }
 
-// Select best hero image from array of image URLs
-async function selectBestHeroImage(images: string[], title: string, content: string, lovableApiKey: string): Promise<string | null> {
+// Select best hero image
+async function selectBestHeroImage(images: string[], title: string, lovableApiKey: string): Promise<string | null> {
   if (!images || images.length === 0) {
-    console.log('  ℹ️ No images available for artifact');
+    console.log('  ℹ️ No images available');
     return null;
   }
 
@@ -203,14 +164,12 @@ async function selectBestHeroImage(images: string[], title: string, content: str
   for (const imageUrl of images) {
     console.log(`\n  --- Evaluating: ${imageUrl.substring(0, 80)}... ---`);
     
-    // Phase 1: URL Pattern Filtering
     if (!isValidImageUrl(imageUrl)) {
       console.log('  ❌ Phase 1 FAILED: Invalid URL pattern');
       continue;
     }
     console.log('  ✅ Phase 1 PASSED: Valid URL pattern');
 
-    // Phase 2: Metadata Validation
     const metadataResult = await validateImageMetadata(imageUrl);
     if (!metadataResult.valid) {
       console.log(`  ❌ Phase 2 FAILED: ${metadataResult.reason}`);
@@ -218,11 +177,9 @@ async function selectBestHeroImage(images: string[], title: string, content: str
     }
     console.log(`  ✅ Phase 2 PASSED: Metadata score ${metadataResult.score.toFixed(2)}`);
 
-    // Phase 3: AI Visual Analysis
     const aiResult = await analyzeImageWithAI(imageUrl, title, lovableApiKey);
     console.log(`  ✅ Phase 3 COMPLETE: AI score ${aiResult.score.toFixed(2)}`);
 
-    // Calculate weighted total score (30% metadata, 70% AI)
     const totalScore = (metadataResult.score * 0.3) + (aiResult.score * 0.7);
     
     imageScores.push({
@@ -238,7 +195,6 @@ async function selectBestHeroImage(images: string[], title: string, content: str
     console.log(`  📊 Total score: ${totalScore.toFixed(2)}`);
   }
 
-  // Select image with highest score
   if (imageScores.length === 0) {
     console.log('  ❌ No images passed validation');
     return null;
@@ -249,1332 +205,178 @@ async function selectBestHeroImage(images: string[], title: string, content: str
   
   console.log(`\n🏆 Selected hero image: ${winner.url.substring(0, 80)}...`);
   console.log(`   Final score: ${winner.totalScore.toFixed(2)}`);
-  console.log(`   AI reasoning: ${winner.details.aiReasoning}`);
 
   return winner.url;
 }
 
-// Extract storyID from article elements (for JavaScript-based navigation)
-function extractStoryId(titleElement: Element | null, parentElement: Element): string | null {
-  if (!titleElement) return null;
+// Parse date from text
+function parseDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
   
-  // Strategy 1: Parse onclick handler for common patterns
-  const onclick = titleElement.getAttribute('onclick') || '';
-  if (onclick) {
-    console.log(`  🔍 Analyzing onclick: ${onclick}`);
-    
-    // Look for patterns like:
-    // - showStory(504)
-    // - loadArticle('504')
-    // - window.location='media.php?storyID=504'
-    const patterns = [
-      /storyID[=:](\d+)/i,           // storyID=504 or storyID:504
-      /\([\'\"]?(\d+)[\'\"]?\)/,      // function(504) or function('504')
-      /media\.php\?.*?(\d+)/,         // media.php?...504
-      /story[\/\-_]?(\d+)/i,          // story/504, story-504, story_504
-    ];
-    
-    for (const pattern of patterns) {
-      const match = onclick.match(pattern);
-      if (match && match[1]) {
-        console.log(`  ✅ Found storyID via onclick pattern: ${match[1]}`);
-        return match[1];
-      }
-    }
-  }
-  
-  // Strategy 2: Check data attributes
-  const dataAttrs = ['data-story-id', 'data-id', 'data-article-id', 'data-post-id'];
-  for (const attr of dataAttrs) {
-    const value = titleElement.getAttribute(attr) || parentElement.getAttribute(attr);
-    if (value && /^\d+$/.test(value)) {
-      console.log(`  ✅ Found storyID in ${attr}: ${value}`);
-      return value;
-    }
-  }
-  
-  // Strategy 3: Check element IDs
-  const titleId = titleElement.getAttribute('id') || '';
-  const parentId = parentElement.getAttribute('id') || '';
-  const idMatch = (titleId + ' ' + parentId).match(/(\d+)/);
-  if (idMatch) {
-    console.log(`  ✅ Found storyID in element ID: ${idMatch[1]}`);
-    return idMatch[1];
-  }
-  
-  console.log('  ❌ No storyID found');
-  return null;
-}
-
-// Helper to extract URLs from CSS background properties
-function extractUrlsFromCssBackground(styleString: string): string[] {
-  const urls: string[] = [];
-  
-  // Match url(...) patterns, handling quotes and no quotes
-  const urlPattern = /url\s*\(\s*['"]?([^'"()]+)['"]?\s*\)/gi;
-  let match;
-  
-  while ((match = urlPattern.exec(styleString)) !== null) {
-    const url = match[1].trim();
-    
-    // Skip data URIs, gradients, and common non-content images (case-insensitive)
-    const urlLower = url.toLowerCase();
-    if (url.startsWith('data:') || 
-        urlLower.includes('gradient') ||
-        urlLower.includes('logo') ||
-        urlLower.includes('icon') ||
-        urlLower.includes('sprite')) {
-      continue;
-    }
-    
-    urls.push(url);
-  }
-  
-  return urls;
-}
-
-// Helper to extract best URL from srcset attribute
-function pickFromSrcset(srcset: string): string | null {
-  const parts = srcset.split(',').map(s => s.trim());
-  if (parts.length === 0) return null;
-  // Pick last (usually largest resolution)
-  const last = parts[parts.length - 1].split(/\s+/)[0];
-  return last || null;
-}
-
-// Clean up messy titles from Finalsite and other sources
-function cleanTitle(raw: string): string {
-  return (raw || '')
-    .replace(/\u00a0/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/^read\s+more\s+about\s+/i, '')
-    .replace(/^read\s+more\b/i, '')
-    .replace(/^\:+/, '')
-    .replace(/…$/, '')
-    .replace(/\.$/, '')
-    .trim();
-}
-
-// Deduplicate articles by URL or normalized title
-function dedupeArticles(articles: any[]): any[] {
-  const byKey = new Map<string, any>();
-  for (const a of articles) {
-    const key = (a.articleUrl ? a.articleUrl.split('#')[0] : cleanTitle(a.title).toLowerCase());
-    const existing = byKey.get(key);
-    if (!existing) {
-      byKey.set(key, a);
-    } else {
-      // Prefer the one that has a usable URL (so we can fetch the full article)
-      if (!existing.articleUrl && a.articleUrl) byKey.set(key, a);
-    }
-  }
-  return Array.from(byKey.values());
-}
-
-// Extract full article content from article page HTML
-function extractFullArticleContent(html: string, baseUrl: string, customSelectors?: string | string[]): { content: string; images: string[] } {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  if (!doc) return { content: '', images: [] };
-  
-  // Parse custom selectors
-  let customSelectorArray: string[] = [];
-  if (customSelectors) {
-    if (typeof customSelectors === 'string') {
-      customSelectorArray = customSelectors.split(',').map(s => s.trim()).filter(s => s);
-    } else {
-      customSelectorArray = customSelectors;
-    }
-  }
-  
-  // Finalsite-specific selectors (for cherokeek12.net and similar sites)
-  const finalsiteSelectors = [
-    'article.fsResource .fsResourceContent',
-    '.fsResource .fsResourceContent',
-    '.fsArticle',
-    'main article'
-  ];
-  
-  // Default selectors as fallback
-  const defaultSelectors = [
-    '.normalStory',
-    '.story-content',
-    '.article-content',
-    '.main-content',
-    'article',
-    '.post-content',
-    '#content',
-    '.entry-content',
-    '[role="main"]'
-  ];
-  
-  // Build selector priority: custom > finalsite (if applicable) > defaults
-  let contentSelectors = [...customSelectorArray];
-  
-  // Add Finalsite selectors if we're on a Finalsite domain
-  if (baseUrl.includes('cherokeek12.net') || baseUrl.includes('finalsite')) {
-    contentSelectors.push(...finalsiteSelectors);
-  }
-  
-  contentSelectors.push(...defaultSelectors);
-  
-  let contentElement = null;
-  for (const selector of contentSelectors) {
-    contentElement = doc.querySelector(selector);
-    if (contentElement) {
-      console.log(`  ✅ Found content using selector: ${selector}`);
-      break;
-    }
-  }
-  
-  // If no specific content area, look for the largest text block
-  if (!contentElement) {
-    const allDivs = doc.querySelectorAll('div, section, article');
-    let maxParagraphs = 0;
-    for (const div of allDivs) {
-      const pCount = (div as Element).querySelectorAll('p').length;
-      if (pCount > maxParagraphs) {
-        maxParagraphs = pCount;
-        contentElement = div as Element;
-      }
-    }
-    if (contentElement) {
-      console.log(`  ⚠️ Using fallback: found ${maxParagraphs} paragraphs`);
-    }
-  }
-  
-  if (!contentElement) {
-    console.error('  ❌ Could not find main content area');
-    return { content: '', images: [] };
-  }
-  
-  // Track image sources by type for logging
-  let imgTagCount = 0;
-  let srcsetCount = 0;
-  let cssContentCount = 0;
-  let cssHeroCount = 0;
-  let metaCount = 0;
-  const images: string[] = [];
-  
-  // 1. Extract from <img> tags with lazy-load support
-  const imgElements = contentElement.querySelectorAll('img');
-  for (const img of imgElements) {
-    const el = img as Element;
-    // Try multiple src attributes (lazy-loading)
-    const src = el.getAttribute('src') || 
-                 el.getAttribute('data-src') || 
-                 el.getAttribute('data-original') || 
-                 el.getAttribute('data-lazy-src');
-    const srcset = el.getAttribute('srcset');
-    
-    const srcLower = (src || '').toLowerCase();
-    if (src && !srcLower.includes('logo') && !srcLower.includes('icon') && !srcLower.includes('sprite')) {
-      images.push(src);
-      imgTagCount++;
-    } else if (srcset) {
-      const srcsetUrl = pickFromSrcset(srcset);
-      if (srcsetUrl) {
-        images.push(srcsetUrl);
-        srcsetCount++;
-      }
-    }
-  }
-  
-  // 2. Extract from <picture> elements
-  const pictureElements = contentElement.querySelectorAll('picture source[srcset]');
-  for (const source of pictureElements) {
-    const srcset = (source as Element).getAttribute('srcset');
-    if (srcset) {
-      const srcsetUrl = pickFromSrcset(srcset);
-      if (srcsetUrl) {
-        images.push(srcsetUrl);
-        srcsetCount++;
-      }
-    }
-  }
-  
-  // 3. Extract from CSS backgrounds INSIDE content
-  const elementsWithBackground = contentElement.querySelectorAll('[style*="background"]');
-  for (const el of elementsWithBackground) {
-    const style = (el as Element).getAttribute('style') || '';
-    const backgroundUrls = extractUrlsFromCssBackground(style);
-    images.push(...backgroundUrls);
-    cssContentCount += backgroundUrls.length;
-  }
-  
-  // 4. Extract from CSS backgrounds OUTSIDE content (hero images)
-  const heroSelectors = '.hero, [class*="hero"], [class*="featured"], .page-header, .entry-header, .post-thumbnail, .wp-post-image, .featured-image';
-  const heroElements = doc.querySelectorAll(heroSelectors);
-  for (const el of heroElements) {
-    const style = (el as Element).getAttribute('style') || '';
-    if (style.includes('background')) {
-      const backgroundUrls = extractUrlsFromCssBackground(style);
-      images.push(...backgroundUrls);
-      cssHeroCount += backgroundUrls.length;
-    }
-  }
-  
-  // 5. Extract from meta tags (og:image, twitter:image)
-  const metaSelectors = [
-    'meta[property="og:image"]',
-    'meta[name="twitter:image"]',
-    'meta[name="twitter:image:src"]',
-    'link[rel="image_src"]'
-  ];
-  for (const selector of metaSelectors) {
-    const metaEl = doc.querySelector(selector);
-    if (metaEl) {
-      const content = metaEl.getAttribute('content') || metaEl.getAttribute('href');
-      if (content && !content.toLowerCase().includes('logo')) {
-        images.push(content);
-        metaCount++;
-      }
-    }
-  }
-  
-  // Deduplicate images
-  const uniqueImages = Array.from(new Set(images));
-  
-  // Convert to markdown
-  const content = htmlToMarkdown(contentElement.innerHTML);
-  
-  // Enhanced logging
-  console.log(`  📄 Extracted ${content.length} chars, ${imgTagCount} <img> tags, ${srcsetCount} srcset/lazy, ${cssContentCount} CSS (content), ${cssHeroCount} CSS (hero), ${metaCount} meta, ${uniqueImages.length} total unique images`);
-  
-  return { content, images: uniqueImages };
-}
-
-// Download image and store in Supabase
-async function downloadAndStoreImage(
-  imageUrl: string, 
-  artifactId: string, 
-  imageIndex: number,
-  supabase: any,
-  baseUrl: string
-): Promise<string | null> {
   try {
-    console.log(`📥 Downloading image ${imageIndex}: ${imageUrl}`);
-    
-    // Handle relative URLs - resolve against base URL
-    let fullImageUrl = imageUrl;
-    if (imageUrl.startsWith('//')) {
-      fullImageUrl = 'https:' + imageUrl;
-    } else if (imageUrl.startsWith('/')) {
-      try {
-        fullImageUrl = new URL(imageUrl, baseUrl).href;
-      } catch (e) {
-        console.log('⚠️ Failed to resolve relative URL:', imageUrl);
-        return null;
-      }
-    } else if (!imageUrl.startsWith('http')) {
-      try {
-        fullImageUrl = new URL(imageUrl, baseUrl).href;
-      } catch (e) {
-        console.log('⚠️ Failed to resolve relative URL:', imageUrl);
-        return null;
-      }
+    // Try common date formats
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+      return date;
     }
     
-    // Download image
-    const imageResponse = await fetch(fullImageUrl);
-    if (!imageResponse.ok) {
-      console.error(`Failed to download image: ${imageResponse.status}`);
-      return null;
+    // Try MM/DD/YYYY format
+    const slashMatch = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (slashMatch) {
+      const [, month, day, year] = slashMatch;
+      const fullYear = year.length === 2 ? `20${year}` : year;
+      return new Date(`${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
     }
     
-    // Get image data
-    const imageBlob = await imageResponse.blob();
-    const arrayBuffer = await imageBlob.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    
-    // Determine file extension
-    const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
-    const extension = contentType.split('/')[1]?.split(';')[0] || 'jpg';
-    
-    // Generate storage path
-    const fileName = `${artifactId}_${imageIndex}.${extension}`;
-    const storagePath = `artifacts/${fileName}`;
-    
-    // Upload to Supabase Storage
-    const { data, error } = await supabase.storage
-      .from('artifact-images')
-      .upload(storagePath, uint8Array, {
-        contentType,
-        upsert: true
-      });
-    
-    if (error) {
-      console.error('Error uploading image to storage:', error);
-      return null;
-    }
-    
-    // Get public URL
-    const { data: { publicUrl } } = supabase.storage
-      .from('artifact-images')
-      .getPublicUrl(storagePath);
-    
-    console.log(`✅ Stored image at: ${publicUrl}`);
-    return publicUrl;
-  } catch (error) {
-    console.error('Error processing image:', error);
     return null;
-  }
-}
-
-// Extract full content and images from article HTML fragment
-function extractContentFromHtml(htmlFragment: string): { content: string; images: string[] } {
-  const doc = new DOMParser().parseFromString(htmlFragment, 'text/html');
-  if (!doc) return { content: '', images: [] };
-  
-  const images: string[] = [];
-  
-  // 1. Extract from <img> tags with lazy-load support
-  const imgElements = doc.querySelectorAll('img');
-  for (const img of imgElements) {
-    const el = img as Element;
-    // Try multiple src attributes (lazy-loading)
-    const src = el.getAttribute('src') || 
-                 el.getAttribute('data-src') || 
-                 el.getAttribute('data-original') || 
-                 el.getAttribute('data-lazy-src');
-    const srcset = el.getAttribute('srcset');
-    
-    const srcLower = (src || '').toLowerCase();
-    if (src && !srcLower.includes('logo') && !srcLower.includes('icon') && !srcLower.includes('sprite')) {
-      images.push(src);
-    } else if (srcset) {
-      const srcsetUrl = pickFromSrcset(srcset);
-      if (srcsetUrl) {
-        images.push(srcsetUrl);
-      }
-    }
-  }
-  
-  // 2. Extract from <picture> elements
-  const pictureElements = doc.querySelectorAll('picture source[srcset]');
-  for (const source of pictureElements) {
-    const srcset = (source as Element).getAttribute('srcset');
-    if (srcset) {
-      const srcsetUrl = pickFromSrcset(srcset);
-      if (srcsetUrl) {
-        images.push(srcsetUrl);
-      }
-    }
-  }
-  
-  // 3. Extract from CSS background properties
-  const elementsWithBackground = doc.querySelectorAll('[style*="background"]');
-  for (const el of elementsWithBackground) {
-    const style = (el as Element).getAttribute('style') || '';
-    const backgroundUrls = extractUrlsFromCssBackground(style);
-    images.push(...backgroundUrls);
-  }
-  
-  // Deduplicate images
-  const uniqueImages = Array.from(new Set(images));
-  
-  // Extract content - use the entire fragment
-  const htmlContent = doc.body?.innerHTML || htmlFragment;
-  const markdownContent = htmlToMarkdown(htmlContent);
-  
-  return { content: markdownContent, images: uniqueImages };
-}
-
-// Helper function to parse Cherokee County style news pages
-function parseCherokeeCountyNews(html: string, sourceUrl: string) {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  if (!doc) return [];
-
-  const articles = doc.querySelectorAll('.newsContainerSide');
-  const results = [];
-
-  for (const article of articles) {
-    const el = article as Element;
-    const titleElement = el.querySelector('.normalStoryTitle a');
-    const dateElement = el.querySelector('[style*="font-size:10px"]');
-    
-    if (titleElement) {
-      const title = titleElement.textContent?.trim() || '';
-      const dateText = dateElement?.textContent?.trim() || '';
-      
-      console.log(`\n🔍 Examining title element for: ${title}`);
-      console.log(`  - href: ${titleElement.getAttribute('href')}`);
-      console.log(`  - onclick: ${titleElement.getAttribute('onclick')}`);
-      console.log(`  - data-id: ${titleElement.getAttribute('data-id')}`);
-      console.log(`  - data-story-id: ${titleElement.getAttribute('data-story-id')}`);
-      console.log(`  - id: ${titleElement.getAttribute('id')}`);
-      console.log(`  Parent element:`);
-      console.log(`    - id: ${el.getAttribute('id')}`);
-      console.log(`    - data-id: ${el.getAttribute('data-id')}`);
-      console.log(`    - onclick: ${el.getAttribute('onclick')}`);
-      
-      // Extract storyID and build article URL
-      const storyId = extractStoryId(titleElement, el);
-      const baseUrl = new URL(sourceUrl).origin;
-      const articleUrl = storyId 
-        ? `${baseUrl}/Communications/media.php?storyID=${storyId}`
-        : null;
-      
-      if (articleUrl) {
-        console.log(`  ✅ Article URL: ${articleUrl}`);
-      } else {
-        console.log(`  ⚠️ No article URL - will use snippet`);
-      }
-      
-      // Extract full content HTML from this article element
-      const contentHtml = el.outerHTML;
-      
-      results.push({
-        title,
-        date: dateText,
-        storyId,
-        articleUrl,
-        contentHtml,
-        sourceUrl
-      });
-    }
-  }
-
-  return results;
-}
-
-// Helper function to parse Woodstock style news pages
-function parseWoodstockNews(html: string, sourceUrl: string) {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  if (!doc) return [];
-
-  const articles = doc.querySelectorAll('.news-list-item');
-  const results = [];
-
-  for (const article of articles) {
-    const el = article as Element;
-    const titleElement = el.querySelector('.news-title');
-    const dateElement = el.querySelector('.news-date');
-
-    if (titleElement) {
-      const title = titleElement.textContent?.trim() || '';
-      const dateText = dateElement?.textContent?.trim() || '';
-      
-      // Extract full content HTML from this article element
-      const contentHtml = el.outerHTML;
-
-      results.push({
-        title,
-        date: dateText,
-        storyId: null,
-        articleUrl: null,
-        contentHtml,
-        sourceUrl
-      });
-    }
-  }
-
-  return results;
-}
-
-// Helper function to parse generic news pages (Phase 5: Enhanced)
-function parseGenericNews(html: string, sourceUrl: string) {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  if (!doc) return [];
-
-  // Phase 1: Try specific selectors
-  const specificSelectors = [
-    'article', '.article', '.news-item', '.post',
-    '[itemtype*="Article"]', '[class*="news"]',
-    '[class*="post"]', '[id*="news"]'
-  ];
-
-  let articles: any = [];
-  let usedSelector = '';
-  
-  for (const selector of specificSelectors) {
-    articles = doc.querySelectorAll(selector);
-    if (articles.length > 0) {
-      usedSelector = selector;
-      console.log(`✅ Found ${articles.length} articles using selector: ${selector}`);
-      break;
-    }
-  }
-
-  // Phase 2: If no articles found, look for repeating patterns
-  if (articles.length === 0) {
-    console.log('⚠️ No articles found with specific selectors, trying pattern detection...');
-    const allDivs = doc.querySelectorAll('div[class], li[class]');
-    const classCounts = new Map<string, Element[]>();
-    
-    for (const div of allDivs) {
-      const className = (div as Element).getAttribute('class');
-      if (className && typeof className === 'string') {
-        const classes = className.split(' ')[0]; // Use first class only
-        if (classes && classes.length > 2) {
-          if (!classCounts.has(classes)) {
-            classCounts.set(classes, []);
-          }
-          classCounts.get(classes)!.push(div as Element);
-        }
-      }
-    }
-    
-    // Find classes that appear 3+ times
-    for (const [className, elements] of classCounts) {
-      if (elements.length >= 3) {
-        articles = elements;
-        usedSelector = `.${className}`;
-        console.log(`✅ Found ${articles.length} repeating elements with class: ${className}`);
-        break;
-      }
-    }
-  }
-
-  // Phase 3: Parse each article
-  const results = [];
-
-  for (const article of articles) {
-    const el = article as Element;
-    
-    // Try multiple title selectors
-    const titleSelectors = ['h1', 'h2', 'h3', '.title', '[class*="title"]', '[class*="headline"]'];
-    let titleElement = null;
-    for (const selector of titleSelectors) {
-      titleElement = el.querySelector(selector);
-      if (titleElement) break;
-    }
-    
-    if (titleElement) {
-      const title = titleElement.textContent?.trim() || '';
-      
-      // Try multiple date selectors
-      const dateSelectors = ['time', '.date', '[class*="date"]', '[datetime]', '[class*="published"]'];
-      let dateElement = null;
-      for (const selector of dateSelectors) {
-        dateElement = el.querySelector(selector);
-        if (dateElement) break;
-      }
-      const dateText = dateElement?.textContent?.trim() || '';
-      
-      const contentHtml = el.outerHTML;
-
-      results.push({
-        title,
-        date: dateText,
-        storyId: null,
-        articleUrl: null,
-        contentHtml,
-        sourceUrl
-      });
-    }
-  }
-
-  console.log(`📋 Extracted ${results.length} articles from ${usedSelector || 'unknown selector'}`);
-  return results;
-}
-
-// Helper function to parse events from calendar pages
-function parseEvents(html: string, sourceUrl: string) {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  if (!doc) return [];
-
-  // Look for event patterns in the HTML/text
-  const results = [];
-  const text = doc.body?.textContent || '';
-  
-  // Try to extract event data from text patterns
-  const eventPattern = /([A-Z][^Date:]+)\s+Date:\s+([^Time:]+)\s+Time:\s+([^\n]+)/g;
-  let match;
-  
-  while ((match = eventPattern.exec(text)) !== null) {
-    const [, title, date, time] = match;
-    if (title && date) {
-      // Create HTML content for the event
-      const contentHtml = `<div><h3>${title.trim()}</h3><p>Event on ${date.trim()} at ${time.trim()}</p></div>`;
-      
-      results.push({
-        title: title.trim(),
-        date: date.trim(),
-        storyId: null,
-        articleUrl: null,
-        contentHtml,
-        sourceUrl
-      });
-    }
-  }
-
-  return results;
-}
-
-// Helper to parse various date formats and check if within range
-function isDateInRange(dateStr: string, dateFrom: string, dateTo: string): boolean {
-  // If no date provided, EXCLUDE the article (strict filtering)
-  if (!dateStr) {
-    return false;
-  }
-  
-  try {
-    // Try to parse the date string
-    const articleDate = new Date(dateStr);
-    const fromDate = new Date(dateFrom);
-    const toDate = new Date(dateTo);
-    
-    // Check if valid date and within range
-    if (isNaN(articleDate.getTime())) {
-      console.log(`  ⚠️ Invalid date format: ${dateStr}, EXCLUDING`);
-      return false;
-    }
-    
-    const inRange = articleDate >= fromDate && articleDate <= toDate;
-    return inRange;
   } catch {
-    console.log(`  ⚠️ Error parsing date: ${dateStr}, EXCLUDING`);
-    return false; // Exclude on error
-  }
-}
-
-// Helper to normalize URLs (convert relative to absolute)
-function normalizeUrl(url: string, baseUrl: string): string {
-  try {
-    // If already absolute, return as-is
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      return url;
-    }
-    
-    // Convert relative to absolute
-    const base = new URL(baseUrl);
-    const absoluteUrl = new URL(url, base.origin).toString();
-    return absoluteUrl;
-  } catch (error) {
-    console.log(`  ⚠️ Failed to normalize URL: ${url}`);
-    return url;
-  }
-}
-
-// Extract date from background image timestamp (e.g., t=202511071254300)
-function extractDateFromImageTimestamp(el: Element): string | null {
-  try {
-    const style = el.getAttribute('style') || '';
-    const urlMatch = style.match(/background[^:]*:url\(['"]?([^'")]+)['"]?\)/);
-    if (!urlMatch) return null;
-    
-    const url = urlMatch[1];
-    const timestampMatch = url.match(/[?&]t=(\d{8,})/);
-    if (!timestampMatch) return null;
-    
-    const timestamp = timestampMatch[1];
-    // Parse YYYYMMDD[HHmmss]
-    if (timestamp.length >= 8) {
-      const year = timestamp.substring(0, 4);
-      const month = timestamp.substring(4, 6);
-      const day = timestamp.substring(6, 8);
-      const hour = timestamp.length >= 10 ? timestamp.substring(8, 10) : '00';
-      const minute = timestamp.length >= 12 ? timestamp.substring(10, 12) : '00';
-      const second = timestamp.length >= 14 ? timestamp.substring(12, 14) : '00';
-      
-      const dateStr = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
-      const date = new Date(dateStr);
-      
-      if (!isNaN(date.getTime())) {
-        console.log(`   📅 Found date via image timestamp: ${date.toISOString()}`);
-        return date.toISOString();
-      }
-    }
-  } catch (error) {
-    console.log(`   ⚠️ Error parsing image timestamp:`, error);
-  }
-  return null;
-}
-
-// Helper to parse common date formats from text
-function parseDateFromText(text: string): string | null {
-  // Pattern 1: Month Day, Year (e.g., "October 8, 2025")
-  const monthDayYearPattern = /([A-Z][a-z]+\s+\d{1,2},\s+\d{4})/;
-  const monthMatch = text.match(monthDayYearPattern);
-  if (monthMatch) {
-    try {
-      const parsed = new Date(monthMatch[1]);
-      if (!isNaN(parsed.getTime())) {
-        return parsed.toISOString();
-      }
-    } catch (e) {
-      // Continue to next pattern
-    }
-  }
-  
-  // Pattern 2: MM/DD/YYYY
-  const slashPattern = /(\d{1,2}\/\d{1,2}\/\d{4})/;
-  const slashMatch = text.match(slashPattern);
-  if (slashMatch) {
-    try {
-      const parsed = new Date(slashMatch[1]);
-      if (!isNaN(parsed.getTime())) {
-        return parsed.toISOString();
-      }
-    } catch (e) {
-      // Continue to next pattern
-    }
-  }
-  
-  // Pattern 3: YYYY-MM-DD
-  const isoPattern = /(\d{4}-\d{2}-\d{2})/;
-  const isoMatch = text.match(isoPattern);
-  if (isoMatch) {
-    try {
-      const parsed = new Date(isoMatch[1]);
-      if (!isNaN(parsed.getTime())) {
-        return parsed.toISOString();
-      }
-    } catch (e) {
-      // Continue
-    }
-  }
-  
-  return null;
-}
-
-// Extract date from detail page HTML
-async function extractDateFromDetailPage(articleUrl: string, config: any, sourceUrl: string): Promise<string | null> {
-  try {
-    console.log(`   📡 Fetching detail page for date: ${articleUrl}`);
-    const response = await fetch(articleUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)'
-      }
-    });
-    
-    if (!response.ok) {
-      console.log(`   ⚠️ Failed to fetch detail page: ${response.status}`);
-      return null;
-    }
-    
-    // Fallback A: Try Last-Modified header
-    const lastModified = response.headers.get('last-modified');
-    if (lastModified) {
-      try {
-        const parsed = new Date(lastModified);
-        if (!isNaN(parsed.getTime())) {
-          console.log(`   📅 Found date via Last-Modified header: ${lastModified}`);
-          return parsed.toISOString();
-        }
-      } catch (e) {
-        // Continue to other methods
-      }
-    }
-    
-    const html = await response.text();
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    if (!doc) return null;
-    
-    // Try custom selector first if provided
-    const customSelector = config?.detailPage?.date;
-    if (customSelector) {
-      const dateEl = doc.querySelector(customSelector);
-      if (dateEl) {
-        // Prefer machine-readable attributes first
-        const datetimeAttr = dateEl.getAttribute('datetime');
-        const contentAttr = dateEl.getAttribute('content');
-        const textContent = dateEl.textContent?.trim();
-        
-        const rawValue = datetimeAttr || contentAttr || textContent || '';
-        
-        if (rawValue) {
-          // Try to parse as ISO date first
-          const tryParse = new Date(rawValue);
-          if (!isNaN(tryParse.getTime())) {
-            const isoDate = tryParse.toISOString();
-            console.log(`   📅 Found detail page date via custom selector "${customSelector}": ${rawValue} → ${isoDate}`);
-            return isoDate;
-          }
-          
-          // Fallback: try parseDateFromText for common formats
-          const parsedDate = parseDateFromText(rawValue);
-          if (parsedDate) {
-            console.log(`   📅 Parsed detail page date via custom selector "${customSelector}": ${rawValue} → ${parsedDate}`);
-            return parsedDate;
-          }
-          
-          console.log(`   ⚠️ Custom selector "${customSelector}" returned non-date value: "${rawValue}"`);
-        }
-      }
-    }
-    
-    // Robust default selectors
-    const defaultSelectors = [
-      'time[datetime]',
-      'meta[property*="published_time"]',
-      'meta[property*="article:published"]',
-      'meta[name*="publish"]',
-      'meta[itemprop*="datePublished"]',
-      '.date',
-      '[class*="date"]',
-      '[class*="published"]',
-      '[itemprop*="datePublished"]'
-    ];
-    
-    for (const selector of defaultSelectors) {
-      const dateEl = doc.querySelector(selector);
-      if (dateEl) {
-        const datetimeAttr = dateEl.getAttribute('datetime');
-        const contentAttr = dateEl.getAttribute('content');
-        const textContent = dateEl.textContent?.trim();
-        
-        const rawValue = datetimeAttr || contentAttr || textContent || '';
-        
-        if (rawValue && rawValue.length > 0 && rawValue.length < 100) {
-          // Try to parse as ISO date first
-          const tryParse = new Date(rawValue);
-          if (!isNaN(tryParse.getTime())) {
-            const isoDate = tryParse.toISOString();
-            console.log(`   📅 Found detail page date via "${selector}": ${rawValue} → ${isoDate}`);
-            return isoDate;
-          }
-          
-          // Fallback: try parseDateFromText
-          const parsedDate = parseDateFromText(rawValue);
-          if (parsedDate) {
-            console.log(`   📅 Parsed detail page date via "${selector}": ${rawValue} → ${parsedDate}`);
-            return parsedDate;
-          }
-        }
-      }
-    }
-    
-    // Fallback B: Try regex on visible text
-    // Look for main content first
-    const contentSelectors = ['main', '#main', '[id*="content"]', '[class*="content"]', 'article', '.article'];
-    let textToSearch = '';
-    
-    for (const selector of contentSelectors) {
-      const contentEl = doc.querySelector(selector);
-      if (contentEl) {
-        textToSearch = contentEl.textContent?.substring(0, 2000) || ''; // First 2000 chars
-        break;
-      }
-    }
-    
-    // Fallback to body if no content container found
-    if (!textToSearch) {
-      textToSearch = doc.body?.textContent?.substring(0, 2000) || '';
-    }
-    
-    if (textToSearch) {
-      const dateFromText = parseDateFromText(textToSearch);
-      if (dateFromText) {
-        console.log(`   📅 Found date via body text regex`);
-        return dateFromText;
-      }
-    }
-    
-    // Fallback C: Image timestamp heuristic from detail page
-    const allElements = doc.querySelectorAll('[style*="background"]');
-    for (const el of allElements) {
-      const dateFromImage = extractDateFromImageTimestamp(el as Element);
-      if (dateFromImage) {
-        console.log(`   📅 Found date via image timestamp on detail page`);
-        return dateFromImage;
-      }
-    }
-    
-    console.log(`   ⚠️ No date found after all strategies`);
-    return null;
-  } catch (error) {
-    console.log(`   ⚠️ Error fetching detail page:`, error);
     return null;
   }
 }
 
-// Enrich articles with dates from detail pages
-async function enrichArticleDatesByDetailPage(
-  articles: any[], 
-  config: any, 
-  sourceUrl: string, 
-  maxToEnrich: number,
-  supabase: any,
-  historyId?: string
-): Promise<void> {
-  const undatedArticles = articles.filter(a => !a.date);
-  const toEnrich = undatedArticles.slice(0, Math.min(undatedArticles.length, maxToEnrich));
-  
-  if (toEnrich.length === 0) {
-    console.log(`✅ All articles already have dates, no enrichment needed`);
-    return;
-  }
-  
-  console.log(`🔄 Enriching dates for ${toEnrich.length} articles (max: ${maxToEnrich})...`);
-  
-  for (let i = 0; i < toEnrich.length; i++) {
-    const article = toEnrich[i];
-    
-    // Check cancellation
-    if (historyId) {
-      const { data: statusCheck } = await supabase
-        .from('query_history')
-        .select('status')
-        .eq('id', historyId)
-        .single();
-      
-      if (statusCheck?.status === 'failed') {
-        console.log('⚠️ Query cancelled during date enrichment');
-        return;
-      }
-    }
-    
-    // Try to fetch date from detail page
-    if (article.articleUrl) {
-      const detailDate = await extractDateFromDetailPage(article.articleUrl, config, sourceUrl);
-      if (detailDate) {
-        article.date = detailDate;
-        console.log(`   ✅ Enriched date for "${article.title.substring(0, 40)}..."`);
-      }
-    }
-    
-    // Small delay between requests
-    if (i < toEnrich.length - 1) {
-      await sleep(Math.floor(Math.random() * 300) + 200); // 200-500ms
-    }
-  }
-  
-  const enrichedCount = toEnrich.filter(a => a.date).length;
-  console.log(`✅ Date enrichment complete: ${enrichedCount}/${toEnrich.length} articles now have dates`);
+// Check if date is in range
+function isDateInRange(date: Date | null, dateFrom: Date, dateTo: Date): boolean {
+  if (!date) return true; // Include articles without dates
+  return date >= dateFrom && date <= dateTo;
 }
 
-// Parse with custom configuration
-function parseWithConfig(html: string, sourceUrl: string, config: any) {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  if (!doc) return [];
+// Fetch articles using Browserless
+async function fetchArticlesWithBrowserless(
+  source: any,
+  dateFrom: Date,
+  dateTo: Date
+): Promise<any[]> {
+  console.log(`\n🌐 Fetching articles from: ${source.name}`);
 
-  const { selectors } = config;
-  const articles = doc.querySelectorAll(selectors.container);
-  const results = [];
-
-  console.log(`🔧 Using custom parser config with selector: ${selectors.container}`);
-  if (selectors.date) console.log(`   Date selector: ${selectors.date}`);
-  console.log(`   Found ${articles.length} container elements`);
-
-  for (const article of articles) {
-    const el = article as Element;
-    const titleElement = el.querySelector(selectors.title);
-    let dateElement = selectors.date ? el.querySelector(selectors.date) : null;
-    const linkElement = selectors.link ? el.querySelector(selectors.link) : null;
-    const isAnchor = el.tagName.toLowerCase() === 'a';
-
-    // Flexible title extraction with fallbacks
-    let title = titleElement?.textContent?.trim() || '';
-    if (!title) {
-      // Fallback 1: Use link element's text
-      title = linkElement?.textContent?.trim() || '';
-    }
-    if (!title && isAnchor) {
-      // Fallback 2: Use container's own text if it's an anchor
-      title = el.textContent?.trim() || '';
-    }
-
-    // Skip if still no title
-    if (!title) continue;
-    
-    // Clean up title
-    title = cleanTitle(title);
-
-    let dateText = dateElement?.textContent?.trim() || '';
-    
-    // Try image timestamp heuristic if no date found
-    if (!dateText) {
-      dateText = extractDateFromImageTimestamp(el) || '';
-    }
-    
-    // Fallback: Look for date patterns in direct children
-    if (!dateText) {
-      const directChildren = Array.from(el.children);
-      for (const child of directChildren) {
-        const text = (child as Element).textContent?.trim() || '';
-        const datePattern = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}$/i;
-        if (datePattern.test(text) && text.length < 50) {
-          dateText = text;
-          console.log(`   📅 Found date pattern "${dateText}" for "${title.substring(0, 40)}..."`);
-          break;
-        }
-      }
-    }
-    
-    if (dateText) {
-      console.log(`   📅 Found date "${dateText}" for "${title.substring(0, 40)}..."`);
-    }
-    
-    // Link extraction with fallbacks
-    let articleUrl = linkElement?.getAttribute('href') || null;
-    if (!articleUrl && isAnchor) {
-      const href = el.getAttribute('href') || '';
-      // Accept any valid href (exclude anchors, JS, mailto)
-      if (href && !href.startsWith('#') && !href.toLowerCase().startsWith('javascript:') && !href.toLowerCase().startsWith('mailto:')) {
-        articleUrl = href;
-        console.log(`   🔗 Using container href as link (anchor container): "${title.substring(0, 40)}..."`);
-      }
-    }
-    
-    if (articleUrl) {
-      articleUrl = normalizeUrl(articleUrl, sourceUrl);
-    }
-    
-    results.push({
-      title,
-      date: dateText,
-      storyId: null,
-      articleUrl,
-      contentHtml: el.outerHTML,
-      sourceUrl
-    });
+  // Validate source has Browserless config
+  if (!source.parser_config?.scrapeConfig) {
+    throw new Error(`Source ${source.name} does not have a Browserless configuration. Please run analysis first.`);
   }
 
-  console.log(`✅ Parsed ${results.length} articles using custom config`);
-  return results;
-}
+  const scrapeConfig = source.parser_config.scrapeConfig;
+  
+  // Scrape the source URL
+  const scrapeResult = await scrapeWithBrowserless(source.url, scrapeConfig);
+  
+  console.log(`✅ Scraped ${scrapeResult.data.length} element groups`);
 
-// Main function to fetch and parse content from a source
-async function fetchAndParseSource(source: any, dateFrom: string, dateTo: string, maxArticles: number | null, supabase: any, historyId?: string) {
-  try {
-    console.log(`\n🔍 Fetching content from: ${source.url}`);
-    const response = await fetch(source.url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)'
-      }
-    });
+  // Transform Browserless results into article objects
+  const articles: any[] = [];
+  
+  // Find container results (the main article containers)
+  const containerData = scrapeResult.data.find(
+    (item: any) => item.selector.includes('container') || 
+                   scrapeConfig.elements.some((el: any) => el.name === 'container' && item.selector.includes(el.selector))
+  );
 
-    if (!response.ok) {
-      console.error(`❌ Failed to fetch ${source.url}: ${response.status}`);
-      return [];
-    }
-
-    const html = await response.text();
-    let parsedArticles = [];
-    let parserUsed = 'unknown';
-
-    // Phase 4: Check if source has parser_config first
-    if (source.parser_config && source.parser_config.selectors) {
-      console.log(`✅ Using custom parser config for ${source.name}`);
-      parsedArticles = parseWithConfig(html, source.url, source.parser_config);
-      parserUsed = 'custom';
-    } else {
-      // Fall back to URL-based detection (existing logic)
-      if (source.url.includes('cherokeecountyga.gov')) {
-        parsedArticles = parseCherokeeCountyNews(html, source.url);
-        parserUsed = 'cherokee';
-      } else if (source.url.includes('woodstockga.gov/newslist')) {
-        parsedArticles = parseWoodstockNews(html, source.url);
-        parserUsed = 'woodstock';
-      } else if (source.url.includes('/events')) {
-        parsedArticles = parseEvents(html, source.url);
-        parserUsed = 'events';
-      } else if (source.url.includes('cherokeecountyfire.org') || 
-                 source.url.includes('cherokeek12.net') || 
-                 source.url.includes('cherokeega.org')) {
-        parsedArticles = parseGenericNews(html, source.url);
-        parserUsed = 'generic';
-      } else {
-        parsedArticles = parseGenericNews(html, source.url);
-        parserUsed = 'generic';
-      }
-    }
-
-    console.log(`📊 Parser Results for ${source.name}:`);
-    console.log(`   - Articles found: ${parsedArticles.length}`);
-    console.log(`   - Parser used: ${parserUsed}`);
-    
-    // Phase 4: Diagnostic info for 0 articles
-    if (parsedArticles.length === 0) {
-      console.warn(`⚠️ No articles found for ${source.name}`);
-      console.warn(`   Suggestion: Run source analysis to detect proper selectors`);
-      console.log(`   HTML preview (first 500 chars): ${html.substring(0, 500)}...`);
-    }
-
-    console.log(`📋 Found ${parsedArticles.length} articles from ${source.name}`);
-    
-    // Deduplicate articles
-    const beforeDedup = parsedArticles.length;
-    parsedArticles = dedupeArticles(parsedArticles);
-    console.log(`🧹 Deduped articles: ${parsedArticles.length} (from ${beforeDedup})`);
-    
-    // ⚡ NEW: Enrich dates from detail pages BEFORE date filtering
-    const enrichCap = Math.min(maxArticles ?? 15, 5);
-    await enrichArticleDatesByDetailPage(
-      parsedArticles, 
-      source.parser_config, 
-      source.url, 
-      enrichCap,
-      supabase,
-      historyId
-    );
-    
-    // NOW apply date filtering after enrichment
-    console.log(`🔍 Filtering articles by date range (${dateFrom} to ${dateTo})...`);
-    const dateFilteredArticles = parsedArticles.filter(article => {
-      if (!article.date) {
-        console.log(`  ⏭️  Skipping "${article.title.substring(0, 40)}..." - no date found`);
-        return false;
-      }
-      
-      const inRange = isDateInRange(article.date, dateFrom, dateTo);
-      if (!inRange) {
-        console.log(`  ⏭️  Skipping "${article.title.substring(0, 40)}..." - outside date range (${article.date})`);
-      }
-      return inRange;
-    });
-    
-    console.log(`✅ After date filter: ${dateFilteredArticles.length} articles (from ${parsedArticles.length} total)`);
-    
-    // Apply article limit if specified (hard-cap to protect resources)
-    let articlesToProcess = dateFilteredArticles;
-    const perSourceCap = Math.min(maxArticles ?? 10, 10);
-    if (dateFilteredArticles.length > perSourceCap) {
-      articlesToProcess = dateFilteredArticles.slice(0, perSourceCap);
-      console.log(`📊 Limited to first ${perSourceCap} articles per source to avoid timeouts`);
-    }
-    
-    console.log(`🚀 Processing ${articlesToProcess.length} articles...`);
-    
-    // Process each article's content
-    const fullArticles = [];
-    for (let i = 0; i < articlesToProcess.length; i++) {
-      const article = articlesToProcess[i];
-      
-      // Check if query was cancelled before processing each article
-      if (historyId) {
-        const { data: statusCheck } = await supabase
-          .from('query_history')
-          .select('status')
-          .eq('id', historyId)
-          .single();
-        
-        if (statusCheck?.status === 'failed') {
-          console.log('⚠️ Query cancelled, stopping article processing');
-          break;
-        }
-      }
-      
-      // Apply human delay between processing
-      if (i > 0) {
-        await randomDelay(500, 500);
-      }
-      
-      console.log(`\n📰 Processing article ${i + 1}/${articlesToProcess.length}: ${article.title}`);
-      
-      let content = '';
-      let images: string[] = [];
-      
-      // Try to fetch full article if we have an articleUrl
-      if (article.articleUrl) {
-        console.log(`  📡 Fetching full article from: ${article.articleUrl}`);
-        try {
-          const articleResponse = await fetch(article.articleUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)'
-            }
-          });
-          
-          if (articleResponse.ok) {
-            const fullHtml = await articleResponse.text();
-            
-            // Get custom content selectors from parser_config
-            const customContentSelectors = source.parser_config?.detailPage?.content;
-            
-            const extracted = extractFullArticleContent(fullHtml, source.url, customContentSelectors);
-            content = extracted.content;
-            images = extracted.images;
-            console.log(`  ✅ Fetched full article: ${content.length} chars`);
-          } else {
-            console.log(`  ⚠️ Failed to fetch article (${articleResponse.status}), using snippet`);
-            const extracted = extractContentFromHtml(article.contentHtml);
-            content = extracted.content;
-            images = extracted.images;
-          }
-        } catch (fetchError) {
-          console.log(`  ⚠️ Error fetching article, using snippet:`, fetchError);
-          const extracted = extractContentFromHtml(article.contentHtml);
-          content = extracted.content;
-          images = extracted.images;
-        }
-      } else {
-        // No URL found - fall back to snippet extraction
-        console.log(`  ⚠️ No article URL found, using snippet`);
-        const extracted = extractContentFromHtml(article.contentHtml);
-        content = extracted.content;
-        images = extracted.images;
-      }
-      
-      if (content) {
-        // Generate UUID for artifact GUID and readable name
-        const artifactGuid = crypto.randomUUID();
-        const artifactName = `${source.name.replace(/\s+/g, '-')}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        
-        console.log(`📄 Content length: ${content.length} chars, Images found: ${images.length}`);
-        
-        // Store image URLs without downloading (to avoid CPU timeout)
-        // Images will be downloaded later by the backfill-artifact-images function
-        const imageData = images.slice(0, 1).map((url, index) => ({
-          original_url: url,
-          stored_url: null, // Will be populated by backfill function
-          index
-        }));
-        
-        console.log(`📋 Stored ${imageData.length} image URLs for later processing`);
-        
-        fullArticles.push({
-          artifactGuid,
-          artifactName,
-          title: article.title,
-          content,
-          date: article.date,
-          imageCount: imageData.length,
-          sourceUrl: article.sourceUrl,
-          images: imageData
-        });
-      }
-    }
-
-    console.log(`\n✅ Successfully processed ${fullArticles.length} full articles from ${source.name}`);
-    return fullArticles;
-  } catch (error) {
-    console.error(`❌ Error fetching/parsing ${source.url}:`, error);
+  if (!containerData || containerData.results.length === 0) {
+    console.log('⚠️ No container results found');
     return [];
   }
+
+  console.log(`📦 Found ${containerData.results.length} containers`);
+
+  // Process each container
+  for (let i = 0; i < containerData.results.length; i++) {
+    const container = containerData.results[i];
+    
+    // Extract title
+    const titleData = scrapeResult.data.find((item: any) => 
+      item.selector.includes('title') || item.selector.includes('h1') || item.selector.includes('h2')
+    );
+    const title = titleData?.results[i]?.text?.trim() || '';
+    
+    if (!title || title.length < 10) {
+      console.log(`⏭️ Skipping container ${i}: no valid title`);
+      continue;
+    }
+
+    // Extract date
+    const dateData = scrapeResult.data.find((item: any) => 
+      item.selector.includes('date') || item.selector.includes('time')
+    );
+    const dateText = dateData?.results[i]?.text?.trim() || 
+                     dateData?.results[i]?.attributes?.find((a: any) => a.name === 'datetime')?.value || '';
+    const articleDate = parseDate(dateText);
+
+    // Filter by date range
+    if (!isDateInRange(articleDate, dateFrom, dateTo)) {
+      console.log(`⏭️ Skipping "${title}": outside date range`);
+      continue;
+    }
+
+    // Extract link
+    const linkData = scrapeResult.data.find((item: any) => 
+      item.selector.includes('link') || item.selector.includes('a')
+    );
+    const href = linkData?.results[i]?.attributes?.find((a: any) => a.name === 'href')?.value || '';
+    const articleUrl = href ? normalizeUrl(href, source.url) : '';
+
+    // Extract content
+    const contentData = scrapeResult.data.find((item: any) => 
+      item.selector.includes('content') || item.selector.includes('excerpt')
+    );
+    const content = contentData?.results[i]?.html || container.html || '';
+    const contentMarkdown = htmlToMarkdown(content);
+
+    // Extract images from content
+    const images: string[] = [];
+    const imgMatches = content.matchAll(/<img[^>]+src=["']([^"']+)["']/gi);
+    for (const match of imgMatches) {
+      const imgUrl = normalizeUrl(match[1], source.url);
+      if (isValidImageUrl(imgUrl)) {
+        images.push(imgUrl);
+      }
+    }
+
+    articles.push({
+      title,
+      date: articleDate ? articleDate.toISOString() : null,
+      articleUrl,
+      content: contentMarkdown,
+      images,
+      sourceId: source.id,
+      sourceName: source.name
+    });
+
+    console.log(`✅ Article ${i + 1}: "${title}"`);
+  }
+
+  console.log(`\n✅ Extracted ${articles.length} articles from ${source.name}`);
+  return articles;
 }
 
+// Main handler
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const {
-      dateFrom,
-      dateTo,
-      sourceIds,
-      environment,
-      promptVersionId,
-      runStages,
-      historyId,
-      maxArticles = null
+    const { 
+      dateFrom, 
+      dateTo, 
+      sourceIds, 
+      environment = 'production',
+      queryHistoryId 
     } = await req.json();
 
-    console.log('Starting manual query run:', {
-      dateFrom,
-      dateTo,
-      sourceIds,
-      environment,
-      promptVersionId,
-      runStages,
-      maxArticles
-    });
+    console.log(`\n🚀 Starting manual query`);
+    console.log(`📅 Date range: ${dateFrom} to ${dateTo}`);
+    console.log(`🎯 Environment: ${environment}`);
+    console.log(`📊 Sources: ${sourceIds.length}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
-
+    
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    const dateFromObj = new Date(dateFrom);
+    const dateToObj = new Date(dateTo);
     const isTest = environment === 'test';
-    let artifactsCount = 0;
-    let storiesCount = 0;
 
-    // Stage 1: Fetch sources and create artifacts
-    console.log('Stage 1: Fetching sources and creating artifacts...');
-    
-    // Get source details
+    // Fetch sources
     const { data: sources, error: sourcesError } = await supabase
       .from('sources')
       .select('*')
@@ -1582,142 +384,111 @@ serve(async (req) => {
 
     if (sourcesError) throw sourcesError;
 
-    // Fetch and parse real content from sources
+    console.log(`✅ Loaded ${sources.length} sources`);
+
+    let totalArtifacts = 0;
+
+    // Process each source
     for (const source of sources) {
-      // Check if query was cancelled before processing this source
-      const { data: historyCheck } = await supabase
-        .from('query_history')
-        .select('status')
-        .eq('id', historyId)
-        .single();
-      
-      if (historyCheck?.status === 'failed') {
-        console.log('⚠️ Query cancelled by user, stopping execution');
-        return new Response(
-          JSON.stringify({
-            success: false,
-            message: 'Query was cancelled by user',
-            artifactsCount,
-            storiesCount
-          }),
-          {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      try {
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`Processing: ${source.name}`);
+        console.log(`${'='.repeat(60)}`);
+
+        // Update query history
+        if (queryHistoryId) {
+          await supabase
+            .from('query_history')
+            .update({
+              current_source_name: source.name,
+              current_source_id: source.id
+            })
+            .eq('id', queryHistoryId);
+        }
+
+        // Fetch articles using Browserless
+        const articles = await fetchArticlesWithBrowserless(source, dateFromObj, dateToObj);
+
+        console.log(`\n📝 Processing ${articles.length} articles...`);
+
+        // Process each article
+        for (const article of articles) {
+          // Select best hero image if available
+          let heroImageUrl = null;
+          if (article.images && article.images.length > 0) {
+            heroImageUrl = await selectBestHeroImage(article.images, article.title, lovableApiKey);
           }
-        );
-      }
 
-      const articles = await fetchAndParseSource(source, dateFrom, dateTo, maxArticles, supabase, historyId);
-      
-      console.log(`Total articles processed: ${articles.length} from ${source.name}`);
-      
-      if (articles.length === 0) {
-        console.log(`No articles in date range for ${source.name}`);
-        continue;
-      }
+          // Create artifact
+          const { error: artifactError } = await supabase
+            .from('artifacts')
+            .insert({
+              name: article.title,
+              title: article.title,
+              content: article.content,
+              type: 'news',
+              date: article.date,
+              source_id: source.id,
+              hero_image_url: heroImageUrl,
+              images: article.images || [],
+              is_test: isTest,
+              size_mb: 0
+            });
 
-      // Create artifacts from articles with hero image selection
-      const lovableApiKey = Deno.env.get('LOVABLE_API_KEY') || '';
-      
-      const artifactsToInsert = await Promise.all(articles.map(async article => {
-        // Select best hero image using 3-phase filtering
-        let heroImageUrl = null;
-        if (article.images && article.images.length > 0) {
-          try {
-            // Extract URLs from image objects
-            const imageUrls = article.images.map((img: any) => 
-              typeof img === 'string' ? img : img.original_url
-            ).filter((url: string) => url);
-            
-            if (imageUrls.length > 0) {
-              heroImageUrl = await selectBestHeroImage(
-                imageUrls, 
-                article.title, 
-                article.content,
-                lovableApiKey
-              );
-            }
-          } catch (error) {
-            console.error(`Error selecting hero image for "${article.title}":`, error);
+          if (artifactError) {
+            console.error(`❌ Error creating artifact: ${artifactError.message}`);
+          } else {
+            totalArtifacts++;
+            console.log(`  ✅ Created artifact: "${article.title}"`);
           }
         }
-        
-        return {
-          guid: article.artifactGuid,
-          name: article.artifactName,
-          title: article.title,
-          type: source.type,
-          content: article.content,
-          size_mb: new Blob([article.content]).size / (1024 * 1024),
-          source_id: source.id,
-          date: article.date ? new Date(article.date).toISOString() : new Date().toISOString(),
-          is_test: isTest,
-          images: article.images || [],
-          hero_image_url: heroImageUrl
-        };
-      }));
 
-      const { error: insertError } = await supabase
-        .from('artifacts')
-        .insert(artifactsToInsert);
+        // Update source stats
+        await supabase
+          .from('sources')
+          .update({
+            items_fetched: (source.items_fetched || 0) + articles.length,
+            last_fetch_at: new Date().toISOString()
+          })
+          .eq('id', source.id);
 
-      if (insertError) {
-        console.error('Error inserting artifacts:', insertError);
-      } else {
-        artifactsCount += artifactsToInsert.length;
-        console.log(`Created ${artifactsToInsert.length} artifacts from ${source.name}`);
+      } catch (error) {
+        console.error(`❌ Error processing source ${source.name}:`, error);
       }
-
-      // Update source's last_fetch_at
-      await supabase
-        .from('sources')
-        .update({
-          last_fetch_at: new Date().toISOString(),
-          items_fetched: articles.length
-        })
-        .eq('id', source.id);
     }
-
-    console.log(`Stage 1 complete: Created ${artifactsCount} artifacts`);
-
-    // Note: Story generation (Stage 2) is not part of manual artifact fetching
-    // Stories are generated separately via the AI Journalist workflow
 
     // Update query history
-    const { error: historyError } = await supabase
-      .from('query_history')
-      .update({
-        status: 'completed',
-        artifacts_count: artifactsCount,
-        stories_count: storiesCount,
-        completed_at: new Date().toISOString()
-      })
-      .eq('id', historyId);
-
-    if (historyError) {
-      console.error('Error updating history:', historyError);
+    if (queryHistoryId) {
+      await supabase
+        .from('query_history')
+        .update({
+          status: 'completed',
+          artifacts_count: totalArtifacts,
+          sources_processed: sources.length,
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', queryHistoryId);
     }
+
+    console.log(`\n✅ Query complete! Created ${totalArtifacts} artifacts`);
 
     return new Response(
       JSON.stringify({
         success: true,
-        artifactsCount,
-        storiesCount,
-        message: `Successfully completed. Created ${artifactsCount} artifacts.`
+        artifactsCreated: totalArtifacts,
+        sourcesProcessed: sources.length
       }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
-    console.error('Error in run-manual-query:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    console.error('❌ Error in run-manual-query:', error);
     return new Response(
-      JSON.stringify({ error: errorMessage }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     );
   }
 });

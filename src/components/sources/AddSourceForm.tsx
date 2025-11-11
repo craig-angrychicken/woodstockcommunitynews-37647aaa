@@ -65,7 +65,11 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
   };
 
   const handleSaveConfig = (config: any) => {
-    setParserConfig(config);
+    // Store as scrapeConfig for Browserless
+    setParserConfig({
+      scrapeConfig: config.suggestedSelectors,
+      confidence: config.confidence
+    });
     toast.success("Configuration saved! You can now add the source.");
   };
 
