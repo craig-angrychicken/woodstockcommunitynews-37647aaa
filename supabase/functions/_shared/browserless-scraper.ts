@@ -112,10 +112,10 @@ async function scrapeWithSelectors(
 
   const requestBody = {
     url,
-    elements, // no per-element timeout - rely on networkidle2
+    elements, // Per-element timeouts set in elements array
     gotoOptions: {
       waitUntil: 'networkidle2',
-      timeout: 30000,
+      timeout: 12000, // Reduced from 30s to 12s for faster failures
     },
   };
 
@@ -420,17 +420,21 @@ export async function analyzeSource(url: string): Promise<AnalysisResult> {
   console.log(`\n🔍 ANALYZING: ${url}`);
   console.log('='.repeat(60));
 
-  try {
-    // Step 1: Fetch HTML
-    const html = await fetchHTML(url);
+  const startTime = Date.now();
 
-    // Step 2: Detect selectors
+  try {
+    // Step 1: Fetch HTML (only once!)
+    const html = await fetchHTML(url);
+    console.log(`  ⏱️ HTML fetched in ${Date.now() - startTime}ms`);
+
+    // Step 2: Detect selectors using zero-assumption approach
     const config = detectArticleSelectors(html);
     console.log('\n📋 Detected Configuration:');
     console.log(JSON.stringify(config, null, 2));
 
-    // Step 3: Test configuration
-    const { articles, diagnostics } = await testConfiguration(url, config);
+    // Step 3: Test configuration (pass HTML to avoid re-fetch)
+    const { articles, diagnostics } = await testConfiguration(url, config, html);
+    console.log(`  ⏱️ Total analysis time: ${Date.now() - startTime}ms`);
 
     // Step 4: Calculate confidence
     const confidence = calculateConfidence(diagnostics);
@@ -448,79 +452,149 @@ export async function analyzeSource(url: string): Promise<AnalysisResult> {
     };
   } catch (error) {
     console.error('❌ Analysis failed:', error);
-    throw error;
+    
+    // Always return a response, even on error
+    return {
+      suggestedConfig: {
+        containerSelector: 'body',
+        titleSelector: 'h1, h2, h3',
+        dateSelector: 'time',
+        linkSelector: 'a[href]',
+        contentSelector: 'p',
+        imageSelector: 'img[src]',
+        timeout: 30000,
+      },
+      confidence: 0,
+      previewArticles: [],
+      diagnostics: {
+        containersFound: 0,
+        hasValidTitles: false,
+        hasValidDates: false,
+        hasValidLinks: false,
+        issues: [error instanceof Error ? error.message : 'Unknown error'],
+      },
+    };
   }
 }
 
 async function testConfiguration(
   url: string,
-  config: ScrapeConfig
+  config: ScrapeConfig,
+  html?: string
 ): Promise<{ articles: Article[]; diagnostics: any }> {
   console.log('\n🧪 Testing configuration...');
+  const testStartTime = Date.now();
 
-  // 1) Analyze HTML to rank candidate containers (no waiting on Browserless)
-  const html = await fetchHTML(url);
+  // Fetch HTML only if not provided
+  if (!html) {
+    html = await fetchHTML(url);
+  }
 
+  // 1) Build candidate list: DISCOVERED PATTERNS FIRST, then small generic set
+  const structures = findRepeatedStructures(html);
+  const discoveredSelectors = structures.slice(0, 5).map(g => g.selector);
+  
+  console.log(`  🎯 Using ${discoveredSelectors.length} discovered patterns first`);
+  
   const candidateContainers = Array.from(new Set([
-    'li',
-    config.containerSelector,
-    'article',
-    '.item',
-    '.news-item',
-    '.entry',
-    '.post',
-    '.card',
-    '.news-card',
-    '.story'
-  ]));
+    ...discoveredSelectors,           // Discovered patterns FIRST
+    config.containerSelector,         // Then detected config
+    '.post', '.entry', '.card',      // Small generic set (NO 'li' or 'article' priority)
+  ])).slice(0, 6); // Limit to top 6 to stay within budget
 
-  const ranked = candidateContainers
-    .map(sel => ({ selector: sel, score: scoreSelector(html, sel) }))
-    .sort((a, b) => b.score - a.score);
+  console.log(`  📋 Candidates (in order): ${candidateContainers.join(', ')}`);
 
-  // Prefer class/id over plain tag when scores tie
+  const ranked = candidateContainers.map(sel => ({ 
+    selector: sel, 
+    score: scoreSelector(html!, sel),
+    isDiscovered: discoveredSelectors.includes(sel)
+  }));
+
+  // Sort: discovered patterns first, then by score, then prefer classes
   const preferClass = (s: string) => (s.includes('.') || s.includes('#')) ? 1 : 0;
-  ranked.sort((a, b) => (b.score - a.score) || (preferClass(b.selector) - preferClass(a.selector)));
+  ranked.sort((a, b) => 
+    (b.isDiscovered ? 1 : 0) - (a.isDiscovered ? 1 : 0) || // Discovered first
+    b.score - a.score ||                                     // Then score
+    preferClass(b.selector) - preferClass(a.selector)       // Then prefer classes
+  );
 
-  // 2) Try candidates one by one with a short per-call timeout to avoid global failures
+  // 2) Try top 4 candidates with reduced timeout to stay within budget
   let chosenSelector = ranked[0]?.selector || config.containerSelector;
   let containers: Array<{ html: string; text: string }> = [];
+  const maxAttempts = Math.min(4, ranked.length);
 
-  for (const { selector } of ranked) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const { selector } = ranked[i];
+    const attemptStart = Date.now();
+    
+    // Check if we're approaching time limit (20s budget)
+    if (Date.now() - testStartTime > 18000) {
+      console.log('  ⏱️ Approaching time limit, moving to fallback');
+      break;
+    }
+
     try {
-      console.log(`  ▶️ Trying selector: ${selector}`);
-      const res = await scrapeWithSelectors(url, [{ selector }]);
+      console.log(`  ▶️ [${i+1}/${maxAttempts}] Trying: ${selector}`);
+      
+      // Use reduced timeout per selector attempt
+      const res = await scrapeWithSelectors(url, [{ selector, timeout: 2000 }]);
+      console.log(`     ⏱️ Took ${Date.now() - attemptStart}ms`);
+      
       const group = res[0]?.results || [];
-      // Filter to only items that have a link with news_detail or similar
+      
+      // Filter to items with links
       const validGroup = group.filter(r => {
         const html = r.html || '';
-        return /<a[^>]*href=["'][^"']*(?:news_detail|\/news\/)[^"']*["']/i.test(html);
+        return /<a[^>]*href=/i.test(html);
       });
+      
       if (validGroup.length > 0) {
         chosenSelector = selector;
         containers = validGroup.map(r => ({ html: r.html, text: r.text }));
+        console.log(`     ✅ Found ${containers.length} valid containers`);
         break;
       }
     } catch (err) {
-      console.warn(`  ⚠️ Selector failed: ${selector} -> ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`     ⚠️ Failed in ${Date.now() - attemptStart}ms: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
   }
 
-  // 3) Last-resort fallback: scrape <body> and parse items locally
+  // 3) Zero-assumption local fallback using discovered patterns
   if (containers.length === 0) {
+    console.log('  🔄 Applying zero-assumption local fallback...');
+    
     try {
-      console.log('  ⤵️ Fallback to <body> and local parsing');
-      const bodyRes = await scrapeWithSelectors(url, [{ selector: 'body' }]);
+      // Get body HTML with short timeout
+      const bodyRes = await scrapeWithSelectors(url, [{ selector: 'body', timeout: 2000 }]);
       const bodyHtml = bodyRes[0]?.results?.[0]?.html || '';
-      const liMatches = bodyHtml.match(/<li[\s\S]*?<\/li>/gi) || [];
-      const validLis = liMatches.filter(html =>
-        /<a[^>]*href=["'][^"']*(?:news_detail|\/news\/)[^"']*["']/i.test(html)
-      );
-      containers = validLis.map(html => ({ html, text: htmlToText(html) }));
-      chosenSelector = 'body>li* (filtered)';
+      
+      // Find repeated structures in the body HTML
+      const bodyStructures = findRepeatedStructures(bodyHtml);
+      
+      if (bodyStructures.length > 0) {
+        // Use the best discovered pattern
+        const best = bodyStructures[0];
+        console.log(`     ✅ Using discovered pattern: ${best.selector} (${best.count} items)`);
+        
+        const pattern = new RegExp(
+          `<${best.tagName}[^>]*class=["'][^"']*\\b${best.className}\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/${best.tagName}>`,
+          'gi'
+        );
+        
+        const matches = Array.from(bodyHtml.matchAll(pattern)).slice(0, 20);
+        containers = matches.map(m => ({ html: m[0], text: htmlToText(m[0]) }));
+        chosenSelector = `${best.selector} (local discovery)`;
+      } else {
+        // Absolute last resort: li filter
+        console.log('     ⤵️ No patterns found, using li filter as last resort');
+        const liMatches = bodyHtml.match(/<li[\s\S]*?<\/li>/gi) || [];
+        const validLis = liMatches.filter(html => /<a[^>]*href=/i.test(html));
+        containers = validLis.map(html => ({ html, text: htmlToText(html) }));
+        chosenSelector = 'body>li* (last resort)';
+      }
     } catch (err) {
-      console.warn('  ⚠️ Body fallback failed:', err);
+      console.warn('  ⚠️ Local fallback failed:', err);
     }
   }
 
