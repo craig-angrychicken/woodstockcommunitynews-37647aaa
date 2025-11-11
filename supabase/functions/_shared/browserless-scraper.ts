@@ -110,15 +110,10 @@ async function scrapeWithSelectors(
   console.log(`🌐 Scraping: ${url}`);
   console.log(`📋 Using ${elements.length} selectors`);
 
-  // Add timeout to each element to prevent waiting forever
-  const elementsWithTimeout = elements.map(el => ({
-    ...el,
-    timeout: 5000  // 5 second timeout per selector
-  }));
 
   const requestBody = {
     url,
-    elements: elementsWithTimeout,
+    elements,
     gotoOptions: {
       waitUntil: 'networkidle2',
       timeout: 30000,
@@ -142,7 +137,7 @@ async function scrapeWithSelectors(
     console.error('❌ Browserless request failed:', {
       status: response.status,
       url,
-      elements: elementsWithTimeout.map(e => e.selector),
+      elements: elements.map((e) => e.selector),
       error: errorText
     });
     throw new Error(`Browserless error (${response.status}): ${errorText}`);
