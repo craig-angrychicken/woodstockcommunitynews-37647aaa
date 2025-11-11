@@ -133,11 +133,8 @@ serve(async (req) => {
       .map(p => `<p>${p}</p>`)
       .join('\n');
 
-    // Build the final HTML with subhead and byline
+    // Build the final HTML with byline only (subhead goes to custom_excerpt)
     let htmlContent = '';
-    if (subhead) {
-      htmlContent += `<p><strong>${subhead}</strong></p>\n`;
-    }
     if (byline) {
       htmlContent += `<p><em>${byline}</em></p>\n`;
     }
