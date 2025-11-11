@@ -116,6 +116,15 @@ async function scrapeWithSelectors(
     timeout: 5000  // 5 second timeout per selector
   }));
 
+  const requestBody = {
+    url,
+    elements: elementsWithTimeout,
+    gotoOptions: {
+      waitUntil: 'networkidle2',
+      timeout: 30000,
+    },
+  };
+
   const response = await fetch(
     `${BROWSERLESS_URL}/scrape?token=${BROWSERLESS_API_KEY}`,
     {
@@ -124,22 +133,18 @@ async function scrapeWithSelectors(
         'Cache-Control': 'no-cache',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        url,
-        elements: elementsWithTimeout,
-        gotoOptions: {
-          waitUntil: 'networkidle2',
-          timeout: 30000,
-        },
-        // Wait only for the container selector to appear
-        waitForSelector: elementsWithTimeout[0]?.selector,
-        waitForTimeout: 7000
-      }),
+      body: JSON.stringify(requestBody),
     }
   );
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error('❌ Browserless request failed:', {
+      status: response.status,
+      url,
+      elements: elementsWithTimeout.map(e => e.selector),
+      error: errorText
+    });
     throw new Error(`Browserless error (${response.status}): ${errorText}`);
   }
 

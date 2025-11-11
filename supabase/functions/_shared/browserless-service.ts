@@ -17,8 +17,6 @@ export interface BrowserlessConfig {
     waitUntil?: 'load' | 'domcontentloaded' | 'networkidle0' | 'networkidle2';
     timeout?: number;
   };
-  waitForSelector?: string;
-  waitForTimeout?: number;
 }
 
 export interface BrowserlessResult {
@@ -59,8 +57,6 @@ export async function scrapeWithBrowserless(
       waitUntil: 'networkidle2',
       timeout: 30000
     },
-    waitForSelector: config.waitForSelector,
-    waitForTimeout: config.waitForTimeout
   };
 
   const response = await fetch(
@@ -77,7 +73,12 @@ export async function scrapeWithBrowserless(
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('❌ Browserless API error:', errorText);
+    console.error('❌ Browserless API error:', {
+      status: response.status,
+      url,
+      elements: config.elements.map(e => e.selector),
+      error: errorText
+    });
     throw new Error(`Browserless API error: ${response.status} - ${errorText}`);
   }
 
