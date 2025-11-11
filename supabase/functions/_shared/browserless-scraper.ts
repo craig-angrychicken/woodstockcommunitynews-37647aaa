@@ -110,10 +110,12 @@ async function scrapeWithSelectors(
   console.log(`🌐 Scraping: ${url}`);
   console.log(`📋 Using ${elements.length} selectors`);
 
+  // Set a short per-element timeout to avoid long waits on missing selectors
+  const elementsWithTimeout = elements.map((el) => ({ ...el, timeout: 4000 }));
 
   const requestBody = {
     url,
-    elements,
+    elements: elementsWithTimeout,
     gotoOptions: {
       waitUntil: 'networkidle2',
       timeout: 30000,
@@ -137,7 +139,7 @@ async function scrapeWithSelectors(
     console.error('❌ Browserless request failed:', {
       status: response.status,
       url,
-      elements: elements.map((e) => e.selector),
+      elements: elementsWithTimeout.map((e) => e.selector),
       error: errorText
     });
     throw new Error(`Browserless error (${response.status}): ${errorText}`);
@@ -182,7 +184,7 @@ function detectArticleSelectors(html: string): ScrapeConfig {
     '.news-item', '.article', '.post', '.entry',
     '.news-card', '.story', '.news-article',
     // CMS-specific patterns
-    'a.fsPostLink', '.fsResource', '.elementor-post',
+    'a.fsPostLink', 'a[href*="/news_detail_"]', 'a[href*="news_detail_"]', '.fsResource', '.elementor-post',
     // Generic containers (last resort)
     '.item', '.card',
   ];
@@ -332,7 +334,9 @@ async function testConfiguration(
     '.card',
     '.news-card',
     '.story',
-    'li'
+    'li',
+    'a[href*="/news_detail_"]',
+    'a[href*="news_detail_"]'
   ]));
 
   const ranked = candidateContainers
