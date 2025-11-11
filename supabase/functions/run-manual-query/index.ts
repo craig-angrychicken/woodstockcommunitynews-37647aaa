@@ -261,15 +261,21 @@ async function fetchArticlesWithBrowserless(
   console.log(`✅ Scraped ${scrapeResult.data.length} element groups`);
 
   // Transform Browserless results into article objects
+  // Elements are ordered: [0]=container, [1]=title, [2]=date, [3]=link, [4]=content
   const articles: any[] = [];
   
-  // Find container results (the main article containers)
-  const containerData = scrapeResult.data.find(
-    (item: any) => item.selector.includes('container') || 
-                   scrapeConfig.elements.some((el: any) => el.name === 'container' && item.selector.includes(el.selector))
-  );
+  if (!scrapeResult.data || scrapeResult.data.length === 0) {
+    console.log('⚠️ No scrape results found');
+    return [];
+  }
 
-  if (!containerData || containerData.results.length === 0) {
+  const containerData = scrapeResult.data[0]; // First element is container
+  const titleData = scrapeResult.data[1];     // Second element is title
+  const dateData = scrapeResult.data[2];      // Third element is date
+  const linkData = scrapeResult.data[3];      // Fourth element is link
+  const contentData = scrapeResult.data[4];   // Fifth element is content
+
+  if (!containerData || !containerData.results || containerData.results.length === 0) {
     console.log('⚠️ No container results found');
     return [];
   }
@@ -281,9 +287,6 @@ async function fetchArticlesWithBrowserless(
     const container = containerData.results[i];
     
     // Extract title
-    const titleData = scrapeResult.data.find((item: any) => 
-      item.selector.includes('title') || item.selector.includes('h1') || item.selector.includes('h2')
-    );
     const title = titleData?.results[i]?.text?.trim() || '';
     
     if (!title || title.length < 10) {
@@ -292,9 +295,6 @@ async function fetchArticlesWithBrowserless(
     }
 
     // Extract date
-    const dateData = scrapeResult.data.find((item: any) => 
-      item.selector.includes('date') || item.selector.includes('time')
-    );
     const dateText = dateData?.results[i]?.text?.trim() || 
                      dateData?.results[i]?.attributes?.find((a: any) => a.name === 'datetime')?.value || '';
     const articleDate = parseDate(dateText);
@@ -306,16 +306,10 @@ async function fetchArticlesWithBrowserless(
     }
 
     // Extract link
-    const linkData = scrapeResult.data.find((item: any) => 
-      item.selector.includes('link') || item.selector.includes('a')
-    );
     const href = linkData?.results[i]?.attributes?.find((a: any) => a.name === 'href')?.value || '';
     const articleUrl = href ? normalizeUrl(href, source.url) : '';
 
     // Extract content
-    const contentData = scrapeResult.data.find((item: any) => 
-      item.selector.includes('content') || item.selector.includes('excerpt')
-    );
     const content = contentData?.results[i]?.html || container.html || '';
     const contentMarkdown = htmlToMarkdown(content);
 

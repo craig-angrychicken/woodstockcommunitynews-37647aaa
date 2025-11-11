@@ -8,7 +8,6 @@ const BROWSERLESS_API_KEY = Deno.env.get('BROWSERLESS_API_KEY');
 
 export interface BrowserlessElement {
   selector: string;
-  name?: string;
   timeout?: number;
 }
 
@@ -144,14 +143,14 @@ export async function analyzeSourceStructure(url: string): Promise<{
   // Detect common patterns
   const detectedSelectors = detectCommonSelectors(html);
 
-  // Build suggested config
+  // Build suggested config (elements ordered: container, title, date, link, content)
   const suggestedConfig: BrowserlessConfig = {
     elements: [
-      { selector: detectedSelectors.container, name: 'container' },
-      { selector: `${detectedSelectors.container} ${detectedSelectors.title}`, name: 'title' },
-      { selector: `${detectedSelectors.container} ${detectedSelectors.date}`, name: 'date' },
-      { selector: `${detectedSelectors.container} ${detectedSelectors.link}`, name: 'link' },
-      { selector: `${detectedSelectors.container} ${detectedSelectors.content}`, name: 'content' }
+      { selector: detectedSelectors.container },
+      { selector: `${detectedSelectors.container} ${detectedSelectors.title}` },
+      { selector: `${detectedSelectors.container} ${detectedSelectors.date}` },
+      { selector: `${detectedSelectors.container} ${detectedSelectors.link}` },
+      { selector: `${detectedSelectors.container} ${detectedSelectors.content}` }
     ].filter(e => e.selector && e.selector !== `${detectedSelectors.container} undefined`),
     gotoOptions: {
       waitUntil: 'networkidle2',
