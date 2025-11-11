@@ -131,6 +131,9 @@ async function scrapeWithSelectors(
           waitUntil: 'networkidle2',
           timeout: 30000,
         },
+        // Wait only for the container selector to appear
+        waitForSelector: elementsWithTimeout[0]?.selector,
+        waitForTimeout: 7000
       }),
     }
   );
@@ -224,10 +227,14 @@ function detectArticleSelectors(html: string): ScrapeConfig {
 function scoreSelector(html: string, selector: string): number {
   let totalMatches = 0;
 
-  if (selector.startsWith('.')) {
+  if (selector.includes('.') && !selector.startsWith('.')) {
+    // Tag with class e.g., a.fsPostLink
+    const [tag, cls] = selector.split('.', 2);
+    const re = new RegExp(`<${tag}[^>]*class=["'][^"']*\\b${cls}\\b[^"']*["']`, 'gi');
+    totalMatches = (html.match(re) || []).length;
+  } else if (selector.startsWith('.')) {
     // Class selector - look for class="...classname..."
     const className = selector.substring(1);
-    // Match class attribute containing this class
     const classPattern = new RegExp(`class=["'][^"']*\\b${className}\\b[^"']*["']`, 'gi');
     totalMatches = (html.match(classPattern) || []).length;
   } else {
@@ -306,81 +313,53 @@ async function testConfiguration(
 ): Promise<{ articles: Article[]; diagnostics: any }> {
   console.log('\n🧪 Testing configuration...');
 
+  // Scrape only containers to avoid timeouts on missing child selectors
   const elements: BrowserlessElement[] = [
-    { selector: config.containerSelector },
-    { selector: `${config.containerSelector} ${config.titleSelector}` },
-    { selector: `${config.containerSelector} ${config.dateSelector}` },
-    { selector: `${config.containerSelector} ${config.linkSelector}` },
-    { selector: `${config.containerSelector} ${config.contentSelector}` },
+    { selector: config.containerSelector }
   ];
-
-  if (config.imageSelector) {
-    elements.push({ selector: `${config.containerSelector} ${config.imageSelector}` });
-  }
 
   const results = await scrapeWithSelectors(url, elements);
 
-  // Extract data using array indices (0=container, 1=title, 2=date, 3=link, 4=content, 5=images)
   const containers = results[0]?.results || [];
-  const titles = results[1]?.results || [];
-  const dates = results[2]?.results || [];
-  const links = results[3]?.results || [];
-  const contents = results[4]?.results || [];
-  const imageGroups = results[5]?.results || [];
-
   console.log(`  Containers: ${containers.length}`);
-  console.log(`  Titles: ${titles.length}`);
-  console.log(`  Dates: ${dates.length}`);
-  console.log(`  Links: ${links.length}`);
 
-  // Build articles
   const articles: Article[] = [];
   const diagnostics = {
     containersFound: containers.length,
-    hasValidTitles: titles.length > 0,
-    hasValidDates: dates.length > 0,
-    hasValidLinks: links.length > 0,
+    hasValidTitles: false,
+    hasValidDates: false,
+    hasValidLinks: false,
     issues: [] as string[],
   };
 
   for (let i = 0; i < containers.length; i++) {
-    const title = titles[i]?.text?.trim() || '';
-    
-    // Skip if no valid title
+    const containerHtml = containers[i]?.html || '';
+    const containerText = containers[i]?.text || '';
+
+    const { title, href } = extractTitleAndLink(containerHtml);
+    const dateText = extractDate(containerHtml) || '';
+    const contentHtml = extractContent(containerHtml) || containerHtml;
+
     if (!title || title.length < 5) {
       diagnostics.issues.push(`Container ${i}: No valid title`);
       continue;
     }
 
-    const dateText = dates[i]?.text?.trim() || 
-                    dates[i]?.attributes?.find(a => a.name === 'datetime')?.value || '';
-    const href = links[i]?.attributes?.find(a => a.name === 'href')?.value || '';
-    const content = contents[i]?.html || containers[i]?.html || '';
-    
-    // Extract images
-    const images: string[] = [];
-    if (imageGroups[i]) {
-      const imgSrc = imageGroups[i].attributes?.find(a => a.name === 'src')?.value;
-      if (imgSrc) {
-        images.push(normalizeUrl(imgSrc, url));
-      }
-    }
-    
-    // Also extract images from content HTML
-    const imgMatches = content.matchAll(/<img[^>]+src=["']([^"']+)["']/gi);
-    for (const match of imgMatches) {
-      images.push(normalizeUrl(match[1], url));
-    }
+    const images = extractImages(contentHtml, url);
 
     articles.push({
       title,
       date: dateText || null,
       url: href ? normalizeUrl(href, url) : url,
-      content: htmlToText(content),
-      excerpt: htmlToText(content).substring(0, 200) + '...',
-      images: [...new Set(images)], // Remove duplicates
+      content: htmlToText(contentHtml) || containerText,
+      excerpt: (htmlToText(contentHtml) || containerText).substring(0, 200) + '...',
+      images,
     });
   }
+
+  diagnostics.hasValidTitles = articles.length > 0;
+  diagnostics.hasValidLinks = articles.some(a => !!a.url);
+  diagnostics.hasValidDates = articles.some(a => !!a.date);
 
   if (articles.length === 0) {
     diagnostics.issues.push('No articles could be extracted');
@@ -418,60 +397,38 @@ export async function scrapeArticles(
   console.log(`\n📰 SCRAPING ARTICLES: ${url}`);
   console.log('='.repeat(60));
 
+  // Scrape only containers; parse inner HTML to extract data
   const elements: BrowserlessElement[] = [
-    { selector: config.containerSelector },
-    { selector: `${config.containerSelector} ${config.titleSelector}` },
-    { selector: `${config.containerSelector} ${config.dateSelector}` },
-    { selector: `${config.containerSelector} ${config.linkSelector}` },
-    { selector: `${config.containerSelector} ${config.contentSelector}` },
+    { selector: config.containerSelector }
   ];
-
-  if (config.imageSelector) {
-    elements.push({ selector: `${config.containerSelector} ${config.imageSelector}` });
-  }
 
   const results = await scrapeWithSelectors(url, elements);
 
   const containers = results[0]?.results || [];
-  const titles = results[1]?.results || [];
-  const dates = results[2]?.results || [];
-  const links = results[3]?.results || [];
-  const contents = results[4]?.results || [];
-  const imageGroups = results[5]?.results || [];
 
   const articles: Article[] = [];
 
   for (let i = 0; i < containers.length; i++) {
-    const title = titles[i]?.text?.trim() || '';
-    
+    const containerHtml = containers[i]?.html || '';
+    const containerText = containers[i]?.text || '';
+
+    const { title, href } = extractTitleAndLink(containerHtml);
     if (!title || title.length < 5) {
       console.log(`⏭️ Skipping container ${i}: No valid title`);
       continue;
     }
 
-    const dateText = dates[i]?.text?.trim() || 
-                    dates[i]?.attributes?.find(a => a.name === 'datetime')?.value || '';
-    const href = links[i]?.attributes?.find(a => a.name === 'href')?.value || '';
-    const content = contents[i]?.html || containers[i]?.html || '';
-    
-    const images: string[] = [];
-    if (imageGroups[i]) {
-      const imgSrc = imageGroups[i].attributes?.find(a => a.name === 'src')?.value;
-      if (imgSrc) images.push(normalizeUrl(imgSrc, url));
-    }
-    
-    const imgMatches = content.matchAll(/<img[^>]+src=["']([^"']+)["']/gi);
-    for (const match of imgMatches) {
-      images.push(normalizeUrl(match[1], url));
-    }
+    const dateText = extractDate(containerHtml) || '';
+    const contentHtml = extractContent(containerHtml) || containerHtml;
+    const images = extractImages(contentHtml, url);
 
     articles.push({
       title,
       date: dateText || null,
       url: href ? normalizeUrl(href, url) : url,
-      content: htmlToText(content),
-      excerpt: htmlToText(content).substring(0, 200) + '...',
-      images: [...new Set(images)],
+      content: htmlToText(contentHtml) || containerText,
+      excerpt: (htmlToText(contentHtml) || containerText).substring(0, 200) + '...',
+      images,
     });
 
     console.log(`✅ Article ${i + 1}: "${title}"`);
@@ -500,6 +457,66 @@ function htmlToText(html: string): string {
   return text.trim();
 }
 
+// === Parsing helpers (operate on container HTML) ===
+function extractTitleAndLink(html: string): { title: string | null; href: string | null } {
+  // fsPostLink anchor
+  let m = html.match(/<a[^>]*class=["'][^"']*\bfsPostLink\b[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
+  if (m) return { href: m[1], title: htmlToText(m[2]) };
+
+  // fsResourceTitle anchor
+  m = html.match(/<a[^>]*class=["'][^"']*\bfsResourceTitle\b[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
+  if (m) return { href: m[1], title: htmlToText(m[2]) };
+
+  // Heading with optional inner anchor
+  const h = html.match(/<(h1|h2|h3)[^>]*>([\s\S]*?)<\/\1>/i);
+  if (h) {
+    const a = h[0].match(/<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
+    if (a) return { href: a[1], title: htmlToText(a[2]) };
+    return { href: null, title: htmlToText(h[2]) };
+  }
+
+  // Fallback: first anchor anywhere
+  const a = html.match(/<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
+  if (a) return { href: a[1], title: htmlToText(a[2]) };
+
+  return { href: null, title: null };
+}
+
+function extractDate(html: string): string | null {
+  // fsPostDate
+  let m = html.match(/<[^>]*class=["'][^"']*\bfsPostDate\b[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+  if (m) return htmlToText(m[1]);
+  // fsTimeStamp
+  m = html.match(/<[^>]*class=["'][^"']*\bfsTimeStamp\b[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i);
+  if (m) return htmlToText(m[1]);
+  // <time datetime="...">text</time>
+  m = html.match(/<time[^>]*datetime=["']([^"']+)["'][^>]*>([\s\S]*?)<\/time>/i);
+  if (m) return m[1] || htmlToText(m[2]);
+  m = html.match(/<time[^>]*>([\s\S]*?)<\/time>/i);
+  if (m) return htmlToText(m[1]);
+  return null;
+}
+
+function extractContent(html: string): string | null {
+  // fsResourceContent block
+  let m = html.match(/<([a-z0-9]+)[^>]*class=["'][^"']*\bfsResourceContent\b[^"']*["'][^>]*>([\s\S]*?)<\/\1>/i);
+  if (m) return m[2];
+  // excerpt/description
+  m = html.match(/<([a-z0-9]+)[^>]*class=["'][^"']*(excerpt|description|summary)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/i);
+  if (m) return m[3];
+  return null;
+}
+
+function extractImages(html: string, baseUrl: string): string[] {
+  const imgs = new Set<string>();
+  const re = /<img[^>]+src=["']([^"']+)["']/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(html)) !== null) {
+    imgs.add(normalizeUrl(match[1], baseUrl));
+  }
+  return Array.from(imgs);
+}
+
 function normalizeUrl(url: string, baseUrl: string): string {
   if (url.startsWith('//')) return 'https:' + url;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
@@ -511,3 +528,4 @@ function normalizeUrl(url: string, baseUrl: string): string {
     return url;
   }
 }
+
