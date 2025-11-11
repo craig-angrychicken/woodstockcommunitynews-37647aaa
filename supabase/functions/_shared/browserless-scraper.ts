@@ -166,37 +166,45 @@ interface StructureGroup {
 /**
  * Determines if a selector/element looks like navigation rather than article content.
  * Uses heuristics to filter out menus, headers, footers, etc.
+ * IMPORTANT: Class names alone are not enough - we need to check actual content!
  */
 function isNavigationElement(selector: string, className: string, html: string, text: string): boolean {
-  // Check class/selector for navigation indicators
-  const navKeywords = /menu|nav|header|footer|sidebar|breadcrumb|toolbar|topbar|bottombar/i;
-  if (navKeywords.test(selector) || navKeywords.test(className)) {
+  // First, check if it has article-like content indicators
+  const hasDate = /\b\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/i.test(text);
+  const hasParagraphs = /<p[^>]*>/i.test(html);
+  const hasSubstantialText = text.length > 80; // More than 80 chars suggests real content
+  const hasMultipleWords = text.split(/\s+/).filter(w => w.length > 2).length > 8; // More than 8 words
+  
+  // If it has strong article indicators, it's NOT navigation (even if class suggests it)
+  const strongArticleIndicators = (hasDate || hasParagraphs) && hasSubstantialText;
+  if (strongArticleIndicators) {
+    return false; // Definitely an article, not navigation
+  }
+  
+  // Check for explicit navigation keywords ONLY if content is weak
+  const strongNavKeywords = /\bnavbar\b|\bnavigation\b|\bsidebar\b|\bbreadcrumb\b|\btopbar\b|\bbottombar\b/i;
+  if (strongNavKeywords.test(selector) || strongNavKeywords.test(className)) {
     return true;
   }
   
-  // Check if element is inside navigation/header/footer containers
-  const beforeElement = html.substring(Math.max(0, html.length - 500), 0);
-  if (/<(?:nav|header|footer)[^>]*>/i.test(beforeElement)) {
+  // Check if element is actually inside nav/header/footer tags in the HTML context
+  // (not just checking the class name)
+  const htmlContext = html.substring(0, Math.min(200, html.length));
+  if (/<\/(nav|header|footer)>/i.test(htmlContext)) {
     return true;
   }
   
-  // Navigation items typically have very short text (just link labels)
-  const avgTextLength = text.length;
-  if (avgTextLength < 30) { // Less than ~30 chars suggests navigation
+  // Navigation items typically have very short text (just link labels) with no dates
+  if (text.length < 40 && !hasDate && !hasParagraphs) {
     return true;
   }
   
-  // Check if it lacks article-like content indicators
-  const hasContentIndicators = 
-    /<p[^>]*>/i.test(html) ||           // Has paragraphs
-    /\b\w+\s+\w+\s+\w+\s+\w+/i.test(text) || // Has multiple words (4+)
-    text.length > 100;                  // Has substantial text
-    
-  if (!hasContentIndicators) {
+  // If text is too short and lacks article indicators, probably navigation
+  if (!hasSubstantialText && !hasMultipleWords && !hasDate) {
     return true;
   }
   
-  return false;
+  return false; // Default to accepting it
 }
 
 /**
@@ -209,22 +217,30 @@ function scoreArticleLikeness(group: StructureGroup): number {
   // Base score from article indicators
   score += group.hasLinks * 3;
   score += group.hasTitles * 2;
-  score += group.hasDates * 5; // Dates are strong article indicators
+  score += group.hasDates * 10; // Dates are VERY strong article indicators
+  
+  // Average text length is a strong signal
+  const avgTextLength = group.items.reduce((sum, item) => sum + item.text.length, 0) / group.items.length;
+  if (avgTextLength > 80) score += 8;   // Substantial content
+  if (avgTextLength > 150) score += 8;  // Rich content
+  if (avgTextLength > 300) score += 5;  // Very rich content
   
   // Bonus for being in article-friendly containers
   if (/article|post|entry|item|card|story|news/i.test(group.selector)) {
-    score += 10;
+    score += 15;
   }
   
-  // Penalty for navigation-like patterns
-  if (/menu|nav|header|footer/i.test(group.selector)) {
-    score -= 20;
+  // Small penalty for navigation-like patterns, but don't disqualify
+  // (because some sites use weird class names)
+  if (/\bnavbar\b|\bnavigation\b|\bsidebar\b/i.test(group.selector)) {
+    score -= 10; // Reduced penalty
   }
   
-  // Average text length bonus (more content = more likely article)
-  const avgTextLength = group.items.reduce((sum, item) => sum + item.text.length, 0) / group.items.length;
-  if (avgTextLength > 100) score += 5;
-  if (avgTextLength > 200) score += 5;
+  // Check if items have paragraph tags (strong article signal)
+  const itemsWithParagraphs = group.items.filter(item => /<p[^>]*>/i.test(item.html)).length;
+  if (itemsWithParagraphs > group.items.length * 0.5) {
+    score += 10; // More than half have paragraphs
+  }
   
   return score;
 }
