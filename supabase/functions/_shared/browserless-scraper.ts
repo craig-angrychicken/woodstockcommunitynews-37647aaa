@@ -110,6 +110,12 @@ async function scrapeWithSelectors(
   console.log(`🌐 Scraping: ${url}`);
   console.log(`📋 Using ${elements.length} selectors`);
 
+  // Add timeout to each element to prevent waiting forever
+  const elementsWithTimeout = elements.map(el => ({
+    ...el,
+    timeout: 5000  // 5 second timeout per selector
+  }));
+
   const response = await fetch(
     `${BROWSERLESS_URL}/scrape?token=${BROWSERLESS_API_KEY}`,
     {
@@ -120,7 +126,7 @@ async function scrapeWithSelectors(
       },
       body: JSON.stringify({
         url,
-        elements,
+        elements: elementsWithTimeout,
         gotoOptions: {
           waitUntil: 'networkidle2',
           timeout: 30000,
@@ -196,18 +202,23 @@ function detectArticleSelectors(html: string): ScrapeConfig {
 }
 
 function scoreSelector(html: string, selector: string): number {
-  // Extract tag/class from selector
-  const pattern = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/^\./, '');
-  
-  // Count occurrences (rough estimate)
-  const classPattern = new RegExp(`class=["'][^"']*${pattern}[^"']*["']`, 'gi');
-  const tagPattern = new RegExp(`<${pattern}[\\s>]`, 'gi');
-  
-  const classMatches = (html.match(classPattern) || []).length;
-  const tagMatches = (html.match(tagPattern) || []).length;
-  const totalMatches = classMatches + tagMatches;
+  let totalMatches = 0;
 
-  // Score based on frequency (3-15 is ideal for news articles)
+  if (selector.startsWith('.')) {
+    // Class selector - look for class="...classname..."
+    const className = selector.substring(1);
+    // Match class attribute containing this class
+    const classPattern = new RegExp(`class=["'][^"']*\\b${className}\\b[^"']*["']`, 'gi');
+    totalMatches = (html.match(classPattern) || []).length;
+  } else {
+    // Tag selector - look for <tagname
+    const tagPattern = new RegExp(`<${selector}[\\s>]`, 'gi');
+    totalMatches = (html.match(tagPattern) || []).length;
+  }
+
+  console.log(`  ${selector}: ${totalMatches} matches`);
+
+  // Score based on frequency (3-20 is ideal for news articles)
   if (totalMatches >= 3 && totalMatches <= 20) {
     return 100;
   } else if (totalMatches > 20 && totalMatches <= 50) {
