@@ -205,7 +205,13 @@ function detectArticleSelectors(html: string): ScrapeConfig {
     const score = scoreSelector(html, pattern);
     console.log(`  ${pattern}: score ${score}`);
     
-    if (score > maxScore) {
+    const isTag = !pattern.includes('.') && !pattern.includes('#');
+    const currentIsTag = !containerSelector.includes('.') && !containerSelector.includes('#');
+
+    if (
+      score > maxScore ||
+      (score === maxScore && currentIsTag && !isTag) // prefer class/id over plain tag on tie
+    ) {
       maxScore = score;
       containerSelector = pattern;
     }
@@ -318,28 +324,64 @@ async function testConfiguration(
 ): Promise<{ articles: Article[]; diagnostics: any }> {
   console.log('\n🧪 Testing configuration...');
 
-  // Scrape only containers to avoid timeouts on missing child selectors
-  const elements: BrowserlessElement[] = [
-    { selector: config.containerSelector }
-  ];
+  // Try multiple candidate container selectors in one scrape call
+  const candidateContainers = Array.from(new Set([
+    config.containerSelector,
+    '.item',
+    '.news-item',
+    '.entry',
+    '.post',
+    '.card',
+    '.news-card',
+    '.story',
+    '.list li',
+    '.news-list li',
+    '.news-listing li',
+    'li'
+  ]));
 
-  const results = await scrapeWithSelectors(url, elements);
+  const candidateElements: BrowserlessElement[] = candidateContainers.map((selector) => ({ selector }));
+  const candidateResults = await scrapeWithSelectors(url, candidateElements);
 
-  const containers = results[0]?.results || [];
-  console.log(`  Containers: ${containers.length}`);
+  // Pick the selector that yields the most valid-looking items (with titles)
+  let bestSelector = config.containerSelector;
+  let bestScore = -1;
+  let bestContainers: Array<{ html: string; text: string }> = [];
+
+  for (const group of candidateResults) {
+    const groupSelector = group.selector;
+    const groupContainers = group.results || [];
+
+    // Score by count + number of valid titles found in first 10 items
+    let validTitles = 0;
+    const sample = groupContainers.slice(0, 10);
+    for (const r of sample) {
+      const { title } = extractTitleAndLink(r.html || '');
+      if (title && title.trim().length > 10) validTitles++;
+    }
+    const score = validTitles * 3 + Math.min(groupContainers.length, 10);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestSelector = groupSelector;
+      bestContainers = groupContainers.map(r => ({ html: r.html, text: r.text }));
+    }
+  }
+
+  console.log(`  Chosen container selector: ${bestSelector} (score: ${bestScore})`);
 
   const articles: Article[] = [];
   const diagnostics = {
-    containersFound: containers.length,
+    containersFound: bestContainers.length,
     hasValidTitles: false,
     hasValidDates: false,
     hasValidLinks: false,
     issues: [] as string[],
   };
 
-  for (let i = 0; i < containers.length; i++) {
-    const containerHtml = containers[i]?.html || '';
-    const containerText = containers[i]?.text || '';
+  for (let i = 0; i < bestContainers.length; i++) {
+    const containerHtml = bestContainers[i]?.html || '';
+    const containerText = bestContainers[i]?.text || '';
 
     const { title, href } = extractTitleAndLink(containerHtml);
     const dateText = extractDate(containerHtml) || '';
