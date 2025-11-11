@@ -172,110 +172,76 @@ function findRepeatedStructures(html: string): StructureGroup[] {
   
   const groups: Map<string, StructureGroup> = new Map();
   
-  // Pattern 1: divs with classes
-  const divMatches = html.matchAll(/<div[^>]*class=["']([^"']+)["'][^>]*>([\s\S]*?)<\/div>/gi);
-  for (const match of divMatches) {
-    const fullHtml = match[0];
-    const classAttr = match[1];
+  // Zero-assumption pattern: scan ALL elements with class attributes containing links
+  // Match any opening tag with a class attribute
+  const elementMatches = html.matchAll(/<(\w+)[^>]*class=["']([^"']+)["'][^>]*>/gi);
+  const elementsByClass = new Map<string, { tag: string; positions: number[] }>();
+  
+  // First pass: identify all elements with classes
+  for (const match of elementMatches) {
+    const tag = match[1].toLowerCase();
+    const classAttr = match[2];
+    const position = match.index!;
     
-    // Skip if no link inside
-    if (!/<a[^>]*href=/i.test(fullHtml)) continue;
-    
-    // Use first significant class as fingerprint
+    // Use first significant class as identifier
     const classes = classAttr.split(/\s+/).filter(c => c && c.length > 2);
     if (classes.length === 0) continue;
     
     const primaryClass = classes[0];
-    const fingerprint = `div.${primaryClass}`;
+    const key = `${tag}.${primaryClass}`;
     
-    if (!groups.has(fingerprint)) {
-      groups.set(fingerprint, {
-        fingerprint,
-        selector: `.${primaryClass}`,
-        className: primaryClass,
-        tagName: 'div',
-        items: [],
-        count: 0,
-        hasLinks: 0,
-        hasDates: 0,
-        hasTitles: 0,
-      });
+    if (!elementsByClass.has(key)) {
+      elementsByClass.set(key, { tag, positions: [] });
     }
-    
-    const group = groups.get(fingerprint)!;
-    group.items.push({ html: fullHtml, text: htmlToText(fullHtml) });
-    group.count++;
-    if (/<a[^>]*href=/i.test(fullHtml)) group.hasLinks++;
-    if (/date|time/i.test(fullHtml)) group.hasDates++;
-    if (/<h[1-6]/i.test(fullHtml)) group.hasTitles++;
+    elementsByClass.get(key)!.positions.push(position);
   }
   
-  // Pattern 2: li elements
-  const liMatches = html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi);
-  for (const match of liMatches) {
-    const fullHtml = match[0];
+  // Second pass: extract full HTML for repeated elements with links
+  for (const [key, info] of elementsByClass.entries()) {
+    if (info.positions.length < 3) continue; // Need at least 3 repetitions
     
-    // Skip if no link inside
-    if (!/<a[^>]*href=/i.test(fullHtml)) continue;
+    const [tag, className] = key.split('.');
+    const pattern = new RegExp(`<${tag}[^>]*class=["'][^"']*${className}[^"']*["'][^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+    const matches = Array.from(html.matchAll(pattern));
     
-    const fingerprint = 'li';
+    let validCount = 0;
+    const items: Array<{ html: string; text: string }> = [];
+    let hasLinks = 0;
+    let hasDates = 0;
+    let hasTitles = 0;
     
-    if (!groups.has(fingerprint)) {
-      groups.set(fingerprint, {
-        fingerprint,
-        selector: 'li',
-        className: '',
-        tagName: 'li',
-        items: [],
-        count: 0,
-        hasLinks: 0,
-        hasDates: 0,
-        hasTitles: 0,
-      });
+    for (const match of matches) {
+      const fullHtml = match[0];
+      
+      // Must contain a link
+      if (!/<a[^>]*href=/i.test(fullHtml)) continue;
+      
+      validCount++;
+      items.push({ html: fullHtml, text: htmlToText(fullHtml) });
+      
+      if (/<a[^>]*href=/i.test(fullHtml)) hasLinks++;
+      if (/date|time/i.test(fullHtml)) hasDates++;
+      if (/<h[1-6]/i.test(fullHtml)) hasTitles++;
     }
     
-    const group = groups.get(fingerprint)!;
-    group.items.push({ html: fullHtml, text: htmlToText(fullHtml) });
-    group.count++;
-    if (/<a[^>]*href=/i.test(fullHtml)) group.hasLinks++;
-    if (/date|time/i.test(fullHtml)) group.hasDates++;
-    if (/<h[1-6]/i.test(fullHtml)) group.hasTitles++;
-  }
-  
-  // Pattern 3: article tags
-  const articleMatches = html.matchAll(/<article[^>]*>([\s\S]*?)<\/article>/gi);
-  for (const match of articleMatches) {
-    const fullHtml = match[0];
-    
-    if (!/<a[^>]*href=/i.test(fullHtml)) continue;
-    
-    const fingerprint = 'article';
-    
-    if (!groups.has(fingerprint)) {
-      groups.set(fingerprint, {
-        fingerprint,
-        selector: 'article',
-        className: '',
-        tagName: 'article',
-        items: [],
-        count: 0,
-        hasLinks: 0,
-        hasDates: 0,
-        hasTitles: 0,
+    if (validCount >= 3) {
+      groups.set(key, {
+        fingerprint: key,
+        selector: `.${className}`,
+        className,
+        tagName: tag,
+        items,
+        count: validCount,
+        hasLinks,
+        hasDates,
+        hasTitles,
       });
     }
-    
-    const group = groups.get(fingerprint)!;
-    group.items.push({ html: fullHtml, text: htmlToText(fullHtml) });
-    group.count++;
-    if (/<a[^>]*href=/i.test(fullHtml)) group.hasLinks++;
-    if (/date|time/i.test(fullHtml)) group.hasDates++;
-    if (/<h[1-6]/i.test(fullHtml)) group.hasTitles++;
   }
   
-  // Filter to groups that appear 3-20 times (typical article lists)
+  // Filter to groups with at least 3 items (NO UPPER LIMIT - true zero-assumption!)
   const validGroups = Array.from(groups.values())
-    .filter(g => g.count >= 3 && g.count <= 20);
+    .filter(g => g.count >= 3);
   
   // Sort by quality score: prefer groups with links, titles, and dates
   validGroups.sort((a, b) => {
