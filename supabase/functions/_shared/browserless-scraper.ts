@@ -148,82 +148,256 @@ async function scrapeWithSelectors(
 }
 
 // ============================================================================
-// INTELLIGENT SELECTOR DETECTION
+// INTELLIGENT SELECTOR DETECTION (ZERO-ASSUMPTION APPROACH)
 // ============================================================================
 
-function detectArticleSelectors(html: string): ScrapeConfig {
-  console.log('🔍 Analyzing HTML structure for article patterns...');
+interface StructureGroup {
+  fingerprint: string;
+  selector: string;
+  className: string;
+  tagName: string;
+  items: Array<{ html: string; text: string }>;
+  count: number;
+  hasLinks: number;
+  hasDates: number;
+  hasTitles: number;
+}
 
-  // Fast path for Civic/Granicus/FS-style sites
-  const hasFsPostLink = /class=["'][^"']*\bfsPostLink\b[^"']*["']/i.test(html);
-  const hasFsPostDate = /class=["'][^"']*\bfsPostDate\b[^"']*["']/i.test(html);
-  const hasFsTimeStamp = /class=["'][^"']*\bfsTimeStamp\b[^"']*["']/i.test(html);
-  const hasFsResourceContent = /class=["'][^"']*\bfsResourceContent\b[^"']*["']/i.test(html);
-
-  if (hasFsPostLink) {
-    console.log('✅ Detected fsPostLink pattern - using anchor-based selectors');
-    return {
-      containerSelector: 'a.fsPostLink',
-      titleSelector: 'a.fsPostLink',
-      dateSelector: hasFsPostDate ? '.fsPostDate' : (hasFsTimeStamp ? '.fsTimeStamp' : 'time'),
-      linkSelector: 'a.fsPostLink',
-      contentSelector: hasFsResourceContent ? '.fsResourceContent' : 'p',
-      imageSelector: 'img[src]',
-      timeout: 30000,
-    };
-  }
-
-  // Priority-ordered selectors for different parts
-  const containerPatterns = [
-    // Semantic HTML
-    'article',
-    // Common class names for news articles
-    '.news-item', '.article', '.post', '.entry',
-    '.news-card', '.story', '.news-article',
-    // CMS-specific patterns
-    'a.fsPostLink', 'a[href*="/news_detail_"]', 'a[href*="news_detail_"]', '.fsResource', '.elementor-post',
-    // Generic containers (last resort)
-    '.item', '.card',
-  ];
-
-  // Prefer h2/h3 before h1 to avoid strict headlines under article
-  const titlePatterns = ['h2', 'h3', '.entry-title', '.headline', '.title', 'h1', 'a[href]'];
-  const datePatterns = ['.fsPostDate', 'time', '.date', '.published', '.post-date', '[datetime]'];
-  const contentPatterns = ['.excerpt', '.description', '.content', '.body', 'p'];
+/**
+ * Finds repeated HTML structures that could be article containers.
+ * No assumptions - just looks for patterns that repeat 3-20 times with links.
+ */
+function findRepeatedStructures(html: string): StructureGroup[] {
+  console.log('  🔎 Scanning for repeated structures with links...');
   
-  // Find the best container selector
-  let containerSelector = 'article'; // default fallback
-  let maxScore = 0;
-
-  for (const pattern of containerPatterns) {
-    const score = scoreSelector(html, pattern);
-    console.log(`  ${pattern}: score ${score}`);
+  const groups: Map<string, StructureGroup> = new Map();
+  
+  // Pattern 1: divs with classes
+  const divMatches = html.matchAll(/<div[^>]*class=["']([^"']+)["'][^>]*>([\s\S]*?)<\/div>/gi);
+  for (const match of divMatches) {
+    const fullHtml = match[0];
+    const classAttr = match[1];
     
-    const isTag = !pattern.includes('.') && !pattern.includes('#');
-    const currentIsTag = !containerSelector.includes('.') && !containerSelector.includes('#');
+    // Skip if no link inside
+    if (!/<a[^>]*href=/i.test(fullHtml)) continue;
+    
+    // Use first significant class as fingerprint
+    const classes = classAttr.split(/\s+/).filter(c => c && c.length > 2);
+    if (classes.length === 0) continue;
+    
+    const primaryClass = classes[0];
+    const fingerprint = `div.${primaryClass}`;
+    
+    if (!groups.has(fingerprint)) {
+      groups.set(fingerprint, {
+        fingerprint,
+        selector: `.${primaryClass}`,
+        className: primaryClass,
+        tagName: 'div',
+        items: [],
+        count: 0,
+        hasLinks: 0,
+        hasDates: 0,
+        hasTitles: 0,
+      });
+    }
+    
+    const group = groups.get(fingerprint)!;
+    group.items.push({ html: fullHtml, text: htmlToText(fullHtml) });
+    group.count++;
+    if (/<a[^>]*href=/i.test(fullHtml)) group.hasLinks++;
+    if (/date|time/i.test(fullHtml)) group.hasDates++;
+    if (/<h[1-6]/i.test(fullHtml)) group.hasTitles++;
+  }
+  
+  // Pattern 2: li elements
+  const liMatches = html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi);
+  for (const match of liMatches) {
+    const fullHtml = match[0];
+    
+    // Skip if no link inside
+    if (!/<a[^>]*href=/i.test(fullHtml)) continue;
+    
+    const fingerprint = 'li';
+    
+    if (!groups.has(fingerprint)) {
+      groups.set(fingerprint, {
+        fingerprint,
+        selector: 'li',
+        className: '',
+        tagName: 'li',
+        items: [],
+        count: 0,
+        hasLinks: 0,
+        hasDates: 0,
+        hasTitles: 0,
+      });
+    }
+    
+    const group = groups.get(fingerprint)!;
+    group.items.push({ html: fullHtml, text: htmlToText(fullHtml) });
+    group.count++;
+    if (/<a[^>]*href=/i.test(fullHtml)) group.hasLinks++;
+    if (/date|time/i.test(fullHtml)) group.hasDates++;
+    if (/<h[1-6]/i.test(fullHtml)) group.hasTitles++;
+  }
+  
+  // Pattern 3: article tags
+  const articleMatches = html.matchAll(/<article[^>]*>([\s\S]*?)<\/article>/gi);
+  for (const match of articleMatches) {
+    const fullHtml = match[0];
+    
+    if (!/<a[^>]*href=/i.test(fullHtml)) continue;
+    
+    const fingerprint = 'article';
+    
+    if (!groups.has(fingerprint)) {
+      groups.set(fingerprint, {
+        fingerprint,
+        selector: 'article',
+        className: '',
+        tagName: 'article',
+        items: [],
+        count: 0,
+        hasLinks: 0,
+        hasDates: 0,
+        hasTitles: 0,
+      });
+    }
+    
+    const group = groups.get(fingerprint)!;
+    group.items.push({ html: fullHtml, text: htmlToText(fullHtml) });
+    group.count++;
+    if (/<a[^>]*href=/i.test(fullHtml)) group.hasLinks++;
+    if (/date|time/i.test(fullHtml)) group.hasDates++;
+    if (/<h[1-6]/i.test(fullHtml)) group.hasTitles++;
+  }
+  
+  // Filter to groups that appear 3-20 times (typical article lists)
+  const validGroups = Array.from(groups.values())
+    .filter(g => g.count >= 3 && g.count <= 20);
+  
+  // Sort by quality score: prefer groups with links, titles, and dates
+  validGroups.sort((a, b) => {
+    const scoreA = (a.hasLinks * 3) + (a.hasTitles * 2) + (a.hasDates * 1);
+    const scoreB = (b.hasLinks * 3) + (b.hasTitles * 2) + (b.hasDates * 1);
+    return scoreB - scoreA;
+  });
+  
+  console.log(`  ✅ Found ${validGroups.length} valid patterns:`);
+  validGroups.slice(0, 5).forEach(g => {
+    console.log(`     ${g.selector}: ${g.count} items (${g.hasLinks} links, ${g.hasTitles} titles, ${g.hasDates} dates)`);
+  });
+  
+  return validGroups;
+}
 
-    if (
-      score > maxScore ||
-      (score === maxScore && currentIsTag && !isTag) // prefer class/id over plain tag on tie
-    ) {
-      maxScore = score;
-      containerSelector = pattern;
+/**
+ * Extracts specific selectors from a group of similar HTML items.
+ * Analyzes the first few items to find common patterns for title, date, link, etc.
+ */
+function extractSelectorsFromGroup(group: StructureGroup): ScrapeConfig {
+  console.log(`  🔍 Analyzing ${group.selector} items for child selectors...`);
+  
+  const samples = group.items.slice(0, Math.min(5, group.items.length));
+  
+  // Extract title selector
+  let titleSelector = '';
+  const titlePatterns = [
+    { pattern: /<h3[^>]*class=["']([^"']*title[^"']*)["']/i, type: 'h3 with title class' },
+    { pattern: /<h3/i, type: 'h3' },
+    { pattern: /<h2[^>]*class=["']([^"']*title[^"']*)["']/i, type: 'h2 with title class' },
+    { pattern: /<h2/i, type: 'h2' },
+    { pattern: /<h1/i, type: 'h1' },
+    { pattern: /class=["']([^"']*title[^"']*)["']/i, type: 'title class' },
+  ];
+  
+  for (const { pattern, type } of titlePatterns) {
+    const matchCount = samples.filter(s => pattern.test(s.html)).length;
+    if (matchCount >= samples.length * 0.6) { // 60% of samples
+      if (type.includes('class')) {
+        const match = samples[0].html.match(pattern);
+        titleSelector = match ? `.${match[1].split(/\s+/)[0]}` : type.split(' ')[0];
+      } else {
+        titleSelector = type;
+      }
+      console.log(`     Title: ${titleSelector} (${matchCount}/${samples.length})`);
+      break;
     }
   }
-
-  console.log(`✅ Best container: ${containerSelector} (score: ${maxScore})`);
-
-  // Find child selectors within containers
-  const titleSelector = findBestChildSelector(html, containerSelector, titlePatterns) || 'a[href]';
-  const dateSelector = findBestChildSelector(html, containerSelector, datePatterns) || 'time';
-  const contentSelector = findBestChildSelector(html, containerSelector, contentPatterns) || 'p';
-
+  
+  // Extract date selector
+  let dateSelector = '';
+  const datePatterns = [
+    { pattern: /class=["']([^"']*news-date[^"']*)["']/i, extract: (html: string) => {
+      const m = html.match(/class=["']([^"']*news-date[^"']*)["']/i);
+      return m ? `.${m[1].split(/\s+/)[0]}` : '';
+    }},
+    { pattern: /class=["']([^"']*date[^"']*)["']/i, extract: (html: string) => {
+      const m = html.match(/class=["']([^"']*\bdate\b[^"']*)["']/i);
+      return m ? `.${m[1].split(/\s+/)[0]}` : '';
+    }},
+    { pattern: /<time/i, extract: () => 'time' },
+  ];
+  
+  for (const { pattern, extract } of datePatterns) {
+    const matchCount = samples.filter(s => pattern.test(s.html)).length;
+    if (matchCount >= samples.length * 0.5) {
+      dateSelector = extract(samples[0].html);
+      console.log(`     Date: ${dateSelector} (${matchCount}/${samples.length})`);
+      break;
+    }
+  }
+  
+  // Extract link pattern
+  let linkSelector = 'a[href]';
+  const linkMatch = samples[0].html.match(/href=["']([^"']+)["']/i);
+  if (linkMatch) {
+    const url = linkMatch[1];
+    if (url.includes('news_detail')) {
+      linkSelector = 'a[href*="news_detail"]';
+    } else if (url.includes('/news/')) {
+      linkSelector = 'a[href*="/news/"]';
+    } else if (url.includes('/article')) {
+      linkSelector = 'a[href*="/article"]';
+    }
+    console.log(`     Link: ${linkSelector}`);
+  }
+  
   return {
-    containerSelector,
-    titleSelector,
-    dateSelector,
+    containerSelector: group.selector,
+    titleSelector: titleSelector || 'h3',
+    dateSelector: dateSelector || 'time',
+    linkSelector,
+    contentSelector: 'p',
+    imageSelector: 'img[src]',
+    timeout: 30000,
+  };
+}
+
+/**
+ * Main detection function - uses zero-assumption pattern discovery.
+ */
+function detectArticleSelectors(html: string): ScrapeConfig {
+  console.log('🔍 Analyzing HTML with zero-assumption approach...');
+  
+  // Find repeated structures in the HTML
+  const structures = findRepeatedStructures(html);
+  
+  if (structures.length > 0) {
+    const bestGroup = structures[0];
+    console.log(`  ✅ Best pattern: ${bestGroup.selector} (${bestGroup.count} items)`);
+    return extractSelectorsFromGroup(bestGroup);
+  }
+  
+  // Fallback: use body with generic selectors
+  console.log('  ⚠️ No repeated patterns found, using generic fallback');
+  return {
+    containerSelector: 'body',
+    titleSelector: 'h1, h2, h3',
+    dateSelector: 'time',
     linkSelector: 'a[href]',
-    contentSelector,
+    contentSelector: 'p',
     imageSelector: 'img[src]',
     timeout: 30000,
   };
