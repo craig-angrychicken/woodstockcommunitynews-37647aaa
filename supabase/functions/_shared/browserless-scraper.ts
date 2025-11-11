@@ -319,9 +319,12 @@ async function testConfiguration(
 ): Promise<{ articles: Article[]; diagnostics: any }> {
   console.log('\n🧪 Testing configuration...');
 
-  // Try multiple candidate container selectors in one scrape call
+  // 1) Analyze HTML to rank candidate containers (no waiting on Browserless)
+  const html = await fetchHTML(url);
+
   const candidateContainers = Array.from(new Set([
     config.containerSelector,
+    'article',
     '.item',
     '.news-item',
     '.entry',
@@ -329,54 +332,66 @@ async function testConfiguration(
     '.card',
     '.news-card',
     '.story',
-    '.list li',
-    '.news-list li',
-    '.news-listing li',
     'li'
   ]));
 
-  const candidateElements: BrowserlessElement[] = candidateContainers.map((selector) => ({ selector }));
-  const candidateResults = await scrapeWithSelectors(url, candidateElements);
+  const ranked = candidateContainers
+    .map(sel => ({ selector: sel, score: scoreSelector(html, sel) }))
+    .sort((a, b) => b.score - a.score);
 
-  // Pick the selector that yields the most valid-looking items (with titles)
-  let bestSelector = config.containerSelector;
-  let bestScore = -1;
-  let bestContainers: Array<{ html: string; text: string }> = [];
+  // Prefer class/id over plain tag when scores tie
+  const preferClass = (s: string) => (s.includes('.') || s.includes('#')) ? 1 : 0;
+  ranked.sort((a, b) => (b.score - a.score) || (preferClass(b.selector) - preferClass(a.selector)));
 
-  for (const group of candidateResults) {
-    const groupSelector = group.selector;
-    const groupContainers = group.results || [];
+  // 2) Try candidates one by one with a short per-call timeout to avoid global failures
+  let chosenSelector = ranked[0]?.selector || config.containerSelector;
+  let containers: Array<{ html: string; text: string }> = [];
 
-    // Score by count + number of valid titles found in first 10 items
-    let validTitles = 0;
-    const sample = groupContainers.slice(0, 10);
-    for (const r of sample) {
-      const { title } = extractTitleAndLink(r.html || '');
-      if (title && title.trim().length > 10) validTitles++;
-    }
-    const score = validTitles * 3 + Math.min(groupContainers.length, 10);
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestSelector = groupSelector;
-      bestContainers = groupContainers.map(r => ({ html: r.html, text: r.text }));
+  for (const { selector } of ranked) {
+    try {
+      console.log(`  ▶️ Trying selector: ${selector}`);
+      const res = await scrapeWithSelectors(url, [{ selector, timeout: 4000 }]);
+      const group = res[0]?.results || [];
+      if (group.length > 0) {
+        chosenSelector = selector;
+        containers = group.map(r => ({ html: r.html, text: r.text }));
+        break;
+      }
+    } catch (err) {
+      console.warn(`  ⚠️ Selector failed: ${selector} -> ${err instanceof Error ? err.message : String(err)}`);
+      continue;
     }
   }
 
-  console.log(`  Chosen container selector: ${bestSelector} (score: ${bestScore})`);
+  // 3) Last-resort fallback: scrape <body> and split into <li> items locally
+  if (containers.length === 0) {
+    try {
+      console.log('  ⤵️ Fallback to <body> and local parsing of <li> items');
+      const bodyRes = await scrapeWithSelectors(url, [{ selector: 'body', timeout: 4000 }]);
+      const bodyHtml = bodyRes[0]?.results?.[0]?.html || '';
+      const liMatches = bodyHtml.match(/<li[\s\S]*?<\/li>/gi) || [];
+      containers = liMatches.map(html => ({ html, text: htmlToText(html) }));
+      chosenSelector = 'body>li*';
+    } catch (err) {
+      console.warn('  ⚠️ Body fallback failed:', err);
+    }
+  }
+
+  console.log(`  ✅ Chosen container selector: ${chosenSelector}`);
+  console.log(`  Containers found: ${containers.length}`);
 
   const articles: Article[] = [];
   const diagnostics = {
-    containersFound: bestContainers.length,
+    containersFound: containers.length,
     hasValidTitles: false,
     hasValidDates: false,
     hasValidLinks: false,
     issues: [] as string[],
   };
 
-  for (let i = 0; i < bestContainers.length; i++) {
-    const containerHtml = bestContainers[i]?.html || '';
-    const containerText = bestContainers[i]?.text || '';
+  for (let i = 0; i < containers.length; i++) {
+    const containerHtml = containers[i]?.html || '';
+    const containerText = containers[i]?.text || '';
 
     const { title, href } = extractTitleAndLink(containerHtml);
     const dateText = extractDate(containerHtml) || '';
