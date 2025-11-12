@@ -40,7 +40,14 @@ export function InteractiveSelectorModal({
         body: { url: sourceUrl }
       });
 
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes('429') || error.message?.includes('Rate limit')) {
+          toast.error('Rate limit reached. Please wait a moment and try again.');
+        } else {
+          toast.error('Failed to load page for selection');
+        }
+        throw error;
+      }
 
       // Create a blob URL from the HTML
       const blob = new Blob([data], { type: 'text/html' });

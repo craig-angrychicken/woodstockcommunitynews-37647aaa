@@ -8,6 +8,10 @@ const corsHeaders = {
 const BROWSERLESS_URL = Deno.env.get('BROWSERLESS_URL') || 'https://production-sfo.browserless.io';
 const BROWSERLESS_API_KEY = Deno.env.get('BROWSERLESS_API_KEY');
 
+// Simple in-memory cache to avoid hitting rate limits
+const pageCache = new Map<string, { html: string; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -22,6 +26,19 @@ serve(async (req) => {
 
     if (!BROWSERLESS_API_KEY) {
       throw new Error('BROWSERLESS_API_KEY is not configured');
+    }
+
+    // Check cache first
+    const cached = pageCache.get(url);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      console.log('✅ Returning cached page for:', url);
+      return new Response(cached.html, {
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'text/html; charset=utf-8',
+          'X-Frame-Options': 'SAMEORIGIN',
+        },
+      });
     }
 
     console.log('🌐 Proxying and rendering URL with JavaScript:', url);
@@ -47,7 +64,21 @@ serve(async (req) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ Browserless error:', errorText);
+      console.error('❌ Browserless error:', response.status, errorText);
+      
+      if (response.status === 429) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Rate limit exceeded. Please wait a moment and try again.',
+            details: 'Browserless API rate limit reached. Try again in a few seconds.'
+          }),
+          {
+            status: 429,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      
       throw new Error(`Failed to render page: ${response.status}`);
     }
 
@@ -161,6 +192,15 @@ serve(async (req) => {
 
     // Prevent navigation by making links point to #
     html = html.replace(/(<a[^>]+href=["'])(?!#|javascript:)/gi, '$1#" data-original-href="');
+
+    // Cache the result
+    pageCache.set(url, { html, timestamp: Date.now() });
+    
+    // Clean old cache entries (keep last 10 URLs)
+    if (pageCache.size > 10) {
+      const oldestKey = Array.from(pageCache.keys())[0];
+      pageCache.delete(oldestKey);
+    }
 
     return new Response(html, {
       headers: {
