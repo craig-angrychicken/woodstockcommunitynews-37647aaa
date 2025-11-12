@@ -186,6 +186,7 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
           analysisResult={analysisResult}
           isAnalyzing={isAnalyzing}
           onSaveConfig={handleSaveConfig}
+          sourceUrl={url}
         />
       </CardContent>
     </Card>

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +11,8 @@ import {
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { Loader2, CheckCircle2, AlertTriangle, XCircle, MousePointer2 } from "lucide-react";
+import { InteractiveSelectorModal } from "./InteractiveSelectorModal";
 
 interface AnalysisResult {
   success: boolean;
@@ -47,6 +49,7 @@ interface SourceAnalysisModalProps {
   analysisResult: AnalysisResult | null;
   isAnalyzing: boolean;
   onSaveConfig?: (config: any) => void;
+  sourceUrl?: string;
 }
 
 export const SourceAnalysisModalV2 = ({
@@ -55,7 +58,9 @@ export const SourceAnalysisModalV2 = ({
   analysisResult,
   isAnalyzing,
   onSaveConfig,
+  sourceUrl,
 }: SourceAnalysisModalProps) => {
+  const [showInteractiveSelector, setShowInteractiveSelector] = useState(false);
   const getConfidenceBadge = (confidence: number) => {
     if (confidence >= 70) {
       return <Badge className="bg-green-500">High ({confidence}%)</Badge>;
@@ -246,17 +251,52 @@ export const SourceAnalysisModalV2 = ({
           </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-          {!isAnalyzing && analysisResult?.success && onSaveConfig && (
-            <Button onClick={handleSaveConfig}>
-              Save Configuration
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          {sourceUrl && (
+            <Button 
+              variant="outline" 
+              onClick={() => setShowInteractiveSelector(true)}
+              className="w-full sm:w-auto"
+            >
+              <MousePointer2 className="h-4 w-4 mr-2" />
+              Click to Train
             </Button>
           )}
+          <div className="flex gap-2 flex-1 justify-end">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+            {!isAnalyzing && analysisResult?.success && onSaveConfig && (
+              <Button onClick={handleSaveConfig}>
+                Save Configuration
+              </Button>
+            )}
+          </div>
         </DialogFooter>
       </DialogContent>
+      
+      <InteractiveSelectorModal
+        open={showInteractiveSelector}
+        onOpenChange={setShowInteractiveSelector}
+        sourceUrl={sourceUrl || ''}
+        onConfigSelected={(config) => {
+          if (onSaveConfig) {
+            // Convert interactive selector config to the expected format
+            onSaveConfig({
+              suggestedConfig: config,
+              confidence: 100,
+              diagnostics: {
+                containersFound: 1,
+                hasValidTitles: true,
+                hasValidDates: true,
+                hasValidLinks: true,
+                issues: []
+              }
+            });
+          }
+          setShowInteractiveSelector(false);
+        }}
+      />
     </Dialog>
   );
 };
