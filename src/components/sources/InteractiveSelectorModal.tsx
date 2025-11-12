@@ -106,7 +106,9 @@ export function InteractiveSelectorModal({
       toast.success(`Link selected: ${text}`);
       setCurrentMode(null);
     } else if (currentMode === 'image') {
-      newSelections[currentSelectionIndex].image = { selector, src };
+      // Convert relative URLs to absolute URLs
+      const absoluteSrc = src.startsWith('http') ? src : new URL(src, sourceUrl).href;
+      newSelections[currentSelectionIndex].image = { selector, src: absoluteSrc };
       toast.success('Image selected');
       setCurrentMode(null);
     }
@@ -135,7 +137,10 @@ export function InteractiveSelectorModal({
     return getCompleteSelections().length >= 2;
   };
 
-  const handleAnalyzePattern = async () => {
+  const handleAnalyzePattern = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
     const completeSelections = getCompleteSelections();
     
     if (completeSelections.length < 2) {
@@ -145,28 +150,60 @@ export function InteractiveSelectorModal({
 
     setIsAnalyzing(true);
     try {
-      // Find common parent of all selected links to get container
+      // Extract common patterns from user's actual selections
       const linkSelectors = completeSelections.map(s => s.link!.selector);
+      const imageSelectors = completeSelections.map(s => s.image!.selector);
       
-      // Use the first link's parent as container pattern
-      // Extract just the element type and class from user's selections
-      const firstLinkParts = linkSelectors[0].split(' > ');
-      const containerSelector = firstLinkParts.slice(0, -1).join(' > ') || 'article';
+      console.log('User selected links:', linkSelectors);
+      console.log('User selected images:', imageSelectors);
       
-      // Create config from user selections
+      // Find the deepest common parent by analyzing selector structure
+      const findCommonParent = (selectors: string[]) => {
+        const parts = selectors.map(s => s.split(' > '));
+        let commonDepth = 0;
+        
+        // Find how deep the common structure goes
+        const minLength = Math.min(...parts.map(p => p.length));
+        for (let i = 0; i < minLength - 1; i++) {
+          const firstPart = parts[0][i];
+          if (parts.every(p => p[i] === firstPart)) {
+            commonDepth = i + 1;
+          } else {
+            break;
+          }
+        }
+        
+        return parts[0].slice(0, commonDepth).join(' > ') || 'body';
+      };
+      
+      const containerSelector = findCommonParent(linkSelectors);
+      
+      // Get the relative selectors within the container for links and images
+      const getLinkPattern = (selector: string) => {
+        const parts = selector.split(' > ');
+        return parts[parts.length - 1]; // Get the link element itself
+      };
+      
+      const getImagePattern = (selector: string) => {
+        const parts = selector.split(' > ');
+        return parts[parts.length - 1]; // Get the image element itself
+      };
+      
+      const linkPattern = getLinkPattern(linkSelectors[0]);
+      const imagePattern = getImagePattern(imageSelectors[0]);
+      
       const config = {
         containerSelector,
-        linkSelector: 'a[href]',  // Generic link within container
-        imageSelector: 'img[src]', // Generic image within container
-        titleSelector: 'h3, h2, .title', // Common title patterns
-        dateSelector: 'time, .date, [datetime]',
-        contentSelector: 'p, .excerpt, .description',
+        linkSelector: linkPattern.includes('a') ? linkPattern : 'a[href]',
+        imageSelector: imagePattern.includes('img') ? imagePattern : 'img[src]',
+        titleSelector: 'h1, h2, h3, h4, .title, [class*="title"]',
+        dateSelector: 'time, .date, [datetime], [class*="date"]',
+        contentSelector: 'p, .excerpt, .description, [class*="excerpt"]',
         timeout: 30000
       };
 
-      console.log('Testing config based on your selections:', config);
+      console.log('Generated config from your selections:', config);
 
-      // Test the config by scraping
       const { data, error } = await supabase.functions.invoke('test-scrape-config', {
         body: {
           sourceUrl,
@@ -183,6 +220,7 @@ export function InteractiveSelectorModal({
         toast.success(`Found ${data.articles.length} matching articles!`);
       } else {
         toast.error('No articles found with this pattern. Try selecting different elements.');
+        console.log('Config that found 0 articles:', config);
       }
     } catch (error) {
       console.error('Pattern detection failed:', error);
@@ -383,6 +421,7 @@ export function InteractiveSelectorModal({
                     Complete selections: {getCompleteSelections().length} / 2 minimum
                   </div>
                   <Button
+                    type="button"
                     className="w-full"
                     onClick={handleAnalyzePattern}
                     disabled={!canAnalyze() || isAnalyzing}
