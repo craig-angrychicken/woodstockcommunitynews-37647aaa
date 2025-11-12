@@ -145,29 +145,48 @@ export function InteractiveSelectorModal({
 
     setIsAnalyzing(true);
     try {
-      const { data, error } = await supabase.functions.invoke('analyze-source-v2', {
-        body: { 
+      // Find common parent of all selected links to get container
+      const linkSelectors = completeSelections.map(s => s.link!.selector);
+      
+      // Use the first link's parent as container pattern
+      // Extract just the element type and class from user's selections
+      const firstLinkParts = linkSelectors[0].split(' > ');
+      const containerSelector = firstLinkParts.slice(0, -1).join(' > ') || 'article';
+      
+      // Create config from user selections
+      const config = {
+        containerSelector,
+        linkSelector: 'a[href]',  // Generic link within container
+        imageSelector: 'img[src]', // Generic image within container
+        titleSelector: 'h3, h2, .title', // Common title patterns
+        dateSelector: 'time, .date, [datetime]',
+        contentSelector: 'p, .excerpt, .description',
+        timeout: 30000
+      };
+
+      console.log('Testing config based on your selections:', config);
+
+      // Test the config by scraping
+      const { data, error } = await supabase.functions.invoke('test-scrape-config', {
+        body: {
           sourceUrl,
-          userSelections: completeSelections.map(s => ({
-            linkSelector: s.link!.selector,
-            imageSelector: s.image!.selector
-          }))
+          config
         }
       });
 
       if (error) throw error;
 
-      if (data?.success && data?.analysis) {
-        setDetectedConfig(data.analysis.suggestedConfig);
-        setPreviewArticles(data.analysis.sampleArticles || []);
+      if (data?.success && data.articles && data.articles.length > 0) {
+        setDetectedConfig(config);
+        setPreviewArticles(data.articles);
         setShowPreview(true);
-        toast.success(`Found ${data.analysis.sampleArticles?.length || 0} matching articles!`);
+        toast.success(`Found ${data.articles.length} matching articles!`);
       } else {
-        toast.error('Could not detect article pattern');
+        toast.error('No articles found with this pattern. Try selecting different elements.');
       }
     } catch (error) {
       console.error('Pattern detection failed:', error);
-      toast.error('Failed to analyze article pattern');
+      toast.error('Failed to test article pattern');
     } finally {
       setIsAnalyzing(false);
     }
