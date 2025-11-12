@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,59 +43,56 @@ export function InteractiveSelectorModal({
   }>({});
   const [previewArticles, setPreviewArticles] = useState<any[]>([]);
   const [iframeKey, setIframeKey] = useState(0);
+  const [proxiedUrl, setProxiedUrl] = useState<string>('');
+  const [isLoadingProxy, setIsLoadingProxy] = useState(false);
 
+  // Load proxied page when modal opens
+  const loadProxiedPage = async () => {
+    setIsLoadingProxy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('proxy-page', {
+        body: { url: sourceUrl }
+      });
+
+      if (error) throw error;
+
+      // Create a blob URL from the HTML
+      const blob = new Blob([data], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      setProxiedUrl(url);
+    } catch (error) {
+      console.error('Failed to load proxied page:', error);
+      toast.error('Failed to load page for selection');
+    } finally {
+      setIsLoadingProxy(false);
+    }
+  };
+
+  // Set up message listener for iframe communication
   const handleIframeLoad = () => {
     const iframe = document.getElementById('selector-iframe') as HTMLIFrameElement;
     if (!iframe?.contentWindow) return;
 
-    try {
-      const doc = iframe.contentDocument || iframe.contentWindow.document;
-      
-      // Inject click handler
-      doc.addEventListener('click', (e: MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        const target = e.target as HTMLElement;
-        const selector = generateSelector(target, doc);
-        
+    // Send message to activate click handler
+    iframe.contentWindow.postMessage({ type: 'REQUEST_CLICK_HANDLER' }, '*');
+  };
+
+  // Listen for element selections from iframe
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.type === 'ELEMENT_SELECTED') {
+        const { selector } = event.data;
         if (selector) {
           handleElementSelected(selector);
         }
-      });
-
-      // Add hover effect
-      const style = doc.createElement('style');
-      style.textContent = `
-        * { cursor: pointer !important; }
-        *:hover { outline: 3px solid #3b82f6 !important; outline-offset: 2px; }
-      `;
-      doc.head.appendChild(style);
-    } catch (err) {
-      console.error('Cannot inject into iframe:', err);
-      toast.error('Cannot interact with this page due to security restrictions');
-    }
-  };
-
-  const generateSelector = (element: HTMLElement, doc: Document): string | null => {
-    // Try to generate a good CSS selector
-    if (element.id) return `#${element.id}`;
-    
-    if (element.className && typeof element.className === 'string') {
-      const classes = element.className.trim().split(/\s+/).filter(c => c);
-      if (classes.length > 0) {
-        const selector = `.${classes.join('.')}`;
-        const matches = doc.querySelectorAll(selector);
-        if (matches.length > 0 && matches.length < 50) {
-          return selector;
-        }
+      } else if (event.data.type === 'HANDLER_READY') {
+        toast.success('Page ready for selection');
       }
-    }
+    };
 
-    // Fallback to tag name
-    const tagName = element.tagName.toLowerCase();
-    return tagName;
-  };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   const handleElementSelected = (selector: string) => {
     setSelectedElements(prev => ({
@@ -181,10 +178,28 @@ export function InteractiveSelectorModal({
     setSelectedElements({});
     setPreviewArticles([]);
     setIframeKey(prev => prev + 1);
+    if (proxiedUrl) {
+      URL.revokeObjectURL(proxiedUrl);
+      setProxiedUrl('');
+    }
+    loadProxiedPage();
   };
 
+  // Load proxied page when modal opens
+  useEffect(() => {
+    if (open && !proxiedUrl && !isLoadingProxy) {
+      loadProxiedPage();
+    }
+  }, [open]);
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(newOpen) => {
+      onOpenChange(newOpen);
+      if (!newOpen && proxiedUrl) {
+        URL.revokeObjectURL(proxiedUrl);
+        setProxiedUrl('');
+      }
+    }}>
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -202,14 +217,20 @@ export function InteractiveSelectorModal({
           {/* Left side - iframe */}
           <div className="flex-1 border rounded-lg overflow-hidden bg-muted">
             {step !== 'preview' ? (
-              <iframe
-                key={iframeKey}
-                id="selector-iframe"
-                src={sourceUrl}
-                className="w-full h-full"
-                onLoad={handleIframeLoad}
-                sandbox="allow-same-origin allow-scripts"
-              />
+              isLoadingProxy ? (
+                <div className="flex items-center justify-center h-full">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                </div>
+              ) : proxiedUrl ? (
+                <iframe
+                  key={iframeKey}
+                  id="selector-iframe"
+                  src={proxiedUrl}
+                  className="w-full h-full"
+                  onLoad={handleIframeLoad}
+                  sandbox="allow-scripts"
+                />
+              ) : null
             ) : (
               <div className="p-4 space-y-3 overflow-y-auto h-full">
                 <h3 className="font-medium">Preview Articles ({previewArticles.length})</h3>
