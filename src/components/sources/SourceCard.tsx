@@ -6,7 +6,6 @@ import { useNavigate } from "react-router-dom";
 import { FlaskConical } from "lucide-react";
 import { useState } from "react";
 import { SourceAnalysisModal } from "./SourceAnalysisModal";
-import { InteractiveSelectorModal } from "./InteractiveSelectorModal";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -41,7 +40,6 @@ export const SourceCard = ({
 }: SourceCardProps) => {
   const navigate = useNavigate();
   const [showAnalysisModal, setShowAnalysisModal] = useState(false);
-  const [showInteractiveSelector, setShowInteractiveSelector] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
 
@@ -161,16 +159,10 @@ export const SourceCard = ({
             Test
           </Button>
           {url && (
-            <>
-              <Button variant="outline" size="sm" onClick={handleAnalyze}>
-                <FlaskConical className="h-3 w-3 mr-1" />
-                Auto-Detect
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setShowInteractiveSelector(true)}>
-                <FlaskConical className="h-3 w-3 mr-1" />
-                Click to Train
-              </Button>
-            </>
+            <Button variant="outline" size="sm" onClick={handleAnalyze}>
+              <FlaskConical className="h-3 w-3 mr-1" />
+              Auto-Detect
+            </Button>
           )}
           <Button variant="outline" size="sm" onClick={onPause}>
             {status === "active" ? "Pause" : "Resume"}
@@ -187,12 +179,7 @@ export const SourceCard = ({
         analysisResult={analysisResult}
         isAnalyzing={isAnalyzing}
         onSaveConfig={handleSaveConfig}
-      />
-      <InteractiveSelectorModal
-        open={showInteractiveSelector}
-        onOpenChange={setShowInteractiveSelector}
         sourceUrl={url}
-        onConfigSelected={handleSaveConfig}
       />
     </Card>
   );

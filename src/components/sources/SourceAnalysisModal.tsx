@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle, MousePointer2 } from "lucide-react";
+import { InteractiveSelectorModal } from "./InteractiveSelectorModal";
 
 interface AnalysisResult {
   success: boolean;
@@ -36,6 +38,7 @@ interface SourceAnalysisModalProps {
   analysisResult: AnalysisResult | null;
   isAnalyzing: boolean;
   onSaveConfig?: (config: any) => void;
+  sourceUrl?: string;
 }
 
 export const SourceAnalysisModal = ({
@@ -44,7 +47,9 @@ export const SourceAnalysisModal = ({
   analysisResult,
   isAnalyzing,
   onSaveConfig,
+  sourceUrl,
 }: SourceAnalysisModalProps) => {
+  const [showInteractiveSelector, setShowInteractiveSelector] = useState(false);
   const getConfidenceBadge = (confidence: number) => {
     if (confidence >= 80) return <Badge className="bg-green-500">High ({confidence}%)</Badge>;
     if (confidence >= 50) return <Badge className="bg-yellow-500">Medium ({confidence}%)</Badge>;
@@ -206,16 +211,41 @@ export const SourceAnalysisModal = ({
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-          {analysisResult?.success && analysisResult.analysis && onSaveConfig && (
-            <Button onClick={handleSaveConfig}>
-              Save Configuration
+          <div className="flex items-center gap-2 flex-1">
+            {sourceUrl && (
+              <Button 
+                variant="outline" 
+                onClick={() => setShowInteractiveSelector(true)}
+              >
+                <MousePointer2 className="h-4 w-4 mr-2" />
+                Click to Train
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Close
             </Button>
-          )}
+            {analysisResult?.success && analysisResult.analysis && onSaveConfig && (
+              <Button onClick={handleSaveConfig}>
+                Save Configuration
+              </Button>
+            )}
+          </div>
         </DialogFooter>
       </DialogContent>
+      
+      <InteractiveSelectorModal
+        open={showInteractiveSelector}
+        onOpenChange={setShowInteractiveSelector}
+        sourceUrl={sourceUrl || ''}
+        onConfigSelected={(config) => {
+          if (onSaveConfig) {
+            onSaveConfig(config);
+          }
+          setShowInteractiveSelector(false);
+        }}
+      />
     </Dialog>
   );
 };
