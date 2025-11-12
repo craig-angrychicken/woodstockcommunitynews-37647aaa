@@ -13,38 +13,19 @@ interface InteractiveSelectorModalProps {
   onConfigSelected: (config: any) => void;
 }
 
-type SelectionStep = 'container' | 'title' | 'link' | 'date' | 'content' | 'image' | 'preview';
-
-const stepDescriptions = {
-  container: 'Click on one article item in the list',
-  title: 'Click on the title/heading of an article',
-  link: 'Click on a link to the full article',
-  date: 'Click on the publish date (optional - click Skip if not visible)',
-  content: 'Click on article summary/description (optional)',
-  image: 'Click on article image (optional)',
-  preview: 'Review your selections'
-};
-
 export function InteractiveSelectorModal({
   open,
   onOpenChange,
   sourceUrl,
   onConfigSelected
 }: InteractiveSelectorModalProps) {
-  const [step, setStep] = useState<SelectionStep>('container');
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedElements, setSelectedElements] = useState<{
-    container?: string;
-    title?: string;
-    link?: string;
-    date?: string;
-    content?: string;
-    image?: string;
-  }>({});
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [detectedConfig, setDetectedConfig] = useState<any>(null);
   const [previewArticles, setPreviewArticles] = useState<any[]>([]);
   const [iframeKey, setIframeKey] = useState(0);
   const [proxiedUrl, setProxiedUrl] = useState<string>('');
   const [isLoadingProxy, setIsLoadingProxy] = useState(false);
+  const [hasSelection, setHasSelection] = useState(false);
 
   // Load proxied page when modal opens
   const loadProxiedPage = async () => {
@@ -86,7 +67,7 @@ export function InteractiveSelectorModal({
           handleElementSelected(selector);
         }
       } else if (event.data.type === 'HANDLER_READY') {
-        toast.success('Page ready for selection');
+        toast.success('Click on any article title, link, or image to analyze');
       }
     };
 
@@ -94,88 +75,46 @@ export function InteractiveSelectorModal({
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  const handleElementSelected = (selector: string) => {
-    setSelectedElements(prev => ({
-      ...prev,
-      [step]: selector
-    }));
-
-    // Move to next step
-    const steps: SelectionStep[] = ['container', 'title', 'link', 'date', 'content', 'image', 'preview'];
-    const currentIndex = steps.indexOf(step);
-    if (currentIndex < steps.length - 1) {
-      setStep(steps[currentIndex + 1]);
-    }
-  };
-
-  const handleSkip = () => {
-    const steps: SelectionStep[] = ['container', 'title', 'link', 'date', 'content', 'image', 'preview'];
-    const currentIndex = steps.indexOf(step);
-    if (currentIndex < steps.length - 1) {
-      setStep(steps[currentIndex + 1]);
-    }
-  };
-
-  const handleBack = () => {
-    const steps: SelectionStep[] = ['container', 'title', 'link', 'date', 'content', 'image', 'preview'];
-    const currentIndex = steps.indexOf(step);
-    if (currentIndex > 0) {
-      setStep(steps[currentIndex - 1]);
-    }
-  };
-
-  const handleTestConfig = async () => {
-    if (!selectedElements.container) {
-      toast.error('Container selector is required');
-      return;
-    }
-
-    setIsLoading(true);
+  const handleElementSelected = async (selector: string) => {
+    setHasSelection(true);
+    setIsAnalyzing(true);
+    
     try {
-      const { data, error } = await supabase.functions.invoke('scrape-articles', {
-        body: {
-          sourceUrl,
-          config: {
-            containerSelector: selectedElements.container,
-            titleSelector: selectedElements.title || 'h3',
-            dateSelector: selectedElements.date || 'time',
-            linkSelector: selectedElements.link || 'a[href]',
-            contentSelector: selectedElements.content || 'p',
-            imageSelector: selectedElements.image || 'img[src]',
-            timeout: 30000
-          }
-        }
+      toast.info('Analyzing pattern...');
+      
+      // Call analyze-source-v2 which will auto-detect the pattern
+      const { data, error } = await supabase.functions.invoke('analyze-source-v2', {
+        body: { sourceUrl }
       });
 
       if (error) throw error;
 
-      setPreviewArticles(data.articles || []);
-      toast.success(`Found ${data.articles?.length || 0} articles`);
+      if (data?.success && data?.analysis) {
+        setDetectedConfig(data.analysis.suggestedConfig);
+        setPreviewArticles(data.analysis.sampleArticles || []);
+        toast.success(`Found ${data.analysis.sampleArticles?.length || 0} matching articles`);
+      } else {
+        toast.error('Could not detect article pattern');
+      }
     } catch (error) {
-      console.error('Test failed:', error);
-      toast.error('Failed to test configuration');
+      console.error('Pattern detection failed:', error);
+      toast.error('Failed to analyze article pattern');
+      setHasSelection(false);
     } finally {
-      setIsLoading(false);
+      setIsAnalyzing(false);
     }
   };
 
   const handleSave = () => {
-    const config = {
-      containerSelector: selectedElements.container,
-      titleSelector: selectedElements.title || 'h3',
-      dateSelector: selectedElements.date || 'time',
-      linkSelector: selectedElements.link || 'a[href]',
-      contentSelector: selectedElements.content || 'p',
-      imageSelector: selectedElements.image || 'img[src]',
-      timeout: 30000
-    };
-    onConfigSelected(config);
-    onOpenChange(false);
+    if (detectedConfig) {
+      onConfigSelected(detectedConfig);
+      onOpenChange(false);
+    }
   };
 
   const handleReset = () => {
-    setStep('container');
-    setSelectedElements({});
+    setHasSelection(false);
+    setDetectedConfig(null);
     setPreviewArticles([]);
     setIframeKey(prev => prev + 1);
     if (proxiedUrl) {
@@ -204,22 +143,28 @@ export function InteractiveSelectorModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <MousePointer2 className="h-5 w-5" />
-            Interactive Selector Builder
+            Interactive Selector - Click on Any Article
           </DialogTitle>
           <DialogDescription>
-            {step !== 'preview' 
-              ? stepDescriptions[step]
-              : 'Review and test your configuration'}
+            {!hasSelection 
+              ? 'Click on any article title, link, or image and we\'ll automatically find all matching articles'
+              : `Found ${previewArticles.length} articles - review and save when ready`}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex gap-4 flex-1 overflow-hidden">
-          {/* Left side - iframe */}
+          {/* Left side - iframe or preview */}
           <div className="flex-1 border rounded-lg overflow-hidden bg-muted">
-            {step !== 'preview' ? (
+            {!hasSelection ? (
               isLoadingProxy ? (
                 <div className="flex items-center justify-center h-full">
                   <Loader2 className="h-8 w-8 animate-spin" />
+                  <p className="ml-2">Loading page...</p>
+                </div>
+              ) : isAnalyzing ? (
+                <div className="flex items-center justify-center h-full">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                  <p className="ml-2">Analyzing pattern...</p>
                 </div>
               ) : proxiedUrl ? (
                 <iframe
@@ -233,76 +178,83 @@ export function InteractiveSelectorModal({
               ) : null
             ) : (
               <div className="p-4 space-y-3 overflow-y-auto h-full">
-                <h3 className="font-medium">Preview Articles ({previewArticles.length})</h3>
-                {previewArticles.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Click "Test Configuration" to preview</p>
-                )}
-                {previewArticles.slice(0, 5).map((article, idx) => (
-                  <div key={idx} className="border rounded p-3 bg-background">
+                <h3 className="font-medium">Detected Articles ({previewArticles.length})</h3>
+                {previewArticles.map((article, idx) => (
+                  <div key={idx} className="border rounded-lg p-3 bg-background hover:bg-accent/50 transition-colors">
+                    {article.images?.[0] && (
+                      <img src={article.images[0]} alt="" className="w-full h-32 object-cover rounded mb-2" />
+                    )}
                     <h4 className="font-medium text-sm">{article.title || 'No title'}</h4>
-                    {article.link && (
-                      <a href={article.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary">
-                        {article.link}
+                    {article.url && (
+                      <a 
+                        href={article.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-xs text-primary hover:underline block truncate"
+                      >
+                        {article.url}
                       </a>
                     )}
-                    {article.date && <p className="text-xs text-muted-foreground mt-1">{article.date}</p>}
+                    {article.date && (
+                      <p className="text-xs text-muted-foreground mt-1">{article.date}</p>
+                    )}
+                    {article.excerpt && (
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{article.excerpt}</p>
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Right side - selections */}
+          {/* Right side - config info */}
           <div className="w-80 border rounded-lg p-4 overflow-y-auto">
-            <h3 className="font-medium mb-3">Selected Elements</h3>
-            <div className="space-y-2">
-              {(['container', 'title', 'link', 'date', 'content', 'image'] as const).map(field => (
-                <div key={field} className="flex items-center gap-2">
-                  {selectedElements[field] ? (
-                    <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  ) : (
-                    <div className="h-4 w-4 rounded-full border-2" />
-                  )}
-                  <div className="flex-1">
-                    <p className="text-sm font-medium capitalize">{field}</p>
-                    {selectedElements[field] && (
-                      <Badge variant="secondary" className="text-xs mt-1">
-                        {selectedElements[field]}
-                      </Badge>
-                    )}
+            <h3 className="font-medium mb-3">Detection Status</h3>
+            {!hasSelection ? (
+              <div className="space-y-4">
+                <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <MousePointer2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <p>Click on any article element on the left to automatically detect the pattern</p>
+                </div>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p>• Click an article title</p>
+                  <p>• Click an article link</p>
+                  <p>• Click an article image</p>
+                </div>
+              </div>
+            ) : detectedConfig ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  <span className="font-medium">Pattern Detected</span>
+                </div>
+                <div className="space-y-2 text-xs">
+                  <div>
+                    <p className="font-medium text-muted-foreground mb-1">Container:</p>
+                    <Badge variant="secondary" className="text-xs font-mono">
+                      {detectedConfig.containerSelector}
+                    </Badge>
+                  </div>
+                  <div>
+                    <p className="font-medium text-muted-foreground mb-1">Articles Found:</p>
+                    <Badge variant="default">{previewArticles.length}</Badge>
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
         <DialogFooter className="flex items-center justify-between">
-          <div className="flex gap-2">
-            {step !== 'container' && step !== 'preview' && (
-              <Button variant="outline" onClick={handleBack}>Back</Button>
-            )}
-            {step !== 'container' && step !== 'preview' && !['container', 'title', 'link'].includes(step) && (
-              <Button variant="ghost" onClick={handleSkip}>Skip</Button>
-            )}
-            {step !== 'preview' && (
-              <Button variant="outline" onClick={handleReset}>Reset</Button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            {step === 'preview' && (
-              <>
-                <Button variant="outline" onClick={handleBack}>Back to Selection</Button>
-                <Button onClick={handleTestConfig} disabled={isLoading}>
-                  {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  Test Configuration
-                </Button>
-                <Button onClick={handleSave} disabled={!selectedElements.container || previewArticles.length === 0}>
-                  Save Configuration
-                </Button>
-              </>
-            )}
-          </div>
+          <Button variant="outline" onClick={handleReset}>
+            Start Over
+          </Button>
+          <Button 
+            onClick={handleSave} 
+            disabled={!hasSelection || !detectedConfig || previewArticles.length === 0}
+          >
+            Save Configuration
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
