@@ -30,6 +30,7 @@ export function InteractiveSelectorModal({
   const [iframeKey, setIframeKey] = useState(0);
   const [proxiedUrl, setProxiedUrl] = useState<string>('');
   const [isLoadingProxy, setIsLoadingProxy] = useState(false);
+  const [renderedHtml, setRenderedHtml] = useState<string>('');
   
   const [selectedContainers, setSelectedContainers] = useState<ContainerSelection[]>([]);
   const [containersFound, setContainersFound] = useState(0);
@@ -51,6 +52,9 @@ export function InteractiveSelectorModal({
         }
         throw error;
       }
+
+      // Store the rendered HTML for later analysis (avoid second Browserless call)
+      setRenderedHtml(data);
 
       // Create a blob URL from the HTML
       const blob = new Blob([data], { type: 'text/html' });
@@ -183,7 +187,8 @@ export function InteractiveSelectorModal({
       const { data, error } = await supabase.functions.invoke('test-scrape-config', {
         body: {
           sourceUrl,
-          config
+          config,
+          html: renderedHtml  // Pass the already-rendered HTML to avoid second Browserless call
         }
       });
 
