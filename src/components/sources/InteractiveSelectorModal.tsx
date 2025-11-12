@@ -30,7 +30,7 @@ export function InteractiveSelectorModal({
   const [iframeKey, setIframeKey] = useState(0);
   const [proxiedUrl, setProxiedUrl] = useState<string>('');
   const [isLoadingProxy, setIsLoadingProxy] = useState(false);
-  const [hasSelection, setHasSelection] = useState(!!preAnalyzedResults);
+  const [hasSelection, setHasSelection] = useState(false);
 
   // Load proxied page when modal opens
   const loadProxiedPage = async () => {
@@ -81,17 +81,17 @@ export function InteractiveSelectorModal({
   }, []);
 
   const handleElementSelected = (selector: string) => {
-    // If we already have pre-analyzed results, just confirm the selection
-    if (preAnalyzedResults) {
+    console.log('Element clicked:', selector);
+    
+    // If we have pre-analyzed results, use them
+    if (preAnalyzedResults && preAnalyzedResults.sampleArticles.length > 0) {
       setHasSelection(true);
-      toast.success(`Using detected pattern with ${previewArticles.length} articles`);
+      toast.success(`Found ${preAnalyzedResults.sampleArticles.length} articles using detected pattern`);
       return;
     }
 
-    // Otherwise, we would need to analyze based on the clicked element
-    // For now, just show what we have
-    setHasSelection(true);
-    toast.info('Using auto-detected configuration');
+    // No pre-analyzed results, would need to analyze
+    toast.error('No pattern detected. Try Auto-Detect first.');
   };
 
   const handleSave = () => {
