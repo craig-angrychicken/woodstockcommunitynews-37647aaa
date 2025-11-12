@@ -115,7 +115,7 @@ async function scrapeWithSelectors(
     elements, // Per-element timeouts set in elements array
     gotoOptions: {
       waitUntil: 'networkidle2',
-      timeout: 12000, // Reduced from 30s to 12s for faster failures
+      timeout: 30000, // Increased to 30s for pages with heavy JS
     },
   };
 
@@ -782,7 +782,10 @@ export async function scrapeArticles(
 
   // Scrape only containers; parse inner HTML to extract data
   const elements: BrowserlessElement[] = [
-    { selector: config.containerSelector }
+    { 
+      selector: config.containerSelector,
+      timeout: config.timeout || 30000  // Use config timeout or default to 30s
+    }
   ];
 
   const results = await scrapeWithSelectors(url, elements);
