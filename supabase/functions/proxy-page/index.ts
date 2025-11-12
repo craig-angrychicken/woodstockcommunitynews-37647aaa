@@ -103,16 +103,25 @@ serve(async (req) => {
               const target = e.target;
               const selector = generateSelector(target);
               
+              // Walk up to find the container
+              let container = findContainer(target);
+              const containerSelector = container ? generateSelector(container) : null;
+              
               // Get element information
               const tagName = target.tagName;
               const text = target.textContent?.trim() || '';
-              const src = target.src || target.getAttribute('src') || '';
+              const src = getElementSrc(target);
               
-              console.log('Element clicked, selector:', selector);
+              console.log('Element clicked:', {
+                selector,
+                containerSelector,
+                tagName
+              });
               
               window.parent.postMessage({
                 type: 'ELEMENT_SELECTED',
                 selector: selector,
+                containerSelector: containerSelector,
                 tagName: tagName,
                 text: text,
                 src: src,
@@ -141,6 +150,48 @@ serve(async (req) => {
           }
         });
 
+        function findContainer(element) {
+          let current = element;
+          const containerPatterns = /news|list|item|card|post|entry|article|story|content-item|feed-item/i;
+          
+          // Walk up max 10 levels
+          for (let i = 0; i < 10 && current.parentElement; i++) {
+            current = current.parentElement;
+            
+            // Check if this element looks like a repeating container
+            const className = current.className || '';
+            if (typeof className === 'string' && containerPatterns.test(className)) {
+              // Check if there are multiple siblings with same class
+              const selector = generateSelector(current);
+              const matches = document.querySelectorAll(selector);
+              if (matches.length >= 2) {
+                console.log('Found container:', selector, 'with', matches.length, 'matches');
+                return current;
+              }
+            }
+            
+            // Stop at body
+            if (current.tagName.toLowerCase() === 'body') {
+              break;
+            }
+          }
+          
+          return null;
+        }
+        
+        function getElementSrc(element) {
+          // Check img src
+          if (element.src) return element.src;
+          if (element.getAttribute('src')) return element.getAttribute('src');
+          
+          // Check inline background styles
+          const style = element.getAttribute('style') || '';
+          const bgMatch = style.match(/background(?:-image)?:\s*url\(['"]?([^'")]+)['"]?\)/);
+          if (bgMatch) return bgMatch[1];
+          
+          return '';
+        }
+        
         function generateSelector(element) {
           // Try ID first
           if (element.id) {

@@ -14,8 +14,8 @@ interface InteractiveSelectorModalProps {
 }
 
 interface ArticleSelection {
-  link: { selector: string; text: string; } | null;
-  image: { selector: string; src: string; } | null;
+  link: { selector: string; text: string; containerSelector?: string; } | null;
+  image: { selector: string; src: string; containerSelector?: string; } | null;
 }
 
 type SelectionMode = 'link' | 'image' | null;
@@ -81,9 +81,9 @@ export function InteractiveSelectorModal({
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data.type === 'ELEMENT_SELECTED') {
-        const { selector, tagName, text, src } = event.data;
+        const { selector, containerSelector, tagName, text, src } = event.data;
         if (selector) {
-          handleElementSelected(selector, tagName, text, src);
+          handleElementSelected(selector, containerSelector, tagName, text, src);
         }
       } else if (event.data.type === 'HANDLER_READY') {
         toast.success('Ready! Click "Select Link" to start marking articles');
@@ -94,7 +94,7 @@ export function InteractiveSelectorModal({
     return () => window.removeEventListener('message', handleMessage);
   }, [currentMode, currentSelectionIndex]);
 
-  const handleElementSelected = (selector: string, tagName: string, text: string, src: string) => {
+  const handleElementSelected = (selector: string, containerSelector: string, tagName: string, text: string, src: string) => {
     if (!currentMode) {
       toast.error('Click "Select Link" or "Select Image" first');
       return;
@@ -103,13 +103,21 @@ export function InteractiveSelectorModal({
     const newSelections = [...selections];
     
     if (currentMode === 'link') {
-      newSelections[currentSelectionIndex].link = { selector, text };
+      newSelections[currentSelectionIndex].link = { 
+        selector, 
+        containerSelector,  // Store container info
+        text 
+      };
       toast.success(`Link selected: ${text}`);
       setCurrentMode(null);
     } else if (currentMode === 'image') {
       // Convert relative URLs to absolute URLs
       const absoluteSrc = src.startsWith('http') ? src : new URL(src, sourceUrl).href;
-      newSelections[currentSelectionIndex].image = { selector, src: absoluteSrc };
+      newSelections[currentSelectionIndex].image = { 
+        selector, 
+        containerSelector,  // Store container info
+        src: absoluteSrc 
+      };
       toast.success('Image selected');
       setCurrentMode(null);
     }
@@ -151,74 +159,27 @@ export function InteractiveSelectorModal({
 
     setIsAnalyzing(true);
     try {
-      // Helpers to compute container purely from user selections
-      const normalizeSegment = (seg: string) =>
-        seg
-          .replace(/:nth-child\(\d+\)/g, '')
-          .replace(/:nth-of-type\(\d+\)/g, '')
-          .replace(/:first-child|:last-child|:not\([^)]*\)/g, '')
-          .replace(/\[[^\]]*\]/g, '')
-          .trim();
+      // Use the container selectors that were captured when clicking
+      const containerSelectors = completeSelections
+        .map(s => s.link?.containerSelector)
+        .filter(Boolean);
+      
+      console.log('Container selectors from clicks:', containerSelectors);
+      
+      // Use the most common container selector
+      const containerSelector = containerSelectors[0] || '.news-list-item';
+      
+      // Extract link patterns from actual clicked links
+      const linkHrefs = completeSelections
+        .map(s => s.link?.selector)
+        .filter(Boolean);
+      
+      console.log('Link selectors:', linkHrefs);
 
-      const splitPath = (selector: string) => selector.split(' > ').map(normalizeSegment).filter(Boolean);
-
-      const linkSelectors = completeSelections.map(s => s.link!.selector);
-      const imageSelectors = completeSelections.map(s => s.image!.selector);
-
-      const partsList = linkSelectors.map(splitPath);
-      const minLen = Math.min(...partsList.map(p => p.length));
-
-      // Deepest common normalized segment prefix
-      let commonDepth = 0;
-      for (let i = 0; i < minLen - 1; i++) {
-        const seg0 = partsList[0][i];
-        if (partsList.every(p => p[i] === seg0)) {
-          commonDepth = i + 1;
-        } else {
-          break;
-        }
-      }
-
-      let containerSelector = partsList[0].slice(0, commonDepth).join(' > ');
-
-      // If too generic, fallback to deepest shared class segment
-      const allClassSegments = partsList.map(parts => parts.filter(s => s.includes('.')));
-      const intersection = allClassSegments.reduce((acc, arr) => acc.filter(x => arr.includes(x)), allClassSegments[0] || []);
-
-      const scoreSeg = (s: string) => {
-        let score = 0;
-        if (/news|list|item|card|post|entry|story|article/i.test(s)) score += 10;
-        // prefer deeper segments
-        const idx = partsList[0].lastIndexOf(s);
-        score += Math.max(0, idx);
-        return score;
-      };
-
-      const bestClassSeg = intersection.sort((a, b) => scoreSeg(b) - scoreSeg(a))[0];
-      if (!containerSelector || /^(html|body)$/.test(containerSelector) || containerSelector.length < 3) {
-        let fallbackClassSeg = '';
-        const path = partsList[0];
-        for (let i = path.length - 1; i >= 0; i--) {
-          if (path[i].includes('.')) { fallbackClassSeg = path[i]; break; }
-        }
-        containerSelector = bestClassSeg || fallbackClassSeg || 'article';
-      }
-
-      // Simplify container to only its last segment for robustness (e.g., '.news-list-item')
-      if (containerSelector.includes(' > ')) {
-        containerSelector = containerSelector.split(' > ').filter(Boolean).pop() || containerSelector;
-      }
-
-      // Build config using robust defaults but respecting user selection
-      const linkPatternCandidates = [
-        'a[href*="news_detail"]',
-        'a[href*="/news/"]',
-        'a[href]'
-      ];
-
+      // Build config using the detected container
       const config = {
         containerSelector,
-        linkSelector: linkPatternCandidates.join(', '),
+        linkSelector: 'a[href*="news_detail"], a[href*="/news/"], a[href]',
         imageSelector: 'img[src], [style*="background"], [style*="background-image"]',
         titleSelector: 'h1, h2, h3, .news-title, [class*="title"]',
         dateSelector: 'time, .news-date, .date, [datetime], [class*="date"]',
@@ -226,7 +187,7 @@ export function InteractiveSelectorModal({
         timeout: 30000
       };
 
-      console.log('Generated config from your selections:', config);
+      console.log('Generated config from detected containers:', config);
 
       const { data, error } = await supabase.functions.invoke('test-scrape-config', {
         body: {
