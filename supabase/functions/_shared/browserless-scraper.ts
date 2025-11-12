@@ -898,10 +898,27 @@ function extractContent(html: string): string | null {
 
 function extractImages(html: string, baseUrl: string): string[] {
   const imgs = new Set<string>();
-  const re = /<img[^>]+src=["']([^"']+)["']/gi;
+  // Standard <img src="...">
+  const imgTagRe = /<img[^>]+src=["']([^"']+)["']/gi;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(html)) !== null) {
+  while ((match = imgTagRe.exec(html)) !== null) {
     imgs.add(normalizeUrl(match[1], baseUrl));
+  }
+  // Background images in inline styles: background or background-image url(...)
+  const bgRe = /style=["'][^"']*background(?:-image)?\s*:\s*url\((['"]?)([^)'"]+)\1\)[^"']*["']/gi;
+  while ((match = bgRe.exec(html)) !== null) {
+    imgs.add(normalizeUrl(match[2], baseUrl));
+  }
+  // Also check for CSS inline like background:url('...') without explicit property name
+  const bgGenericRe = /url\((['"]?)([^)'"]+)\1\)/gi;
+  let genericMatch: RegExpExecArray | null;
+  while ((genericMatch = bgGenericRe.exec(html)) !== null) {
+    // Only add if it's within a style attribute nearby to reduce false positives
+    const snippetStart = Math.max(0, bgGenericRe.lastIndex - 100);
+    const snippet = html.slice(snippetStart, bgGenericRe.lastIndex);
+    if (/style=/.test(snippet)) {
+      imgs.add(normalizeUrl(genericMatch[2], baseUrl));
+    }
   }
   return Array.from(imgs);
 }

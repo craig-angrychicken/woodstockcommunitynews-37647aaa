@@ -37,6 +37,7 @@ export function InteractiveSelectorModal({
   const [currentMode, setCurrentMode] = useState<SelectionMode>(null);
   const [currentSelectionIndex, setCurrentSelectionIndex] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
+  const [containerHints, setContainerHints] = useState<string[]>([]);
 
   // Load proxied page when modal opens
   const loadProxiedPage = async () => {
@@ -150,54 +151,77 @@ export function InteractiveSelectorModal({
 
     setIsAnalyzing(true);
     try {
-      // Extract common patterns from user's actual selections
+      // Helpers to compute container purely from user selections
+      const normalizeSegment = (seg: string) =>
+        seg
+          .replace(/:nth-child\(\d+\)/g, '')
+          .replace(/:nth-of-type\(\d+\)/g, '')
+          .replace(/:first-child|:last-child|:not\([^)]*\)/g, '')
+          .replace(/\[[^\]]*\]/g, '')
+          .trim();
+
+      const splitPath = (selector: string) => selector.split(' > ').map(normalizeSegment).filter(Boolean);
+
       const linkSelectors = completeSelections.map(s => s.link!.selector);
       const imageSelectors = completeSelections.map(s => s.image!.selector);
-      
-      console.log('User selected links:', linkSelectors);
-      console.log('User selected images:', imageSelectors);
-      
-      // Find the deepest common parent by analyzing selector structure
-      const findCommonParent = (selectors: string[]) => {
-        const parts = selectors.map(s => s.split(' > '));
-        let commonDepth = 0;
-        
-        // Find how deep the common structure goes
-        const minLength = Math.min(...parts.map(p => p.length));
-        for (let i = 0; i < minLength - 1; i++) {
-          const firstPart = parts[0][i];
-          if (parts.every(p => p[i] === firstPart)) {
-            commonDepth = i + 1;
-          } else {
-            break;
-          }
+
+      const partsList = linkSelectors.map(splitPath);
+      const minLen = Math.min(...partsList.map(p => p.length));
+
+      // Deepest common normalized segment prefix
+      let commonDepth = 0;
+      for (let i = 0; i < minLen - 1; i++) {
+        const seg0 = partsList[0][i];
+        if (partsList.every(p => p[i] === seg0)) {
+          commonDepth = i + 1;
+        } else {
+          break;
         }
-        
-        return parts[0].slice(0, commonDepth).join(' > ') || 'body';
+      }
+
+      let containerSelector = partsList[0].slice(0, commonDepth).join(' > ');
+
+      // If too generic, fallback to deepest shared class segment
+      const allClassSegments = partsList.map(parts => parts.filter(s => s.includes('.')));
+      const intersection = allClassSegments.reduce((acc, arr) => acc.filter(x => arr.includes(x)), allClassSegments[0] || []);
+
+      const scoreSeg = (s: string) => {
+        let score = 0;
+        if (/news|list|item|card|post|entry|story|article/i.test(s)) score += 10;
+        // prefer deeper segments
+        const idx = partsList[0].lastIndexOf(s);
+        score += Math.max(0, idx);
+        return score;
       };
-      
-      const containerSelector = findCommonParent(linkSelectors);
-      
-      // Get the relative selectors within the container for links and images
-      const getLinkPattern = (selector: string) => {
-        const parts = selector.split(' > ');
-        return parts[parts.length - 1]; // Get the link element itself
-      };
-      
-      const getImagePattern = (selector: string) => {
-        const parts = selector.split(' > ');
-        return parts[parts.length - 1]; // Get the image element itself
-      };
-      
-      const linkPattern = getLinkPattern(linkSelectors[0]);
-      const imagePattern = getImagePattern(imageSelectors[0]);
-      
+
+      const bestClassSeg = intersection.sort((a, b) => scoreSeg(b) - scoreSeg(a))[0];
+      if (!containerSelector || /^(html|body)$/.test(containerSelector) || containerSelector.length < 3) {
+        let fallbackClassSeg = '';
+        const path = partsList[0];
+        for (let i = path.length - 1; i >= 0; i--) {
+          if (path[i].includes('.')) { fallbackClassSeg = path[i]; break; }
+        }
+        containerSelector = bestClassSeg || fallbackClassSeg || 'article';
+      }
+
+      // Simplify container to only its last segment for robustness (e.g., '.news-list-item')
+      if (containerSelector.includes(' > ')) {
+        containerSelector = containerSelector.split(' > ').filter(Boolean).pop() || containerSelector;
+      }
+
+      // Build config using robust defaults but respecting user selection
+      const linkPatternCandidates = [
+        'a[href*="news_detail"]',
+        'a[href*="/news/"]',
+        'a[href]'
+      ];
+
       const config = {
         containerSelector,
-        linkSelector: linkPattern.includes('a') ? linkPattern : 'a[href]',
-        imageSelector: imagePattern.includes('img') ? imagePattern : 'img[src]',
-        titleSelector: 'h1, h2, h3, h4, .title, [class*="title"]',
-        dateSelector: 'time, .date, [datetime], [class*="date"]',
+        linkSelector: linkPatternCandidates.join(', '),
+        imageSelector: 'img[src], [style*="background"], [style*="background-image"]',
+        titleSelector: 'h1, h2, h3, .news-title, [class*="title"]',
+        dateSelector: 'time, .news-date, .date, [datetime], [class*="date"]',
         contentSelector: 'p, .excerpt, .description, [class*="excerpt"]',
         timeout: 30000
       };
