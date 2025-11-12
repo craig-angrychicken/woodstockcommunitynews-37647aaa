@@ -197,13 +197,28 @@ serve(async (req) => {
             return '#' + element.id;
           }
           
-          // Try class combination
+          // For containers, prefer single class selector that matches our pattern
           if (element.className && typeof element.className === 'string') {
             const classes = element.className.trim().split(/\\s+/).filter(c => 
               c && !c.match(/^(hover|focus|active|detected-container|selected-container)/)
             );
+            
             if (classes.length > 0) {
-              const selector = '.' + classes.join('.');
+              // For container detection, prefer the class that matches our pattern
+              const containerPatterns = /news-list-item|news-item|article-card|article-item|post-item|post-card|entry|story-card|story-item|content-item|feed-item/i;
+              const matchingClass = classes.find(c => containerPatterns.test(c));
+              
+              if (matchingClass) {
+                // Use single class selector for better Browserless compatibility
+                const selector = '.' + matchingClass;
+                const matches = document.querySelectorAll(selector);
+                if (matches.length >= 2 && matches.length < 100) {
+                  return selector;
+                }
+              }
+              
+              // Fallback to first class if pattern doesn't match
+              const selector = '.' + classes[0];
               const matches = document.querySelectorAll(selector);
               if (matches.length > 0 && matches.length < 100) {
                 return selector;
