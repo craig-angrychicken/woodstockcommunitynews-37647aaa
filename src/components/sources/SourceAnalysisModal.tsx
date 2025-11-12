@@ -210,19 +210,18 @@ export const SourceAnalysisModal = ({
           </div>
         )}
 
-        <DialogFooter>
-          <div className="flex items-center gap-2 flex-1">
-            {sourceUrl && (
-              <Button 
-                variant="outline" 
-                onClick={() => setShowInteractiveSelector(true)}
-              >
-                <MousePointer2 className="h-4 w-4 mr-2" />
-                Click to Train
-              </Button>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          {sourceUrl && (
+            <Button 
+              variant="outline" 
+              onClick={() => setShowInteractiveSelector(true)}
+              className="w-full sm:w-auto"
+            >
+              <MousePointer2 className="h-4 w-4 mr-2" />
+              Click to Train
+            </Button>
+          )}
+          <div className="flex gap-2 flex-1 justify-end">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Close
             </Button>
