@@ -6,8 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { SourceAnalysisModalV2 } from "./SourceAnalysisModalV2";
-import { FlaskConical } from "lucide-react";
+import { InteractiveSelectorModal } from "./InteractiveSelectorModal";
+import { MousePointer2 } from "lucide-react";
 
 interface AddSourceFormProps {
   onSuccess: () => void;
@@ -18,18 +18,16 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
   const [url, setUrl] = useState("");
   const [type, setType] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<any>(null);
-  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+  const [showTrainingModal, setShowTrainingModal] = useState(false);
   const [parserConfig, setParserConfig] = useState<any>(null);
 
-  const handleAnalyze = async () => {
+  const handleClickToTrain = () => {
     if (!url.trim()) {
       toast.error("Please enter a URL first");
       return;
     }
 
-    // Clean the URL - remove common prefixes that users might type
+    // Clean the URL
     let cleanUrl = url.trim();
     cleanUrl = cleanUrl.replace(/^(URL:\s*|url:\s*)/i, '');
     
@@ -38,38 +36,20 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
       return;
     }
 
-    setIsAnalyzing(true);
-    setShowAnalysisModal(true);
-
-    try {
-      const { data, error } = await supabase.functions.invoke('analyze-source-v2', {
-        body: { sourceUrl: cleanUrl }
-      });
-
-      if (error) throw error;
-
-      setAnalysisResult(data);
-      
-      if (data.success) {
-        toast.success("Analysis complete!");
-      } else {
-        toast.error(data.error || "Analysis failed");
-      }
-    } catch (error) {
-      console.error("Error analyzing source:", error);
-      toast.error("Failed to analyze source");
-      setAnalysisResult({ success: false, error: "Failed to analyze source" });
-    } finally {
-      setIsAnalyzing(false);
-    }
+    setShowTrainingModal(true);
   };
 
   const handleSaveConfig = (config: any) => {
-    // Store the complete scrape configuration
     setParserConfig({
-      scrapeConfig: config.suggestedConfig,
-      confidence: config.confidence,
-      diagnostics: config.diagnostics
+      scrapeConfig: config,
+      confidence: 100,
+      diagnostics: {
+        containersFound: 1,
+        hasValidTitles: true,
+        hasValidDates: true,
+        hasValidLinks: true,
+        issues: []
+      }
     });
     toast.success("Configuration saved! You can now add the source.");
   };
@@ -100,7 +80,6 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
       setUrl("");
       setType("");
       setParserConfig(null);
-      setAnalysisResult(null);
       onSuccess();
     } catch (error) {
       console.error("Error adding source:", error);
@@ -142,16 +121,16 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={handleAnalyze}
-                  disabled={!url.trim() || isAnalyzing}
+                  onClick={handleClickToTrain}
+                  disabled={!url.trim()}
                 >
-                  <FlaskConical className="h-4 w-4 mr-2" />
-                  Analyze
+                  <MousePointer2 className="h-4 w-4 mr-2" />
+                  Click to Train
                 </Button>
               </div>
               {parserConfig && (
                 <div className="text-sm text-green-600 dark:text-green-400">
-                  ✓ Configuration ready (confidence: {parserConfig.confidence}%)
+                  ✓ Configuration ready
                 </div>
               )}
             </div>
@@ -180,13 +159,11 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
           </div>
         </form>
 
-        <SourceAnalysisModalV2
-          open={showAnalysisModal}
-          onOpenChange={setShowAnalysisModal}
-          analysisResult={analysisResult}
-          isAnalyzing={isAnalyzing}
-          onSaveConfig={handleSaveConfig}
+        <InteractiveSelectorModal
+          open={showTrainingModal}
+          onOpenChange={setShowTrainingModal}
           sourceUrl={url}
+          onConfigSelected={handleSaveConfig}
         />
       </CardContent>
     </Card>

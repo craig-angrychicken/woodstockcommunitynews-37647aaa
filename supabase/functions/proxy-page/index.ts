@@ -103,12 +103,19 @@ serve(async (req) => {
               const target = e.target;
               const selector = generateSelector(target);
               
+              // Get element information
+              const tagName = target.tagName;
+              const text = target.textContent?.trim() || '';
+              const src = target.src || target.getAttribute('src') || '';
+              
               console.log('Element clicked, selector:', selector);
               
               window.parent.postMessage({
                 type: 'ELEMENT_SELECTED',
                 selector: selector,
-                tagName: target.tagName,
+                tagName: tagName,
+                text: text,
+                src: src,
                 className: target.className,
                 id: target.id
               }, '*');

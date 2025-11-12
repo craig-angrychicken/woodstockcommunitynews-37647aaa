@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MousePointer2, CheckCircle2 } from "lucide-react";
+import { Loader2, MousePointer2, CheckCircle2, Link as LinkIcon, Image as ImageIcon, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -11,26 +11,32 @@ interface InteractiveSelectorModalProps {
   onOpenChange: (open: boolean) => void;
   sourceUrl: string;
   onConfigSelected: (config: any) => void;
-  preAnalyzedResults?: {
-    suggestedConfig: any;
-    sampleArticles: any[];
-  };
 }
+
+interface ArticleSelection {
+  link: { selector: string; text: string; } | null;
+  image: { selector: string; src: string; } | null;
+}
+
+type SelectionMode = 'link' | 'image' | null;
 
 export function InteractiveSelectorModal({
   open,
   onOpenChange,
   sourceUrl,
-  onConfigSelected,
-  preAnalyzedResults
+  onConfigSelected
 }: InteractiveSelectorModalProps) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [detectedConfig, setDetectedConfig] = useState<any>(preAnalyzedResults?.suggestedConfig || null);
-  const [previewArticles, setPreviewArticles] = useState<any[]>(preAnalyzedResults?.sampleArticles || []);
+  const [detectedConfig, setDetectedConfig] = useState<any>(null);
+  const [previewArticles, setPreviewArticles] = useState<any[]>([]);
   const [iframeKey, setIframeKey] = useState(0);
   const [proxiedUrl, setProxiedUrl] = useState<string>('');
   const [isLoadingProxy, setIsLoadingProxy] = useState(false);
-  const [hasSelection, setHasSelection] = useState(false);
+  
+  const [selections, setSelections] = useState<ArticleSelection[]>([{ link: null, image: null }]);
+  const [currentMode, setCurrentMode] = useState<SelectionMode>(null);
+  const [currentSelectionIndex, setCurrentSelectionIndex] = useState(0);
+  const [showPreview, setShowPreview] = useState(false);
 
   // Load proxied page when modal opens
   const loadProxiedPage = async () => {
@@ -74,31 +80,97 @@ export function InteractiveSelectorModal({
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data.type === 'ELEMENT_SELECTED') {
-        const { selector } = event.data;
+        const { selector, tagName, text, src } = event.data;
         if (selector) {
-          handleElementSelected(selector);
+          handleElementSelected(selector, tagName, text, src);
         }
       } else if (event.data.type === 'HANDLER_READY') {
-        toast.success('Click on any article title, link, or image to analyze');
+        toast.success('Ready! Click "Select Link" to start marking articles');
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [currentMode, currentSelectionIndex]);
 
-  const handleElementSelected = (selector: string) => {
-    console.log('Element clicked:', selector);
-    
-    // If we have pre-analyzed results, use them
-    if (preAnalyzedResults && preAnalyzedResults.sampleArticles.length > 0) {
-      setHasSelection(true);
-      toast.success(`Found ${preAnalyzedResults.sampleArticles.length} articles using detected pattern`);
+  const handleElementSelected = (selector: string, tagName: string, text: string, src: string) => {
+    if (!currentMode) {
+      toast.error('Click "Select Link" or "Select Image" first');
       return;
     }
 
-    // No pre-analyzed results, would need to analyze
-    toast.error('No pattern detected. Try Auto-Detect first.');
+    const newSelections = [...selections];
+    
+    if (currentMode === 'link') {
+      newSelections[currentSelectionIndex].link = { selector, text };
+      toast.success(`Link selected: ${text}`);
+      setCurrentMode(null);
+    } else if (currentMode === 'image') {
+      newSelections[currentSelectionIndex].image = { selector, src };
+      toast.success('Image selected');
+      setCurrentMode(null);
+    }
+
+    setSelections(newSelections);
+  };
+
+  const handleAddArticle = () => {
+    setSelections([...selections, { link: null, image: null }]);
+    setCurrentSelectionIndex(selections.length);
+  };
+
+  const handleRemoveArticle = (index: number) => {
+    const newSelections = selections.filter((_, i) => i !== index);
+    setSelections(newSelections);
+    if (currentSelectionIndex >= newSelections.length) {
+      setCurrentSelectionIndex(Math.max(0, newSelections.length - 1));
+    }
+  };
+
+  const getCompleteSelections = () => {
+    return selections.filter(s => s.link && s.image);
+  };
+
+  const canAnalyze = () => {
+    return getCompleteSelections().length >= 2;
+  };
+
+  const handleAnalyzePattern = async () => {
+    const completeSelections = getCompleteSelections();
+    
+    if (completeSelections.length < 2) {
+      toast.error('Please select at least 2 complete articles (link + image each)');
+      return;
+    }
+
+    setIsAnalyzing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-source-v2', {
+        body: { 
+          sourceUrl,
+          userSelections: completeSelections.map(s => ({
+            linkSelector: s.link!.selector,
+            imageSelector: s.image!.selector
+          }))
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.success && data?.analysis) {
+        setDetectedConfig(data.analysis.suggestedConfig);
+        setPreviewArticles(data.analysis.sampleArticles || []);
+        setShowPreview(true);
+        toast.success(`Found ${data.analysis.sampleArticles?.length || 0} matching articles!`);
+      } else {
+        toast.error('Could not detect article pattern');
+      }
+    } catch (error) {
+      console.error('Pattern detection failed:', error);
+      toast.error('Failed to analyze article pattern');
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleSave = () => {
@@ -109,7 +181,10 @@ export function InteractiveSelectorModal({
   };
 
   const handleReset = () => {
-    setHasSelection(false);
+    setSelections([{ link: null, image: null }]);
+    setCurrentMode(null);
+    setCurrentSelectionIndex(0);
+    setShowPreview(false);
     setDetectedConfig(null);
     setPreviewArticles([]);
     setIframeKey(prev => prev + 1);
@@ -139,11 +214,11 @@ export function InteractiveSelectorModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <MousePointer2 className="h-5 w-5" />
-            Interactive Selector - Click on Any Article
+            Click to Train - Select Article Links & Images
           </DialogTitle>
           <DialogDescription>
-            {!hasSelection 
-              ? 'Click on any article title, link, or image and we\'ll automatically find all matching articles'
+            {!showPreview 
+              ? 'Select links and images for at least 2 articles, then click "Analyze Pattern"'
               : `Found ${previewArticles.length} articles - review and save when ready`}
           </DialogDescription>
         </DialogHeader>
@@ -151,16 +226,16 @@ export function InteractiveSelectorModal({
         <div className="flex gap-4 flex-1 overflow-hidden">
           {/* Left side - iframe or preview */}
           <div className="flex-1 border rounded-lg overflow-hidden bg-muted">
-            {!hasSelection ? (
+            {!showPreview ? (
               isLoadingProxy ? (
-                <div className="flex items-center justify-center h-full">
+                <div className="flex flex-col items-center justify-center h-full gap-2">
                   <Loader2 className="h-8 w-8 animate-spin" />
-                  <p className="ml-2">Loading page...</p>
+                  <p>Loading page...</p>
                 </div>
               ) : isAnalyzing ? (
-                <div className="flex items-center justify-center h-full">
+                <div className="flex flex-col items-center justify-center h-full gap-2">
                   <Loader2 className="h-8 w-8 animate-spin" />
-                  <p className="ml-2">Analyzing pattern...</p>
+                  <p>Analyzing pattern...</p>
                 </div>
               ) : proxiedUrl ? (
                 <iframe
@@ -203,19 +278,105 @@ export function InteractiveSelectorModal({
             )}
           </div>
 
-          {/* Right side - config info */}
+          {/* Right side - selections */}
           <div className="w-80 border rounded-lg p-4 overflow-y-auto">
-            <h3 className="font-medium mb-3">Detection Status</h3>
-            {!hasSelection ? (
-              <div className="space-y-4">
-                <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <MousePointer2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                  <p>Click on any article element on the left to automatically detect the pattern</p>
-                </div>
-                <div className="text-xs text-muted-foreground space-y-1">
-                  <p>• Click an article title</p>
-                  <p>• Click an article link</p>
-                  <p>• Click an article image</p>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-medium">Your Selections</h3>
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                onClick={handleAddArticle}
+                disabled={showPreview}
+              >
+                + Add Article
+              </Button>
+            </div>
+            
+            {!showPreview ? (
+              <div className="space-y-3">
+                {selections.map((selection, idx) => (
+                  <div key={idx} className="border rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Article {idx + 1}</span>
+                      {selections.length > 1 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleRemoveArticle(idx)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div>
+                        <Button
+                          size="sm"
+                          variant={currentMode === 'link' && currentSelectionIndex === idx ? "default" : "outline"}
+                          className="w-full justify-start"
+                          onClick={() => {
+                            setCurrentMode('link');
+                            setCurrentSelectionIndex(idx);
+                            toast.info('Click on an article link in the page');
+                          }}
+                          disabled={showPreview}
+                        >
+                          <LinkIcon className="h-3 w-3 mr-2" />
+                          {selection.link ? 'Link Selected ✓' : 'Select Link'}
+                        </Button>
+                        {selection.link && (
+                          <p className="text-xs text-muted-foreground mt-1 truncate">
+                            {selection.link.text}
+                          </p>
+                        )}
+                      </div>
+                      
+                      <div>
+                        <Button
+                          size="sm"
+                          variant={currentMode === 'image' && currentSelectionIndex === idx ? "default" : "outline"}
+                          className="w-full justify-start"
+                          onClick={() => {
+                            setCurrentMode('image');
+                            setCurrentSelectionIndex(idx);
+                            toast.info('Click on the article image in the page');
+                          }}
+                          disabled={showPreview}
+                        >
+                          <ImageIcon className="h-3 w-3 mr-2" />
+                          {selection.image ? 'Image Selected ✓' : 'Select Image'}
+                        </Button>
+                        {selection.image && (
+                          <img 
+                            src={selection.image.src} 
+                            alt="" 
+                            className="w-full h-16 object-cover rounded mt-1"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                <div className="pt-2 space-y-2">
+                  <div className="text-xs text-muted-foreground">
+                    Complete selections: {getCompleteSelections().length} / 2 minimum
+                  </div>
+                  <Button
+                    className="w-full"
+                    onClick={handleAnalyzePattern}
+                    disabled={!canAnalyze() || isAnalyzing}
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Analyzing...
+                      </>
+                    ) : (
+                      'Analyze Pattern'
+                    )}
+                  </Button>
                 </div>
               </div>
             ) : detectedConfig ? (
@@ -247,7 +408,7 @@ export function InteractiveSelectorModal({
           </Button>
           <Button 
             onClick={handleSave} 
-            disabled={!hasSelection || !detectedConfig || previewArticles.length === 0}
+            disabled={!showPreview || !detectedConfig || previewArticles.length === 0}
           >
             Save Configuration
           </Button>
