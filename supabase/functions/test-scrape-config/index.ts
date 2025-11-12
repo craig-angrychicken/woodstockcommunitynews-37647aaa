@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { scrapeArticles } from "../_shared/browserless-scraper.ts";
+import { testConfiguration } from "../_shared/browserless-scraper.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -24,7 +24,7 @@ serve(async (req) => {
     console.log(`🧪 Testing scrape config for: ${sourceUrl}`);
     console.log('Config:', JSON.stringify(config, null, 2));
 
-    const articles = await scrapeArticles(sourceUrl, config);
+    const { articles } = await testConfiguration(sourceUrl, config);
 
     console.log(`✅ Found ${articles.length} articles`);
 

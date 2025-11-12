@@ -582,7 +582,7 @@ export async function analyzeSource(url: string): Promise<AnalysisResult> {
   }
 }
 
-async function testConfiguration(
+export async function testConfiguration(
   url: string,
   config: ScrapeConfig,
   html?: string
@@ -670,9 +670,8 @@ async function testConfiguration(
     console.log('  🔄 Applying zero-assumption local fallback...');
     
     try {
-      // Get body HTML with short timeout
-      const bodyRes = await scrapeWithSelectors(url, [{ selector: 'body', timeout: 2000 }]);
-      const bodyHtml = bodyRes[0]?.results?.[0]?.html || '';
+      // Use provided HTML for fallback to avoid extra Browserless calls
+      const bodyHtml = html || '';
       
       // Find repeated structures in the body HTML
       const bodyStructures = findRepeatedStructures(bodyHtml);
