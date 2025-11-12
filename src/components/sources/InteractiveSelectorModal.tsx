@@ -13,12 +13,10 @@ interface InteractiveSelectorModalProps {
   onConfigSelected: (config: any) => void;
 }
 
-interface ArticleSelection {
-  link: { selector: string; text: string; containerSelector?: string; } | null;
-  image: { selector: string; src: string; containerSelector?: string; } | null;
+interface ContainerSelection {
+  selector: string;
+  html: string;
 }
-
-type SelectionMode = 'link' | 'image' | null;
 
 export function InteractiveSelectorModal({
   open,
@@ -33,11 +31,9 @@ export function InteractiveSelectorModal({
   const [proxiedUrl, setProxiedUrl] = useState<string>('');
   const [isLoadingProxy, setIsLoadingProxy] = useState(false);
   
-  const [selections, setSelections] = useState<ArticleSelection[]>([{ link: null, image: null }]);
-  const [currentMode, setCurrentMode] = useState<SelectionMode>(null);
-  const [currentSelectionIndex, setCurrentSelectionIndex] = useState(0);
+  const [selectedContainers, setSelectedContainers] = useState<ContainerSelection[]>([]);
+  const [containersFound, setContainersFound] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
-  const [containerHints, setContainerHints] = useState<string[]>([]);
 
   // Load proxied page when modal opens
   const loadProxiedPage = async () => {
@@ -77,117 +73,112 @@ export function InteractiveSelectorModal({
     iframe.contentWindow.postMessage({ type: 'REQUEST_CLICK_HANDLER' }, '*');
   };
 
-  // Listen for element selections from iframe
+  // Listen for container selections from iframe
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.data.type === 'ELEMENT_SELECTED') {
-        const { selector, containerSelector, tagName, text, src } = event.data;
-        if (selector) {
-          handleElementSelected(selector, containerSelector, tagName, text, src);
+      if (event.data.type === 'CONTAINER_SELECTED') {
+        const { selector, html, isSelected, totalSelected } = event.data;
+        
+        if (isSelected) {
+          setSelectedContainers(prev => [...prev, { selector, html }]);
+          toast.success(`Container selected (${totalSelected} total)`);
+        } else {
+          setSelectedContainers(prev => prev.filter(c => c.selector !== selector));
+          toast.info(`Container deselected (${totalSelected} total)`);
         }
       } else if (event.data.type === 'HANDLER_READY') {
-        toast.success('Ready! Click "Select Link" to start marking articles');
+        const count = event.data.containersFound || 0;
+        setContainersFound(count);
+        if (count > 0) {
+          toast.success(`Detected ${count} article containers - click 2 to establish pattern`);
+        } else {
+          toast.error('No article containers detected on this page');
+        }
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [currentMode, currentSelectionIndex]);
-
-  const handleElementSelected = (selector: string, containerSelector: string, tagName: string, text: string, src: string) => {
-    if (!currentMode) {
-      toast.error('Click "Select Link" or "Select Image" first');
-      return;
-    }
-
-    const newSelections = [...selections];
-    
-    if (currentMode === 'link') {
-      newSelections[currentSelectionIndex].link = { 
-        selector, 
-        containerSelector,  // Store container info
-        text 
-      };
-      toast.success(`Link selected: ${text}`);
-      setCurrentMode(null);
-    } else if (currentMode === 'image') {
-      // Convert relative URLs to absolute URLs
-      const absoluteSrc = src.startsWith('http') ? src : new URL(src, sourceUrl).href;
-      newSelections[currentSelectionIndex].image = { 
-        selector, 
-        containerSelector,  // Store container info
-        src: absoluteSrc 
-      };
-      toast.success('Image selected');
-      setCurrentMode(null);
-    }
-
-    setSelections(newSelections);
-  };
-
-  const handleAddArticle = () => {
-    setSelections([...selections, { link: null, image: null }]);
-    setCurrentSelectionIndex(selections.length);
-  };
-
-  const handleRemoveArticle = (index: number) => {
-    const newSelections = selections.filter((_, i) => i !== index);
-    setSelections(newSelections);
-    if (currentSelectionIndex >= newSelections.length) {
-      setCurrentSelectionIndex(Math.max(0, newSelections.length - 1));
-    }
-  };
-
-  const getCompleteSelections = () => {
-    return selections.filter(s => s.link && s.image);
-  };
-
-  const canAnalyze = () => {
-    return getCompleteSelections().length >= 2;
-  };
+  }, []);
 
   const handleAnalyzePattern = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     
-    const completeSelections = getCompleteSelections();
-    
-    if (completeSelections.length < 2) {
-      toast.error('Please select at least 2 complete articles (link + image each)');
+    if (selectedContainers.length < 2) {
+      toast.error('Please select at least 2 article containers');
       return;
     }
 
     setIsAnalyzing(true);
     try {
-      // Use the container selectors that were captured when clicking
-      const containerSelectors = completeSelections
-        .map(s => s.link?.containerSelector)
-        .filter(Boolean);
+      // Use the first container's selector (they should all be the same)
+      const containerSelector = selectedContainers[0].selector;
       
-      console.log('Container selectors from clicks:', containerSelectors);
+      // Parse the HTML of selected containers to extract common selectors
+      const parser = new DOMParser();
+      const sampleHTMLs = selectedContainers.map(c => {
+        const doc = parser.parseFromString(c.html, 'text/html');
+        return doc.body;
+      });
       
-      // Use the most common container selector
-      const containerSelector = containerSelectors[0] || '.news-list-item';
+      // Extract link selectors (prioritize links with article/news/detail patterns)
+      const linkSelectors: string[] = [];
+      sampleHTMLs.forEach(container => {
+        const links = container.querySelectorAll('a[href]');
+        links.forEach(link => {
+          const href = link.getAttribute('href') || '';
+          const classes = link.className;
+          if (href.includes('news') || href.includes('detail') || href.includes('article') || classes.includes('title')) {
+            const selector = classes ? `a.${classes.split(' ').join('.')}` : 'a[href]';
+            if (!linkSelectors.includes(selector)) linkSelectors.push(selector);
+          }
+        });
+      });
       
-      // Extract link patterns from actual clicked links
-      const linkHrefs = completeSelections
-        .map(s => s.link?.selector)
-        .filter(Boolean);
+      // Extract image selectors
+      const imageSelectors: string[] = [];
+      sampleHTMLs.forEach(container => {
+        const images = container.querySelectorAll('img[src], [style*="background"]');
+        images.forEach(img => {
+          const classes = img.className;
+          if (classes) {
+            const selector = `.${classes.split(' ').join('.')}`;
+            if (!imageSelectors.includes(selector)) imageSelectors.push(selector);
+          }
+        });
+      });
       
-      console.log('Link selectors:', linkHrefs);
-
-      // Build config using the detected container
+      // Extract title selectors (h1-h6 or elements with "title" in class)
+      const titleSelectors: string[] = [];
+      sampleHTMLs.forEach(container => {
+        const titles = container.querySelectorAll('h1, h2, h3, h4, h5, h6, [class*="title"]');
+        titles.forEach(title => {
+          const classes = title.className;
+          const tag = title.tagName.toLowerCase();
+          const selector = classes ? `.${classes.split(' ').join('.')}` : tag;
+          if (!titleSelectors.includes(selector)) titleSelectors.push(selector);
+        });
+      });
+      
+      // Build config from analyzed patterns
       const config = {
         containerSelector,
-        linkSelector: 'a[href*="news_detail"], a[href*="/news/"], a[href]',
-        imageSelector: 'img[src], [style*="background"], [style*="background-image"]',
-        titleSelector: 'h1, h2, h3, .news-title, [class*="title"]',
-        dateSelector: 'time, .news-date, .date, [datetime], [class*="date"]',
-        contentSelector: 'p, .excerpt, .description, [class*="excerpt"]',
+        linkSelector: linkSelectors.length > 0 
+          ? linkSelectors.join(', ')
+          : 'a[href*="news"], a[href*="detail"], a[href]',
+        imageSelector: imageSelectors.length > 0
+          ? imageSelectors.join(', ') + ', img[src], [style*="background"]'
+          : 'img[src], [style*="background"]',
+        titleSelector: titleSelectors.length > 0
+          ? titleSelectors.join(', ')
+          : 'h1, h2, h3, [class*="title"]',
+        dateSelector: 'time, .date, [datetime], [class*="date"]',
+        contentSelector: 'p, .excerpt, .description, [class*="content"]',
         timeout: 30000
       };
 
-      console.log('Generated config from detected containers:', config);
+      console.log('Generated config from container analysis:', config);
 
       const { data, error } = await supabase.functions.invoke('test-scrape-config', {
         body: {
@@ -204,7 +195,7 @@ export function InteractiveSelectorModal({
         setShowPreview(true);
         toast.success(`Found ${data.articles.length} matching articles!`);
       } else {
-        toast.error('No articles found with this pattern. Try selecting different elements.');
+        toast.error('No articles found with this pattern. Try selecting different containers.');
         console.log('Config that found 0 articles:', config);
       }
     } catch (error) {
@@ -223,9 +214,8 @@ export function InteractiveSelectorModal({
   };
 
   const handleReset = () => {
-    setSelections([{ link: null, image: null }]);
-    setCurrentMode(null);
-    setCurrentSelectionIndex(0);
+    setSelectedContainers([]);
+    setContainersFound(0);
     setShowPreview(false);
     setDetectedConfig(null);
     setPreviewArticles([]);
@@ -256,11 +246,11 @@ export function InteractiveSelectorModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <MousePointer2 className="h-5 w-5" />
-            Click to Train - Select Article Links & Images
+            Click to Train - Select Article Containers
           </DialogTitle>
           <DialogDescription>
             {!showPreview 
-              ? 'Select links and images for at least 2 articles, then click "Analyze Pattern"'
+              ? 'Click on 2 article containers to establish a pattern, then click "Analyze Pattern"'
               : `Found ${previewArticles.length} articles - review and save when ready`}
           </DialogDescription>
         </DialogHeader>
@@ -320,96 +310,49 @@ export function InteractiveSelectorModal({
             )}
           </div>
 
-          {/* Right side - selections */}
+          {/* Right side - container selections */}
           <div className="w-80 border rounded-lg p-4 overflow-y-auto">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-medium">Your Selections</h3>
-              <Button 
-                size="sm" 
-                variant="ghost" 
-                onClick={handleAddArticle}
-                disabled={showPreview}
-              >
-                + Add Article
-              </Button>
+            <div className="mb-3">
+              <h3 className="font-medium">Container Selection</h3>
+              {containersFound > 0 && !showPreview && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {containersFound} containers detected - click 2 to establish pattern
+                </p>
+              )}
             </div>
             
             {!showPreview ? (
               <div className="space-y-3">
-                {selections.map((selection, idx) => (
-                  <div key={idx} className="border rounded-lg p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Article {idx + 1}</span>
-                      {selections.length > 1 && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleRemoveArticle(idx)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <div>
-                        <Button
-                          size="sm"
-                          variant={currentMode === 'link' && currentSelectionIndex === idx ? "default" : "outline"}
-                          className="w-full justify-start"
-                          onClick={() => {
-                            setCurrentMode('link');
-                            setCurrentSelectionIndex(idx);
-                            toast.info('Click on an article link in the page');
-                          }}
-                          disabled={showPreview}
-                        >
-                          <LinkIcon className="h-3 w-3 mr-2" />
-                          {selection.link ? 'Link Selected ✓' : 'Select Link'}
-                        </Button>
-                        {selection.link && (
-                          <p className="text-xs text-muted-foreground mt-1 truncate">
-                            {selection.link.text}
-                          </p>
-                        )}
-                      </div>
-                      
-                      <div>
-                        <Button
-                          size="sm"
-                          variant={currentMode === 'image' && currentSelectionIndex === idx ? "default" : "outline"}
-                          className="w-full justify-start"
-                          onClick={() => {
-                            setCurrentMode('image');
-                            setCurrentSelectionIndex(idx);
-                            toast.info('Click on the article image in the page');
-                          }}
-                          disabled={showPreview}
-                        >
-                          <ImageIcon className="h-3 w-3 mr-2" />
-                          {selection.image ? 'Image Selected ✓' : 'Select Image'}
-                        </Button>
-                        {selection.image && (
-                          <img 
-                            src={selection.image.src} 
-                            alt="" 
-                            className="w-full h-16 object-cover rounded mt-1"
-                          />
-                        )}
-                      </div>
-                    </div>
+                <div className="border rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Selected Containers</span>
+                    <Badge variant="secondary">{selectedContainers.length} / 2</Badge>
                   </div>
-                ))}
+                  
+                  {selectedContainers.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Click on article containers (outlined in blue) in the page above
+                    </p>
+                  )}
+                  
+                  {selectedContainers.map((container, idx) => (
+                    <div key={idx} className="border rounded p-2 bg-muted">
+                      <p className="text-xs font-mono truncate">{container.selector}</p>
+                    </div>
+                  ))}
+                </div>
                 
-                <div className="pt-2 space-y-2">
+                <div className="space-y-2">
                   <div className="text-xs text-muted-foreground">
-                    Complete selections: {getCompleteSelections().length} / 2 minimum
+                    {selectedContainers.length < 2 
+                      ? `Select ${2 - selectedContainers.length} more container(s)`
+                      : 'Ready to analyze! ✓'}
                   </div>
                   <Button
                     type="button"
                     className="w-full"
                     onClick={handleAnalyzePattern}
-                    disabled={!canAnalyze() || isAnalyzing}
+                    disabled={selectedContainers.length < 2 || isAnalyzing}
                   >
                     {isAnalyzing ? (
                       <>
@@ -431,7 +374,7 @@ export function InteractiveSelectorModal({
                 <div className="space-y-2 text-xs">
                   <div>
                     <p className="font-medium text-muted-foreground mb-1">Container:</p>
-                    <Badge variant="secondary" className="text-xs font-mono">
+                    <Badge variant="secondary" className="text-xs font-mono break-all">
                       {detectedConfig.containerSelector}
                     </Badge>
                   </div>

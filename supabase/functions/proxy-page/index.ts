@@ -85,111 +85,110 @@ serve(async (req) => {
     let html = await response.text();
     console.log('✅ Page rendered with JavaScript, HTML length:', html.length);
 
-    // Inject our selector script at the end of the body
+    // Inject our container selector script at the end of the body
     const selectorScript = `
       <script>
-        console.log('Selector script loaded');
+        console.log('Container selector script loaded');
+        
+        let detectedContainers = [];
+        let selectedContainers = [];
         
         window.addEventListener('message', (event) => {
-          console.log('Message received:', event.data);
-          
           if (event.data.type === 'REQUEST_CLICK_HANDLER') {
-            console.log('Setting up click handler');
+            console.log('Detecting article containers...');
             
-            document.addEventListener('click', (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              
-              const target = e.target;
-              const selector = generateSelector(target);
-              
-              // Walk up to find the container
-              let container = findContainer(target);
-              const containerSelector = container ? generateSelector(container) : null;
-              
-              // Get element information
-              const tagName = target.tagName;
-              const text = target.textContent?.trim() || '';
-              const src = getElementSrc(target);
-              
-              console.log('Element clicked:', {
-                selector,
-                containerSelector,
-                tagName
-              });
-              
-              window.parent.postMessage({
-                type: 'ELEMENT_SELECTED',
-                selector: selector,
-                containerSelector: containerSelector,
-                tagName: tagName,
-                text: text,
-                src: src,
-                className: target.className,
-                id: target.id
-              }, '*');
-            }, true);
-
-            // Add hover styles
-            const style = document.createElement('style');
-            style.textContent = \`
-              * { 
-                cursor: pointer !important; 
-                user-select: none !important;
-              }
-              *:hover { 
-                outline: 3px solid #3b82f6 !important; 
-                outline-offset: 2px !important;
-                background-color: rgba(59, 130, 246, 0.1) !important;
-              }
-            \`;
-            document.head.appendChild(style);
-
-            console.log('Click handler ready');
-            window.parent.postMessage({ type: 'HANDLER_READY' }, '*');
+            // Auto-detect repeating containers on page load
+            detectContainers();
+            
+            // Add click handlers to detected containers
+            detectedContainers.forEach(container => {
+              container.element.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const isSelected = selectedContainers.includes(container.element);
+                
+                if (isSelected) {
+                  // Deselect
+                  selectedContainers = selectedContainers.filter(c => c !== container.element);
+                  container.element.classList.remove('selected-container');
+                } else {
+                  // Select
+                  selectedContainers.push(container.element);
+                  container.element.classList.add('selected-container');
+                }
+                
+                // Send selection to parent
+                window.parent.postMessage({
+                  type: 'CONTAINER_SELECTED',
+                  selector: container.selector,
+                  html: container.element.innerHTML,
+                  isSelected: !isSelected,
+                  totalSelected: selectedContainers.length
+                }, '*');
+              }, true);
+            });
+            
+            console.log(\`✅ Detected \${detectedContainers.length} containers\`);
+            window.parent.postMessage({ 
+              type: 'HANDLER_READY',
+              containersFound: detectedContainers.length
+            }, '*');
           }
         });
-
-        function findContainer(element) {
-          let current = element;
-          const containerPatterns = /news|list|item|card|post|entry|article|story|content-item|feed-item/i;
-          
-          // Walk up max 10 levels
-          for (let i = 0; i < 10 && current.parentElement; i++) {
-            current = current.parentElement;
-            
-            // Check if this element looks like a repeating container
-            const className = current.className || '';
-            if (typeof className === 'string' && containerPatterns.test(className)) {
-              // Check if there are multiple siblings with same class
-              const selector = generateSelector(current);
-              const matches = document.querySelectorAll(selector);
-              if (matches.length >= 2) {
-                console.log('Found container:', selector, 'with', matches.length, 'matches');
-                return current;
-              }
-            }
-            
-            // Stop at body
-            if (current.tagName.toLowerCase() === 'body') {
-              break;
-            }
-          }
-          
-          return null;
-        }
         
-        function getElementSrc(element) {
-          // Check img src
-          if (element.src) return element.src;
-          if (element.getAttribute('src')) return element.getAttribute('src');
+        function detectContainers() {
+          const containerPatterns = /news-list-item|news-item|article-card|article-item|post-item|post-card|entry|story-card|story-item|content-item|feed-item/i;
+          const allElements = document.querySelectorAll('*');
+          const candidateMap = new Map();
           
-          // Check inline background styles
-          const style = element.getAttribute('style') || '';
-          const bgMatch = style.match(/background(?:-image)?:\s*url\(['"]?([^'")]+)['"]?\)/);
-          if (bgMatch) return bgMatch[1];
+          allElements.forEach(element => {
+            const className = element.className || '';
+            if (typeof className === 'string' && className.trim() && containerPatterns.test(className)) {
+              const selector = generateSelector(element);
+              if (!candidateMap.has(selector)) {
+                candidateMap.set(selector, []);
+              }
+              candidateMap.get(selector).push(element);
+            }
+          });
           
-          return '';
+          // Filter to only repeating containers (2+ matches)
+          candidateMap.forEach((elements, selector) => {
+            if (elements.length >= 2) {
+              elements.forEach(element => {
+                detectedContainers.push({ element, selector });
+                element.classList.add('detected-container');
+              });
+              console.log(\`Found \${elements.length} containers with selector: \${selector}\`);
+            }
+          });
+          
+          // Add styles for detected containers
+          const style = document.createElement('style');
+          style.textContent = \`
+            .detected-container {
+              outline: 2px dashed #3b82f6 !important;
+              outline-offset: 4px !important;
+              background: rgba(59, 130, 246, 0.05) !important;
+              cursor: pointer !important;
+              user-select: none !important;
+              transition: all 0.2s ease !important;
+            }
+            .detected-container:hover {
+              outline: 3px solid #3b82f6 !important;
+              background: rgba(59, 130, 246, 0.1) !important;
+            }
+            .selected-container {
+              outline: 3px solid #10b981 !important;
+              background: rgba(16, 185, 129, 0.15) !important;
+            }
+            .selected-container:hover {
+              outline: 3px solid #10b981 !important;
+              background: rgba(16, 185, 129, 0.2) !important;
+            }
+          \`;
+          document.head.appendChild(style);
         }
         
         function generateSelector(element) {
@@ -200,7 +199,9 @@ serve(async (req) => {
           
           // Try class combination
           if (element.className && typeof element.className === 'string') {
-            const classes = element.className.trim().split(/\\s+/).filter(c => c && !c.match(/^(hover|focus|active)/));
+            const classes = element.className.trim().split(/\\s+/).filter(c => 
+              c && !c.match(/^(hover|focus|active|detected-container|selected-container)/)
+            );
             if (classes.length > 0) {
               const selector = '.' + classes.join('.');
               const matches = document.querySelectorAll(selector);
@@ -210,11 +211,11 @@ serve(async (req) => {
             }
           }
           
-          // Try nth-child approach
+          // Fallback to tag + nth-child
           let path = [];
           let current = element;
           
-          while (current.parentElement) {
+          while (current.parentElement && path.length < 3) {
             const parent = current.parentElement;
             const siblings = Array.from(parent.children);
             const index = siblings.indexOf(current) + 1;
@@ -228,8 +229,7 @@ serve(async (req) => {
             
             current = parent;
             
-            // Stop at body or after 4 levels
-            if (current.tagName.toLowerCase() === 'body' || path.length >= 4) {
+            if (current.tagName.toLowerCase() === 'body') {
               break;
             }
           }
@@ -237,7 +237,7 @@ serve(async (req) => {
           return path.join(' > ');
         }
         
-        console.log('Selector script initialized');
+        console.log('Container selector initialized');
       </script>
     `;
 
