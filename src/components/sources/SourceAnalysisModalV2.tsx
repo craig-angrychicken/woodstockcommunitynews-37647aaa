@@ -279,6 +279,10 @@ export const SourceAnalysisModalV2 = ({
         open={showInteractiveSelector}
         onOpenChange={setShowInteractiveSelector}
         sourceUrl={sourceUrl || ''}
+        preAnalyzedResults={analysisResult?.analysis ? {
+          suggestedConfig: analysisResult.analysis.suggestedConfig,
+          sampleArticles: analysisResult.analysis.sampleArticles
+        } : undefined}
         onConfigSelected={(config) => {
           if (onSaveConfig) {
             // Convert interactive selector config to the expected format
