@@ -595,110 +595,108 @@ export async function testConfiguration(
     html = await fetchHTML(url);
   }
 
-  // 1) Build candidate list: DISCOVERED PATTERNS FIRST, then small generic set
-  const structures = findRepeatedStructures(html);
-  const discoveredSelectors = structures.slice(0, 5).map(g => g.selector);
-  
-  console.log(`  🎯 Using ${discoveredSelectors.length} discovered patterns first`);
-  
-  const candidateContainers = Array.from(new Set([
-    ...discoveredSelectors,           // Discovered patterns FIRST
-    config.containerSelector,         // Then detected config
-    '.post', '.entry', '.card',      // Small generic set (NO 'li' or 'article' priority)
-  ])).slice(0, 6); // Limit to top 6 to stay within budget
-
-  console.log(`  📋 Candidates (in order): ${candidateContainers.join(', ')}`);
-
-  const ranked = candidateContainers.map(sel => ({ 
-    selector: sel, 
-    score: scoreSelector(html!, sel),
-    isDiscovered: discoveredSelectors.includes(sel)
-  }));
-
-  // Sort: discovered patterns first, then by score, then prefer classes
-  const preferClass = (s: string) => (s.includes('.') || s.includes('#')) ? 1 : 0;
-  ranked.sort((a, b) => 
-    (b.isDiscovered ? 1 : 0) - (a.isDiscovered ? 1 : 0) || // Discovered first
-    b.score - a.score ||                                     // Then score
-    preferClass(b.selector) - preferClass(a.selector)       // Then prefer classes
-  );
-
-  // 2) Try top 4 candidates with reduced timeout to stay within budget
-  let chosenSelector = ranked[0]?.selector || config.containerSelector;
+  let chosenSelector = config.containerSelector;
   let containers: Array<{ html: string; text: string }> = [];
-  const maxAttempts = Math.min(4, ranked.length);
 
-  for (let i = 0; i < maxAttempts; i++) {
-    const { selector } = ranked[i];
-    const attemptStart = Date.now();
-    
-    // Check if we're approaching time limit (20s budget)
-    if (Date.now() - testStartTime > 18000) {
-      console.log('  ⏱️ Approaching time limit, moving to fallback');
-      break;
-    }
-
+  // If we have HTML (from the client-rendered proxy), honor the user's selector FIRST
+  // and avoid any additional Browserless calls. Only fall back to local discovery if
+  // the selector yields no matches.
+  if (html) {
     try {
-      console.log(`  ▶️ [${i+1}/${maxAttempts}] Trying: ${selector}`);
-      
-      // Use reduced timeout per selector attempt
-      const res = await scrapeWithSelectors(url, [{ selector, timeout: 2000 }]);
-      console.log(`     ⏱️ Took ${Date.now() - attemptStart}ms`);
-      
-      const group = res[0]?.results || [];
-      
-      // Filter to items with links
-      const validGroup = group.filter(r => {
-        const html = r.html || '';
-        return /<a[^>]*href=/i.test(html);
-      });
-      
-      if (validGroup.length > 0) {
-        chosenSelector = selector;
-        containers = validGroup.map(r => ({ html: r.html, text: r.text }));
-        console.log(`     ✅ Found ${containers.length} valid containers`);
-        break;
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      if (doc) {
+        const els = doc.querySelectorAll(config.containerSelector);
+        console.log(`  🔎 Strict match for '${config.containerSelector}': ${els.length} matches`);
+        if (els.length > 0) {
+          containers = Array.from(els).slice(0, 20).map((el) => ({
+            html: (el as Element).outerHTML || '',
+            text: (el as Element).textContent || '',
+          }));
+        }
+      } else {
+        console.warn('  ⚠️ DOMParser returned null document; skipping strict match');
       }
     } catch (err) {
-      console.warn(`     ⚠️ Failed in ${Date.now() - attemptStart}ms: ${err instanceof Error ? err.message : String(err)}`);
-      continue;
+      console.warn('  ⚠️ Strict match failed:', err);
     }
   }
 
-  // 3) Zero-assumption local fallback using discovered patterns
-  if (containers.length === 0) {
-    console.log('  🔄 Applying zero-assumption local fallback...');
-    
+  // If strict user-provided selector found nothing, apply zero-assumption local fallback on HTML
+  if (containers.length === 0 && html) {
+    console.log('  🔄 No strict matches found, applying local discovery on provided HTML...');
     try {
-      // Use provided HTML for fallback to avoid extra Browserless calls
-      const bodyHtml = html || '';
-      
-      // Find repeated structures in the body HTML
-      const bodyStructures = findRepeatedStructures(bodyHtml);
-      
+      const bodyStructures = findRepeatedStructures(html);
       if (bodyStructures.length > 0) {
-        // Use the best discovered pattern
         const best = bodyStructures[0];
         console.log(`     ✅ Using discovered pattern: ${best.selector} (${best.count} items)`);
-        
         const pattern = new RegExp(
           `<${best.tagName}[^>]*class=["'][^"']*\\b${best.className}\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/${best.tagName}>`,
           'gi'
         );
-        
-        const matches = Array.from(bodyHtml.matchAll(pattern)).slice(0, 20);
-        containers = matches.map(m => ({ html: m[0], text: htmlToText(m[0]) }));
+        const matches = Array.from(html.matchAll(pattern)).slice(0, 20);
+        containers = matches.map((m) => ({ html: m[0], text: htmlToText(m[0]) }));
         chosenSelector = `${best.selector} (local discovery)`;
-      } else {
-        // Absolute last resort: li filter
-        console.log('     ⤵️ No patterns found, using li filter as last resort');
-        const liMatches = bodyHtml.match(/<li[\s\S]*?<\/li>/gi) || [];
-        const validLis = liMatches.filter(html => /<a[^>]*href=/i.test(html));
-        containers = validLis.map(html => ({ html, text: htmlToText(html) }));
-        chosenSelector = 'body>li* (last resort)';
       }
     } catch (err) {
-      console.warn('  ⚠️ Local fallback failed:', err);
+      console.warn('  ⚠️ Local discovery failed:', err);
+    }
+  }
+
+  // FINAL fallback: only when no HTML provided (rare) or discovery above failed without HTML
+  if (containers.length === 0 && !html) {
+    console.log('  🌐 No HTML provided, attempting remote scrape with candidate ranking');
+
+    // 1) Build candidate list: prefer provided container first
+    const structures = findRepeatedStructures(await fetchHTML(url));
+    const discoveredSelectors = structures.slice(0, 5).map((g) => g.selector);
+
+    const candidateContainers = Array.from(new Set([
+      config.containerSelector, // User-provided FIRST
+      ...discoveredSelectors,   // Then discovered
+      '.post', '.entry', '.card',
+    ])).slice(0, 6);
+
+    console.log(`  📋 Candidates (in order): ${candidateContainers.join(', ')}`);
+
+    const ranked = candidateContainers.map((sel) => ({
+      selector: sel,
+      score: scoreSelector(await fetchHTML(url), sel),
+      isDiscovered: discoveredSelectors.includes(sel),
+    }));
+
+    const preferClass = (s: string) => (s.includes('.') || s.includes('#')) ? 1 : 0;
+    ranked.sort((a, b) =>
+      (a.selector === config.containerSelector ? 1 : 0) - (b.selector === config.containerSelector ? 1 : 0) ||
+      (b.isDiscovered ? 1 : 0) - (a.isDiscovered ? 1 : 0) ||
+      b.score - a.score ||
+      preferClass(b.selector) - preferClass(a.selector)
+    );
+
+    const maxAttempts = Math.min(4, ranked.length);
+    for (let i = 0; i < maxAttempts; i++) {
+      const { selector } = ranked[i];
+      const attemptStart = Date.now();
+      try {
+        console.log(`  ▶️ [${i + 1}/${maxAttempts}] Trying: ${selector}`);
+        const res = await scrapeWithSelectors(url, [{ selector, timeout: 2000 }]);
+        console.log(`     ⏱️ Took ${Date.now() - attemptStart}ms`);
+        const group = res[0]?.results || [];
+        const validGroup = group.filter((r) => /<a[^>]*href=/i.test(r.html || ''));
+        if (validGroup.length > 0) {
+          chosenSelector = selector;
+          containers = validGroup.map((r) => ({ html: r.html, text: r.text }));
+          console.log(`     ✅ Found ${containers.length} valid containers`);
+          break;
+        }
+      } catch (err) {
+        console.warn(`     ⚠️ Remote attempt failed in ${Date.now() - attemptStart}ms: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (Date.now() - testStartTime > 18000) {
+        console.log('  ⏱️ Approaching time limit, stopping remote attempts');
+        break;
+      }
     }
   }
 
