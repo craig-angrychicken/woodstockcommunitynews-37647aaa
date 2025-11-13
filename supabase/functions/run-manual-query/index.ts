@@ -407,6 +407,7 @@ serve(async (req) => {
       console.log(`✅ Loaded ${sources.length} sources`);
 
       let totalArtifacts = 0;
+      let totalErrors = 0;
 
       // Process each source
       for (const source of sources) {
@@ -474,18 +475,26 @@ serve(async (req) => {
 
         } catch (error) {
           console.error(`❌ Error processing source ${source.name}:`, error);
+          totalErrors++;
         }
       }
 
-      // Update query history to completed
+      // Update query history - mark as failed if no artifacts were created
       if (queryHistoryId) {
+        const status = totalArtifacts === 0 && totalErrors > 0 ? 'failed' : 'completed';
+        const errorMessage = totalArtifacts === 0 && totalErrors > 0 
+          ? 'All sources failed to scrape articles' 
+          : undefined;
+        
         await supabase
           .from('query_history')
           .update({
-            status: 'completed',
+            status,
             artifacts_count: totalArtifacts,
             sources_processed: sources.length,
-            completed_at: new Date().toISOString()
+            sources_failed: totalErrors,
+            completed_at: new Date().toISOString(),
+            ...(errorMessage && { error_message: errorMessage })
           })
           .eq('id', queryHistoryId);
       }
