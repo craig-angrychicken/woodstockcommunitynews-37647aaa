@@ -140,16 +140,22 @@ serve(async (req) => {
         }
       }
 
-      // Update query history to completed
+      // Update query history - mark as failed if no artifacts were created
       if (queryHistoryId) {
+        const status = totalArtifacts === 0 && totalErrors > 0 ? 'failed' : 'completed';
+        const errorMessage = totalArtifacts === 0 && totalErrors > 0 
+          ? 'All sources failed to scrape articles' 
+          : undefined;
+        
         await supabase
           .from('query_history')
           .update({
-            status: 'completed',
+            status,
             artifacts_count: totalArtifacts,
             sources_processed: sources.length,
             sources_failed: totalErrors,
-            completed_at: new Date().toISOString()
+            completed_at: new Date().toISOString(),
+            ...(errorMessage && { error_message: errorMessage })
           })
           .eq('id', queryHistoryId);
       }
