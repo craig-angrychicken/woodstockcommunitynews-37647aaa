@@ -206,7 +206,7 @@ const ManualQuery = () => {
           environment,
           promptVersionId,
           runStages: 'manual',
-          historyId: historyRecord.id,
+          queryHistoryId: historyRecord.id,
           maxArticles
         }
       });
