@@ -35,10 +35,10 @@ export async function scrapeArticlesSimple(
   
   console.log(`🔗 Will try Browserless URL: ${urlsToTry[0]}`);
   console.log(`📍 Container Selector: ${config.containerSelector}`);
-  console.log(`⏱️ Using /content endpoint with networkidle2`);
+  console.log(`⏱️ Using /scrape endpoint with elements extraction`);
 
   let lastError: Error | null = null;
-  let html = '';
+  let containerResults: any[] = [];
 
   // Try each URL until one succeeds
   for (let i = 0; i < urlsToTry.length; i++) {
@@ -49,19 +49,22 @@ export async function scrapeArticlesSimple(
     }
 
     try {
-      const response = await fetch(`${browserlessUrl}/content?token=${browserlessToken}`, {
+      const requestBody = {
+        url,
+        elements: [{ selector: config.containerSelector, timeout: 30000 }],
+        gotoOptions: {
+          waitUntil: 'networkidle2',
+          timeout: 60000
+        }
+      };
+
+      const response = await fetch(`${browserlessUrl}/scrape?token=${browserlessToken}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache',
         },
-        body: JSON.stringify({
-          url,
-          gotoOptions: {
-            waitUntil: 'networkidle2',
-            timeout: 60000
-          }
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -79,8 +82,9 @@ export async function scrapeArticlesSimple(
         throw new Error(`Browserless request failed: ${response.status} ${errorPreview}`);
       }
 
-      html = await response.text();
-      console.log(`✅ Retrieved ${html.length} characters from ${browserlessUrl}`);
+      const result = await response.json();
+      containerResults = result?.data?.[0]?.results || [];
+      console.log(`✅ Found ${containerResults.length} article containers from ${browserlessUrl}`);
       break; // Success, exit retry loop
       
     } catch (error) {
@@ -97,51 +101,21 @@ export async function scrapeArticlesSimple(
     }
   }
 
-  if (!html && lastError) {
+  if (containerResults.length === 0 && lastError) {
     throw lastError;
   }
 
-  if (!html) {
-    console.log(`⚠️ No HTML retrieved`);
-    return [];
-  }
-
-  // Parse HTML to find containers - using exact logic from browserless-scraper.ts (lines 644-663)
-  let containers: Array<{ html: string; text: string }> = [];
-  
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-
-    if (doc) {
-      const els = doc.querySelectorAll(config.containerSelector);
-      console.log(`  🔎 Found '${config.containerSelector}': ${els.length} matches`);
-      if (els.length > 0) {
-        containers = Array.from(els).slice(0, 20).map((el) => ({
-          html: (el as Element).outerHTML || '',
-          text: (el as Element).textContent || '',
-        }));
-      }
-    } else {
-      console.warn('  ⚠️ DOMParser returned null document');
-    }
-  } catch (err) {
-    console.warn('  ⚠️ Parsing failed:', err);
-  }
-
-  if (containers.length === 0) {
+  if (containerResults.length === 0) {
     console.log(`⚠️ No containers found with selector: ${config.containerSelector}`);
     return [];
   }
-
-  console.log(`✅ Found ${containers.length} article containers`);
 
   // Extract articles from each container
   const parser = new DOMParser();
   const articles: Article[] = [];
   
-  for (const container of containers) {
-    const fragDoc = parser.parseFromString(container.html || '', 'text/html');
+  for (const containerResult of containerResults) {
+    const fragDoc = parser.parseFromString(containerResult.html || '', 'text/html');
     if (!fragDoc) continue;
     
     try {
