@@ -92,6 +92,7 @@ serve(async (req) => {
         
         let detectedContainers = [];
         let selectedContainers = [];
+        let selectedImages = [];
         
         window.addEventListener('message', (event) => {
           if (event.data.type === 'REQUEST_CLICK_HANDLER') {
@@ -134,6 +135,61 @@ serve(async (req) => {
               type: 'HANDLER_READY',
               containersFound: detectedContainers.length
             }, '*');
+            
+            // Enable image selection after 2 containers are selected
+            const checkImageSelection = setInterval(() => {
+              if (selectedContainers.length === 2) {
+                clearInterval(checkImageSelection);
+                console.log('✅ 2 containers selected, enabling image selection...');
+                
+                // Add click handlers to all images and background-image elements
+                const imageElements = document.querySelectorAll('img, [style*="background"]');
+                
+                imageElements.forEach(imgEl => {
+                  imgEl.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    const isSelected = selectedImages.includes(imgEl);
+                    
+                    if (isSelected) {
+                      // Deselect
+                      selectedImages = selectedImages.filter(img => img !== imgEl);
+                      imgEl.classList.remove('selected-image');
+                    } else {
+                      // Select (max 2)
+                      if (selectedImages.length < 2) {
+                        selectedImages.push(imgEl);
+                        imgEl.classList.add('selected-image');
+                      }
+                    }
+                    
+                    // Generate selector for this image
+                    const selector = generateSelector(imgEl);
+                    
+                    // Get image URL
+                    let imageUrl = '';
+                    if (imgEl.tagName === 'IMG') {
+                      imageUrl = imgEl.getAttribute('src') || 
+                                 imgEl.getAttribute('data-src') || '';
+                    } else {
+                      const style = imgEl.getAttribute('style') || '';
+                      const match = style.match(/url\(['"]?([^'"]+)['"]?\)/);
+                      if (match) imageUrl = match[1];
+                    }
+                    
+                    // Send selection to parent
+                    window.parent.postMessage({
+                      type: 'IMAGE_SELECTED',
+                      selector: selector,
+                      imageUrl: imageUrl,
+                      isSelected: !isSelected,
+                      totalSelected: selectedImages.length
+                    }, '*');
+                  }, true);
+                });
+              }
+            }, 100);
           } else if (event.data.type === 'REQUEST_HTML_SNAPSHOT') {
             // Send current live DOM snapshot to parent
             console.log('📸 Sending HTML snapshot of live DOM');
@@ -143,8 +199,8 @@ serve(async (req) => {
             }, '*');
           } else if (event.data.type === 'FIND_ALL_MATCHES') {
             // Find all elements matching the selector on the live page
-            const { selector } = event.data;
-            console.log('🔍 Finding all matches for selector:', selector);
+            const { selector, imageSelector } = event.data;
+            console.log('🔍 Finding all matches for:', { selector, imageSelector });
             
             const allMatches = document.querySelectorAll(selector);
             const results = Array.from(allMatches).map(el => ({
@@ -157,6 +213,7 @@ serve(async (req) => {
             window.parent.postMessage({
               type: 'ALL_MATCHES_FOUND',
               selector: selector,
+              imageSelector: imageSelector,
               matches: results,
               count: results.length
             }, '*');
@@ -212,6 +269,11 @@ serve(async (req) => {
             .selected-container:hover {
               outline: 3px solid #10b981 !important;
               background: rgba(16, 185, 129, 0.2) !important;
+            }
+            .selected-image {
+              outline: 3px solid #f59e0b !important;
+              outline-offset: 2px;
+              cursor: pointer;
             }
           \`;
           document.head.appendChild(style);
