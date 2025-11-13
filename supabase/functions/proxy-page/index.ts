@@ -192,6 +192,15 @@ serve(async (req) => {
                       if (match) imageUrl = match[1];
                     }
                     
+                    // Resolve relative URLs to absolute using window.location
+                    if (imageUrl && !imageUrl.startsWith('http') && !imageUrl.startsWith('data:')) {
+                      try {
+                        imageUrl = new URL(imageUrl, window.location.origin).href;
+                      } catch (e) {
+                        console.warn('Failed to resolve image URL:', imageUrl);
+                      }
+                    }
+                    
                     // Send selection to parent
                     window.parent.postMessage({
                       type: 'IMAGE_SELECTED',

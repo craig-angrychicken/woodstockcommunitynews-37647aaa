@@ -103,7 +103,7 @@ export function InteractiveSelectorModal({
   };
 
   // Analyze containers locally from iframe matches
-  const analyzeContainersLocally = (matches: { html: string }[], containerSelector: string, imageSelector?: string) => {
+  const analyzeContainersLocally = (matches: { html: string }[], containerSelector: string, imageSelector?: string, sourceUrl?: string) => {
     setIsAnalyzing(true);
     
     try {
@@ -144,13 +144,33 @@ export function InteractiveSelectorModal({
                         img.getAttribute('data-lazy-src');
             
             if (src && !src.startsWith('data:') && src !== '#') {
-              images.push(src);
+              let imageUrl = src;
+              // Resolve relative URLs to absolute
+              if (sourceUrl && !imageUrl.startsWith('http')) {
+                try {
+                  const base = new URL(sourceUrl);
+                  imageUrl = new URL(imageUrl, base.origin).href;
+                } catch (e) {
+                  console.warn('Failed to resolve image URL:', imageUrl);
+                }
+              }
+              images.push(imageUrl);
             } else {
               // Check background-image in style
               const style = img.getAttribute('style') || '';
               const match = style.match(/url\(['"]?([^'"]+)['"]?\)/);
               if (match && match[1]) {
-                images.push(match[1]);
+                let imageUrl = match[1];
+                // Resolve relative URLs to absolute
+                if (sourceUrl && !imageUrl.startsWith('http')) {
+                  try {
+                    const base = new URL(sourceUrl);
+                    imageUrl = new URL(imageUrl, base.origin).href;
+                  } catch (e) {
+                    console.warn('Failed to resolve image URL:', imageUrl);
+                  }
+                }
+                images.push(imageUrl);
               }
             }
           });
@@ -162,7 +182,17 @@ export function InteractiveSelectorModal({
                         img.getAttribute('data-src') || 
                         img.getAttribute('data-lazy-src');
             if (src && !src.startsWith('data:') && src !== '#') {
-              images.push(src);
+              let imageUrl = src;
+              // Resolve relative URLs to absolute
+              if (sourceUrl && !imageUrl.startsWith('http')) {
+                try {
+                  const base = new URL(sourceUrl);
+                  imageUrl = new URL(imageUrl, base.origin).href;
+                } catch (e) {
+                  console.warn('Failed to resolve image URL:', imageUrl);
+                }
+              }
+              images.push(imageUrl);
             }
           });
           
@@ -299,7 +329,7 @@ export function InteractiveSelectorModal({
         console.log(`✅ Found ${count} matching articles for selector: ${selector}`);
         
         // Analyze matches locally with both selectors
-        analyzeContainersLocally(matches, selector, imageSelector);
+        analyzeContainersLocally(matches, selector, imageSelector, sourceUrl);
       }
     };
 
