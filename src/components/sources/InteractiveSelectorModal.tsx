@@ -433,7 +433,7 @@ export function InteractiveSelectorModal({
                   src={proxiedUrl}
                   className="w-full h-full"
                   onLoad={handleIframeLoad}
-                  sandbox="allow-scripts"
+                  sandbox="allow-scripts allow-same-origin"
                 />
               ) : null
             ) : (
