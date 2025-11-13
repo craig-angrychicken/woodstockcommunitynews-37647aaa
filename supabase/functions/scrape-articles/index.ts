@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { scrapeArticles } from "../_shared/browserless-scraper.ts";
+import { scrapeArticlesSimple } from "../_shared/simple-scraper.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,6 +29,7 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
+    const browserlessToken = Deno.env.get('BROWSERLESS_TOKEN')!;
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -77,43 +78,48 @@ serve(async (req) => {
 
           const config = source.parser_config.scrapeConfig;
 
-          // Scrape articles
-          const articles = await scrapeArticles(source.url, config);
+          // Scrape articles using simple scraper
+          const articles = await scrapeArticlesSimple(source.url, config, browserlessToken);
 
           console.log(`\n📝 Processing ${articles.length} articles...`);
 
           // Filter by date range
           const filteredArticles = articles.filter(article => {
-            if (!article.date) return true;
+            if (!article.date) {
+              console.log(`  ℹ️ No date for "${article.title}" - including by default`);
+              return true;
+            }
             
             const articleDate = new Date(article.date);
-            return articleDate >= dateFromObj && articleDate <= dateToObj;
+            
+            // Check for invalid date
+            if (isNaN(articleDate.getTime())) {
+              console.log(`  ⚠️ Invalid date "${article.date}" for "${article.title}" - including anyway`);
+              return true;
+            }
+            
+            const inRange = articleDate >= dateFromObj && articleDate <= dateToObj;
+            console.log(`  ${inRange ? '✅' : '❌'} "${article.title}" (${article.date}) - ${inRange ? 'in range' : 'out of range'}`);
+            return inRange;
           });
 
-          console.log(`  ${filteredArticles.length} articles in date range`);
+          console.log(`\n  ✅ ${filteredArticles.length} articles in date range`);
 
           // Process each article
           for (const article of filteredArticles) {
-            // Select best hero image if available
-            let heroImageUrl = null;
-            if (article.images && article.images.length > 0) {
-              heroImageUrl = await selectBestHeroImage(article.images, article.title, lovableApiKey);
-            }
-
             // Create artifact
             const { error: artifactError } = await supabase
               .from('artifacts')
               .insert({
                 name: article.title,
                 title: article.title,
-                content: article.markdown || article.content, // Store markdown if available
+                content: article.content || '',
                 type: 'news',
                 date: article.date ? new Date(article.date).toISOString() : new Date().toISOString(),
                 source_id: source.id,
-                hero_image_url: heroImageUrl,
-                images: article.images || [],
-                is_test: isTest,
-                size_mb: 0
+                hero_image_url: article.imageUrl || null,
+                url: article.url,
+                environment: isTest ? 'test' : 'production'
               });
 
             if (artifactError) {
