@@ -32,149 +32,178 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const dateFromObj = new Date(dateFrom);
-    const dateToObj = new Date(dateTo);
-    const isTest = environment === 'test';
+    try {
+      const dateFromObj = new Date(dateFrom);
+      const dateToObj = new Date(dateTo);
+      const isTest = environment === 'test';
 
-    // Fetch sources
-    const { data: sources, error: sourcesError } = await supabase
-      .from('sources')
-      .select('*')
-      .in('id', sourceIds);
+      // Fetch sources
+      const { data: sources, error: sourcesError } = await supabase
+        .from('sources')
+        .select('*')
+        .in('id', sourceIds);
 
-    if (sourcesError) throw sourcesError;
+      if (sourcesError) throw sourcesError;
 
-    console.log(`✅ Loaded ${sources.length} sources`);
+      console.log(`✅ Loaded ${sources.length} sources`);
 
-    let totalArtifacts = 0;
-    let totalErrors = 0;
+      let totalArtifacts = 0;
+      let totalErrors = 0;
 
-    // Process each source
-    for (const source of sources) {
-      try {
-        console.log(`\n${'='.repeat(60)}`);
-        console.log(`Processing: ${source.name}`);
-        console.log(`${'='.repeat(60)}`);
+      // Process each source
+      for (const source of sources) {
+        try {
+          console.log(`\n${'='.repeat(60)}`);
+          console.log(`Processing: ${source.name}`);
+          console.log(`${'='.repeat(60)}`);
 
-        // Update query history
-        if (queryHistoryId) {
+          // Update query history
+          if (queryHistoryId) {
+            await supabase
+              .from('query_history')
+              .update({
+                current_source_name: source.name,
+                current_source_id: source.id
+              })
+              .eq('id', queryHistoryId);
+          }
+
+          // Validate source has configuration
+          if (!source.parser_config?.scrapeConfig) {
+            console.log('⚠️ No scrape configuration found, skipping');
+            totalErrors++;
+            continue;
+          }
+
+          const config = source.parser_config.scrapeConfig;
+
+          // Scrape articles
+          const articles = await scrapeArticles(source.url, config);
+
+          console.log(`\n📝 Processing ${articles.length} articles...`);
+
+          // Filter by date range
+          const filteredArticles = articles.filter(article => {
+            if (!article.date) return true;
+            
+            const articleDate = new Date(article.date);
+            return articleDate >= dateFromObj && articleDate <= dateToObj;
+          });
+
+          console.log(`  ${filteredArticles.length} articles in date range`);
+
+          // Process each article
+          for (const article of filteredArticles) {
+            // Select best hero image if available
+            let heroImageUrl = null;
+            if (article.images && article.images.length > 0) {
+              heroImageUrl = await selectBestHeroImage(article.images, article.title, lovableApiKey);
+            }
+
+            // Create artifact
+            const { error: artifactError } = await supabase
+              .from('artifacts')
+              .insert({
+                name: article.title,
+                title: article.title,
+                content: article.content,
+                type: 'news',
+                date: article.date ? new Date(article.date).toISOString() : new Date().toISOString(),
+                source_id: source.id,
+                hero_image_url: heroImageUrl,
+                images: article.images || [],
+                is_test: isTest,
+                size_mb: 0
+              });
+
+            if (artifactError) {
+              console.error(`❌ Error creating artifact: ${artifactError.message}`);
+              totalErrors++;
+            } else {
+              totalArtifacts++;
+              console.log(`  ✅ Created artifact: "${article.title}"`);
+            }
+          }
+
+          // Update source stats
+          await supabase
+            .from('sources')
+            .update({
+              items_fetched: (source.items_fetched || 0) + filteredArticles.length,
+              last_fetch_at: new Date().toISOString()
+            })
+            .eq('id', source.id);
+
+        } catch (error) {
+          console.error(`❌ Error processing source ${source.name}:`, error);
+          totalErrors++;
+        }
+      }
+
+      // Update query history to completed
+      if (queryHistoryId) {
+        await supabase
+          .from('query_history')
+          .update({
+            status: 'completed',
+            artifacts_count: totalArtifacts,
+            sources_processed: sources.length,
+            sources_failed: totalErrors,
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', queryHistoryId);
+      }
+
+      console.log(`\n✅ Scrape complete!`);
+      console.log(`  Artifacts created: ${totalArtifacts}`);
+      console.log(`  Errors: ${totalErrors}`);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          artifactsCreated: totalArtifacts,
+          sourcesProcessed: sources.length,
+          errors: totalErrors
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+
+    } catch (error) {
+      console.error('❌ Critical error in scrape-articles:', error);
+      
+      // ALWAYS update query_history to failed on error
+      if (queryHistoryId) {
+        try {
           await supabase
             .from('query_history')
             .update({
-              current_source_name: source.name,
-              current_source_id: source.id
+              status: 'failed',
+              completed_at: new Date().toISOString(),
+              error_message: error instanceof Error ? error.message : 'Unknown error'
             })
             .eq('id', queryHistoryId);
+        } catch (updateError) {
+          console.error('❌ Failed to update query_history:', updateError);
         }
-
-        // Validate source has configuration
-        if (!source.parser_config?.scrapeConfig) {
-          console.log('⚠️ No scrape configuration found, skipping');
-          totalErrors++;
-          continue;
-        }
-
-        const config = source.parser_config.scrapeConfig;
-
-        // Scrape articles
-        const articles = await scrapeArticles(source.url, config);
-
-        console.log(`\n📝 Processing ${articles.length} articles...`);
-
-        // Filter by date range
-        const filteredArticles = articles.filter(article => {
-          if (!article.date) return true; // Include articles without dates
-          
-          const articleDate = new Date(article.date);
-          return articleDate >= dateFromObj && articleDate <= dateToObj;
-        });
-
-        console.log(`  ${filteredArticles.length} articles in date range`);
-
-        // Process each article
-        for (const article of filteredArticles) {
-          // Select best hero image if available
-          let heroImageUrl = null;
-          if (article.images && article.images.length > 0) {
-            heroImageUrl = await selectBestHeroImage(article.images, article.title, lovableApiKey);
-          }
-
-          // Create artifact
-          const { error: artifactError } = await supabase
-            .from('artifacts')
-            .insert({
-              name: article.title,
-              title: article.title,
-              content: article.content,
-              type: 'news',
-              date: article.date ? new Date(article.date).toISOString() : new Date().toISOString(),
-              source_id: source.id,
-              hero_image_url: heroImageUrl,
-              images: article.images || [],
-              is_test: isTest,
-              size_mb: 0
-            });
-
-          if (artifactError) {
-            console.error(`❌ Error creating artifact: ${artifactError.message}`);
-            totalErrors++;
-          } else {
-            totalArtifacts++;
-            console.log(`  ✅ Created artifact: "${article.title}"`);
-          }
-        }
-
-        // Update source stats
-        await supabase
-          .from('sources')
-          .update({
-            items_fetched: (source.items_fetched || 0) + filteredArticles.length,
-            last_fetch_at: new Date().toISOString()
-          })
-          .eq('id', source.id);
-
-      } catch (error) {
-        console.error(`❌ Error processing source ${source.name}:`, error);
-        totalErrors++;
       }
+      
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      );
     }
-
-    // Update query history
-    if (queryHistoryId) {
-      await supabase
-        .from('query_history')
-        .update({
-          status: 'completed',
-          artifacts_count: totalArtifacts,
-          sources_processed: sources.length,
-          sources_failed: totalErrors,
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', queryHistoryId);
-    }
-
-    console.log(`\n✅ Scrape complete!`);
-    console.log(`  Artifacts created: ${totalArtifacts}`);
-    console.log(`  Errors: ${totalErrors}`);
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        artifactsCreated: totalArtifacts,
-        sourcesProcessed: sources.length,
-        errors: totalErrors
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
 
   } catch (error) {
-    console.error('❌ Error in scrape-articles:', error);
+    console.error('❌ Error parsing request:', error);
     return new Response(
       JSON.stringify({
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Invalid request'
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
     );
   }
 });
