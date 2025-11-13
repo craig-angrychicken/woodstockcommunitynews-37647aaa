@@ -629,7 +629,21 @@ const ManualQuery = () => {
                           <XCircle className="h-4 w-4 text-red-500" />
                         )}
                         {query.status === 'running' && (
-                          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                cancelQueryMutation.mutate(query.id);
+                              }}
+                              disabled={cancelQueryMutation.isPending}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
                         )}
                       </div>
                       <div className="text-xs space-y-1 text-muted-foreground">
