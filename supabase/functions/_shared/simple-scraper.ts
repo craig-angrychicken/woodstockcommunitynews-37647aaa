@@ -34,11 +34,11 @@ export async function scrapeArticlesSimple(
   const urlsToTry = envUrl ? [envUrl, ...DEFAULT_URLS] : DEFAULT_URLS;
   
   console.log(`🔗 Will try Browserless URL: ${urlsToTry[0]}`);
-  console.log(`📍 Selector: ${config.containerSelector}`);
-  console.log(`⏱️ Using /scrape endpoint with elements extraction`);
+  console.log(`📍 Container Selector: ${config.containerSelector}`);
+  console.log(`⏱️ Using /content endpoint with networkidle2`);
 
   let lastError: Error | null = null;
-  let containerResults: any[] = [];
+  let html = '';
 
   // Try each URL until one succeeds
   for (let i = 0; i < urlsToTry.length; i++) {
@@ -49,29 +49,25 @@ export async function scrapeArticlesSimple(
     }
 
     try {
-      const requestBody = {
-        url,
-        elements: [{ selector: config.containerSelector }],
-        gotoOptions: {
-          waitUntil: 'networkidle2',
-          timeout: 60000
-        }
-      };
-
-      const response = await fetch(`${browserlessUrl}/scrape?token=${browserlessToken}`, {
+      const response = await fetch(`${browserlessUrl}/content?token=${browserlessToken}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache',
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          url,
+          gotoOptions: {
+            waitUntil: 'networkidle2',
+            timeout: 60000
+          }
+        }),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
         const errorPreview = errorText.substring(0, 300);
         console.error(`❌ Browserless ${response.status} from ${browserlessUrl}:`);
-        console.error(`   Selector: ${config.containerSelector}`);
         console.error(`   Response: ${errorPreview}`);
         
         // If this is retriable error and we have more URLs, continue to next
@@ -83,9 +79,8 @@ export async function scrapeArticlesSimple(
         throw new Error(`Browserless request failed: ${response.status} ${errorPreview}`);
       }
 
-      const result = await response.json();
-      containerResults = result?.data?.[0]?.results || [];
-      console.log(`✅ Found ${containerResults.length} article containers from ${browserlessUrl}`);
+      html = await response.text();
+      console.log(`✅ Retrieved ${html.length} characters from ${browserlessUrl}`);
       break; // Success, exit retry loop
       
     } catch (error) {
@@ -102,22 +97,53 @@ export async function scrapeArticlesSimple(
     }
   }
 
-  if (containerResults.length === 0 && lastError) {
+  if (!html && lastError) {
     throw lastError;
   }
 
-  if (containerResults.length === 0) {
+  if (!html) {
+    console.log(`⚠️ No HTML retrieved`);
+    return [];
+  }
+
+  // Parse HTML to find containers - using exact logic from browserless-scraper.ts (lines 644-663)
+  let containers: Array<{ html: string; text: string }> = [];
+  
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    if (doc) {
+      const els = doc.querySelectorAll(config.containerSelector);
+      console.log(`  🔎 Found '${config.containerSelector}': ${els.length} matches`);
+      if (els.length > 0) {
+        containers = Array.from(els).slice(0, 20).map((el) => ({
+          html: (el as Element).outerHTML || '',
+          text: (el as Element).textContent || '',
+        }));
+      }
+    } else {
+      console.warn('  ⚠️ DOMParser returned null document');
+    }
+  } catch (err) {
+    console.warn('  ⚠️ Parsing failed:', err);
+  }
+
+  if (containers.length === 0) {
     console.log(`⚠️ No containers found with selector: ${config.containerSelector}`);
     return [];
   }
 
-  // Parse HTML fragments
+  console.log(`✅ Found ${containers.length} article containers`);
+
+  // Extract articles from each container
   const parser = new DOMParser();
   const articles: Article[] = [];
   
-  for (const containerResult of containerResults) {
-    const fragDoc = parser.parseFromString(containerResult.html || '', 'text/html');
+  for (const container of containers) {
+    const fragDoc = parser.parseFromString(container.html || '', 'text/html');
     if (!fragDoc) continue;
+    
     try {
       // Extract title
       const titleEl = fragDoc.querySelector(config.titleSelector);
