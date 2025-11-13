@@ -37,6 +37,13 @@ serve(async (req) => {
     }
     console.log(`🔐 Browserless token detected (length: ${browserlessToken.length})`);
     
+    const browserlessUrl = Deno.env.get('BROWSERLESS_URL');
+    if (browserlessUrl) {
+      console.log(`🌐 Using custom Browserless URL: ${browserlessUrl}`);
+    } else {
+      console.log(`🌐 Using default Browserless URLs (with retry): chrome.browserless.io, production-sfo.browserless.io`);
+    }
+    
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     try {
