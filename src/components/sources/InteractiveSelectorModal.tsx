@@ -33,6 +33,7 @@ export function InteractiveSelectorModal({
   const [renderedHtml, setRenderedHtml] = useState<string>('');
   
   const [selectedContainers, setSelectedContainers] = useState<ContainerSelection[]>([]);
+  const [selectedImages, setSelectedImages] = useState<Array<{selector: string, imageUrl: string}>>([]);
   const [containersFound, setContainersFound] = useState(0);
   const snapshotResolverRef = useRef<((html: string) => void) | null>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -102,7 +103,7 @@ export function InteractiveSelectorModal({
   };
 
   // Analyze containers locally from iframe matches
-  const analyzeContainersLocally = (matches: { html: string }[], containerSelector: string) => {
+  const analyzeContainersLocally = (matches: { html: string }[], containerSelector: string, imageSelector?: string) => {
     setIsAnalyzing(true);
     
     try {
@@ -131,30 +132,50 @@ export function InteractiveSelectorModal({
         
         if (!title || title.length < 5) return; // Skip if no valid title
         
-        // Extract images - check multiple sources
+        // Extract images using the detected imageSelector if provided
         const images: string[] = [];
         
-        // Try img[src], data-src, data-lazy-src
-        const imgEls = container.querySelectorAll('img');
-        imgEls.forEach(img => {
-          const src = img.getAttribute('src') || 
-                      img.getAttribute('data-src') || 
-                      img.getAttribute('data-lazy-src');
-          if (src && !src.startsWith('data:') && src !== '#') {
-            images.push(src);
-          }
-        });
-        
-        // Try background images if no img tags found
-        if (images.length === 0) {
-          const bgEls = container.querySelectorAll('[style*="background"]');
-          bgEls.forEach(el => {
-            const style = el.getAttribute('style') || '';
-            const match = style.match(/url\(['"]?([^'"]+)['"]?\)/);
-            if (match && match[1]) {
-              images.push(match[1]);
+        if (imageSelector) {
+          const imageEls = container.querySelectorAll(imageSelector);
+          imageEls.forEach(img => {
+            // Check for img[src], data-src, or background-image
+            const src = img.getAttribute('src') || 
+                        img.getAttribute('data-src') || 
+                        img.getAttribute('data-lazy-src');
+            
+            if (src && !src.startsWith('data:') && src !== '#') {
+              images.push(src);
+            } else {
+              // Check background-image in style
+              const style = img.getAttribute('style') || '';
+              const match = style.match(/url\(['"]?([^'"]+)['"]?\)/);
+              if (match && match[1]) {
+                images.push(match[1]);
+              }
             }
           });
+        } else {
+          // Fallback: try img tags first, then background images
+          const imgEls = container.querySelectorAll('img');
+          imgEls.forEach(img => {
+            const src = img.getAttribute('src') || 
+                        img.getAttribute('data-src') || 
+                        img.getAttribute('data-lazy-src');
+            if (src && !src.startsWith('data:') && src !== '#') {
+              images.push(src);
+            }
+          });
+          
+          if (images.length === 0) {
+            const bgEls = container.querySelectorAll('[style*="background"]');
+            bgEls.forEach(el => {
+              const style = el.getAttribute('style') || '';
+              const match = style.match(/url\(['"]?([^'"]+)['"]?\)/);
+              if (match && match[1]) {
+                images.push(match[1]);
+              }
+            });
+          }
         }
         
         // Extract excerpt - clone container and remove date elements to avoid duplication
@@ -186,7 +207,7 @@ export function InteractiveSelectorModal({
       const config = {
         containerSelector,
         linkSelector: 'a[href]',
-        imageSelector: 'img[src]',
+        imageSelector: imageSelector || 'img[src]', // Use detected or fallback
         titleSelector: 'h1, h2, h3, h4, h5, h6, [class*="title"]',
         dateSelector: '[class*="date"], [class*="time"], time',
         contentSelector: 'p, [class*="excerpt"], [class*="description"]'
@@ -223,22 +244,45 @@ export function InteractiveSelectorModal({
             ? [...prev, { selector, html }]
             : prev.filter(c => c.selector !== selector);
           
-          // Auto-trigger pattern detection when 2 containers selected
-          if (newContainers.length === 2) {
-            const containerSelector = newContainers[0].selector;
-            console.log('🎯 Auto-detecting pattern for selector:', containerSelector);
+          // Don't auto-detect yet - wait for image selection
+          return newContainers;
+        });
+      } else if (event.data.type === 'IMAGE_SELECTED') {
+        const { selector, imageUrl, isSelected } = event.data;
+        
+        console.log('Image selection event:', {
+          selector,
+          isSelected,
+          imageUrl
+        });
+        
+        setSelectedImages(prev => {
+          const newImages = isSelected
+            ? [...prev, { selector, imageUrl }]
+            : prev.filter(img => img.selector !== selector);
+          
+          // Auto-trigger FULL pattern detection when 2 images selected
+          if (newImages.length === 2 && selectedContainers.length === 2) {
+            const containerSelector = selectedContainers[0].selector;
+            const imageSelector = newImages[0].selector;
+            
+            console.log('🎯 Auto-detecting pattern with:', {
+              containerSelector,
+              imageSelector
+            });
             
             // Send message to iframe to find all matching containers
             const iframe = document.getElementById('selector-iframe') as HTMLIFrameElement;
             if (iframe?.contentWindow) {
               iframe.contentWindow.postMessage({
                 type: 'FIND_ALL_MATCHES',
-                selector: containerSelector
+                selector: containerSelector,
+                imageSelector: imageSelector
               }, '*');
             }
           }
           
-          return newContainers;
+          return newImages;
         });
       } else if (event.data.type === 'HANDLER_READY') {
         const { containersFound: count } = event.data;
@@ -251,17 +295,17 @@ export function InteractiveSelectorModal({
           snapshotResolverRef.current = null;
         }
       } else if (event.data.type === 'ALL_MATCHES_FOUND') {
-        const { selector, matches, count } = event.data;
+        const { selector, imageSelector, matches, count } = event.data;
         console.log(`✅ Found ${count} matching articles for selector: ${selector}`);
         
-        // Analyze matches locally and show preview immediately
-        analyzeContainersLocally(matches, selector);
+        // Analyze matches locally with both selectors
+        analyzeContainersLocally(matches, selector, imageSelector);
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [selectedContainers.length]);
 
   const handleAnalyzePattern = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -399,6 +443,7 @@ export function InteractiveSelectorModal({
 
   const handleReset = () => {
     setSelectedContainers([]);
+    setSelectedImages([]);
     setContainersFound(0);
     setShowPreview(false);
     setDetectedConfig(null);
@@ -433,9 +478,17 @@ export function InteractiveSelectorModal({
             Click to Train - Select Article Containers
           </DialogTitle>
           <DialogDescription>
-            {!showPreview 
-              ? 'Click on 2 article containers - pattern will detect automatically'
-              : `Found ${previewArticles.length} articles - review and save when ready`}
+            {!showPreview ? (
+              selectedContainers.length === 0 
+                ? 'Step 1-2: Click 2 article containers to start'
+                : selectedContainers.length === 1
+                  ? 'Step 2: Click 1 more container'
+                  : selectedImages.length === 0
+                    ? 'Step 3-4: Now click 2 images within articles'
+                    : selectedImages.length === 1
+                      ? 'Step 4: Click 1 more image'
+                      : 'Detecting pattern...'
+            ) : `Found ${previewArticles.length} articles - review and save when ready`}
           </DialogDescription>
         </DialogHeader>
 
@@ -526,13 +579,40 @@ export function InteractiveSelectorModal({
                   ))}
                 </div>
                 
+                <div className="border rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Selected Images</span>
+                    <Badge variant="secondary">{selectedImages.length} / 2</Badge>
+                  </div>
+                  
+                  {selectedContainers.length < 2 && (
+                    <p className="text-xs text-muted-foreground">
+                      Select 2 containers first
+                    </p>
+                  )}
+                  
+                  {selectedContainers.length === 2 && selectedImages.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Now click on 2 images within the articles
+                    </p>
+                  )}
+                  
+                  {selectedImages.map((image, idx) => (
+                    <div key={idx} className="border rounded p-2 bg-muted">
+                      <p className="text-xs font-mono truncate">{image.selector}</p>
+                    </div>
+                  ))}
+                </div>
+                
                 <div className="space-y-2">
                   <div className="text-xs text-muted-foreground">
                     {selectedContainers.length < 2 
                       ? `Select ${2 - selectedContainers.length} more container(s)`
-                      : isAnalyzing 
-                        ? 'Detecting pattern...'
-                        : 'Pattern will auto-detect ✓'}
+                      : selectedImages.length < 2
+                        ? `Select ${2 - selectedImages.length} more image(s)`
+                        : isAnalyzing 
+                          ? 'Detecting pattern...'
+                          : 'Pattern will auto-detect ✓'}
                   </div>
                   {isAnalyzing && (
                     <div className="flex items-center gap-2 text-sm">
