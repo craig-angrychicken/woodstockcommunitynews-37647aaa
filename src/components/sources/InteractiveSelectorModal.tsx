@@ -77,6 +77,32 @@ export function InteractiveSelectorModal({
     iframe.contentWindow.postMessage({ type: 'REQUEST_CLICK_HANDLER' }, '*');
   };
 
+  // Helper to get live HTML snapshot from iframe
+  const getIframeHtmlSnapshot = (): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const iframe = document.getElementById('selector-iframe') as HTMLIFrameElement;
+      if (!iframe?.contentWindow) {
+        return reject(new Error('Iframe not ready'));
+      }
+
+      const handler = (event: MessageEvent) => {
+        if (event.data?.type === 'HTML_SNAPSHOT') {
+          window.removeEventListener('message', handler);
+          resolve(event.data.html as string);
+        }
+      };
+
+      window.addEventListener('message', handler);
+      iframe.contentWindow.postMessage({ type: 'REQUEST_HTML_SNAPSHOT' }, '*');
+
+      // Timeout after 3 seconds
+      setTimeout(() => {
+        window.removeEventListener('message', handler);
+        reject(new Error('HTML snapshot timed out'));
+      }, 3000);
+    });
+  };
+
   // Listen for container selections from iframe
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -184,15 +210,26 @@ export function InteractiveSelectorModal({
 
       console.log('Generated config from container analysis:', config);
 
-      // Validate selector works in the HTML before calling backend
+      // Get live HTML snapshot from iframe (includes JS-rendered content)
+      let snapshotHtml = renderedHtml;
+      try {
+        console.log('📸 Requesting live HTML snapshot from iframe...');
+        snapshotHtml = await getIframeHtmlSnapshot();
+        console.log('✅ Got live HTML snapshot, length:', snapshotHtml.length);
+      } catch (error) {
+        console.warn('⚠️ Failed to get live snapshot, using initial HTML:', error);
+        toast.warning('Using initial HTML (snapshot failed)');
+      }
+
+      // Validate selector works in the live HTML before calling backend
       const validationParser = new DOMParser();
-      const validationDoc = validationParser.parseFromString(renderedHtml, 'text/html');
+      const validationDoc = validationParser.parseFromString(snapshotHtml, 'text/html');
       const matchCount = validationDoc.querySelectorAll(containerSelector).length;
       
-      console.log(`Validating selector "${containerSelector}" → ${matchCount} matches`);
+      console.log(`Validating selector "${containerSelector}" → ${matchCount} matches in live DOM`);
       
       if (matchCount === 0) {
-        toast.error(`Generated selector "${containerSelector}" doesn't match any elements! Try selecting different containers.`);
+        toast.error(`Generated selector "${containerSelector}" doesn't match any elements in live DOM! Try selecting different containers.`);
         setIsAnalyzing(false);
         return;
       }
@@ -201,7 +238,7 @@ export function InteractiveSelectorModal({
         body: {
           sourceUrl,
           config,
-          html: renderedHtml  // Pass the already-rendered HTML to avoid second Browserless call
+          html: snapshotHtml  // Use live snapshot instead of stale initial HTML
         }
       });
 
