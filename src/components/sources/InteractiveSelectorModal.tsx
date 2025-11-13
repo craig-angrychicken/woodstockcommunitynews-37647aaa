@@ -37,26 +37,62 @@ export function InteractiveSelectorModal({
   const [containersFound, setContainersFound] = useState(0);
   const snapshotResolverRef = useRef<((html: string) => void) | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [rateLimitError, setRateLimitError] = useState(false);
+  const lastRequestTimeRef = useRef<number>(0);
+  const requestCacheRef = useRef<Map<string, {html: string, timestamp: number}>>(new Map());
 
-  // Load proxied page when modal opens
+  // Load proxied page when modal opens with caching and rate limit handling
   const loadProxiedPage = async () => {
     setIsLoadingProxy(true);
+    setRateLimitError(false);
+    
     try {
+      const now = Date.now();
+      const cache = requestCacheRef.current;
+      const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+      const MIN_REQUEST_INTERVAL = 3000; // 3 seconds between requests
+      
+      // Check client-side cache first
+      const cached = cache.get(sourceUrl);
+      if (cached && (now - cached.timestamp) < CACHE_TTL) {
+        console.log('✅ Using cached proxied page');
+        setRenderedHtml(cached.html);
+        const blob = new Blob([cached.html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        setProxiedUrl(url);
+        setIsLoadingProxy(false);
+        return;
+      }
+      
+      // Rate limit protection: enforce minimum interval between requests
+      const timeSinceLastRequest = now - lastRequestTimeRef.current;
+      if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
+        const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
+        console.log(`⏱️ Waiting ${waitTime}ms before next request...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+      
+      lastRequestTimeRef.current = Date.now();
+      
       const { data, error } = await supabase.functions.invoke('proxy-page', {
         body: { url: sourceUrl }
       });
 
       if (error) {
         if (error.message?.includes('429') || error.message?.includes('Rate limit')) {
-          toast.error('Rate limit reached. Please wait a moment and try again.');
+          setRateLimitError(true);
+          toast.error('Rate limit reached. Please wait 10 seconds and try again.', {
+            duration: 5000
+          });
         } else {
           toast.error('Failed to load page for selection');
         }
         throw error;
       }
 
-      // Store the rendered HTML for later analysis (avoid second Browserless call)
+      // Store in both component state and cache
       setRenderedHtml(data);
+      cache.set(sourceUrl, { html: data, timestamp: Date.now() });
 
       // Create a blob URL from the HTML
       const blob = new Blob([data], { type: 'text/html' });
@@ -64,7 +100,9 @@ export function InteractiveSelectorModal({
       setProxiedUrl(url);
     } catch (error) {
       console.error('Failed to load proxied page:', error);
-      toast.error('Failed to load page for selection');
+      if (!rateLimitError) {
+        toast.error('Failed to load page for selection');
+      }
     } finally {
       setIsLoadingProxy(false);
     }
@@ -478,12 +516,14 @@ export function InteractiveSelectorModal({
     setShowPreview(false);
     setDetectedConfig(null);
     setPreviewArticles([]);
+    setRateLimitError(false);
     setIframeKey(prev => prev + 1);
-    if (proxiedUrl) {
-      URL.revokeObjectURL(proxiedUrl);
-      setProxiedUrl('');
+    
+    // Don't clear proxiedUrl - reuse it if we have it cached
+    // This prevents unnecessary Browserless API calls
+    if (!proxiedUrl || rateLimitError) {
+      loadProxiedPage();
     }
-    loadProxiedPage();
   };
 
   // Load proxied page when modal opens
@@ -526,7 +566,24 @@ export function InteractiveSelectorModal({
           {/* Left side - iframe or preview */}
           <div className="flex-1 border rounded-lg overflow-hidden bg-muted">
             {!showPreview ? (
-              isLoadingProxy ? (
+              rateLimitError ? (
+                <div className="flex flex-col items-center justify-center h-full gap-4 p-4 text-center">
+                  <div className="text-destructive">
+                    <svg className="h-12 w-12 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="font-medium mb-2">Rate Limit Reached</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Too many requests to the page rendering service. Please wait 10 seconds and try again.
+                    </p>
+                    <Button onClick={loadProxiedPage} variant="outline">
+                      Retry Now
+                    </Button>
+                  </div>
+                </div>
+              ) : isLoadingProxy ? (
                 <div className="flex flex-col items-center justify-center h-full gap-2">
                   <Loader2 className="h-8 w-8 animate-spin" />
                   <p>Loading page...</p>
