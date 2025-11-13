@@ -141,6 +141,25 @@ serve(async (req) => {
               type: 'HTML_SNAPSHOT',
               html: document.documentElement.outerHTML
             }, '*');
+          } else if (event.data.type === 'FIND_ALL_MATCHES') {
+            // Find all elements matching the selector on the live page
+            const { selector } = event.data;
+            console.log('🔍 Finding all matches for selector:', selector);
+            
+            const allMatches = document.querySelectorAll(selector);
+            const results = Array.from(allMatches).map(el => ({
+              html: el.outerHTML,
+              text: el.textContent?.trim() || ''
+            }));
+            
+            console.log(\`✅ Found \${results.length} matches\`);
+            
+            window.parent.postMessage({
+              type: 'ALL_MATCHES_FOUND',
+              selector: selector,
+              matches: results,
+              count: results.length
+            }, '*');
           }
         });
         
