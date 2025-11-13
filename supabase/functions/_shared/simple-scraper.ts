@@ -24,28 +24,88 @@ export async function scrapeArticlesSimple(
 ): Promise<Article[]> {
   console.log(`\n📰 Fetching fully-rendered HTML from: ${url}`);
 
-  const BROWSERLESS_URL = Deno.env.get('BROWSERLESS_URL') || 'https://production-sfo.browserless.io';
+  // Determine Browserless URLs to try
+  const envUrl = Deno.env.get('BROWSERLESS_URL');
+  const DEFAULT_URLS = [
+    'https://chrome.browserless.io',
+    'https://production-sfo.browserless.io'
+  ];
+  
+  const urlsToTry = envUrl ? [envUrl, ...DEFAULT_URLS] : DEFAULT_URLS;
+  
+  console.log(`🔗 Will try Browserless URL: ${urlsToTry[0]}`);
+  console.log(`📍 Selector: ${config.containerSelector}`);
 
-  // Fetch fully-rendered HTML using Browserless /content endpoint
-  // Token must be passed as query parameter per Browserless documentation
-  const response = await fetch(`${BROWSERLESS_URL}/content?token=${browserlessToken}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache',
-    },
-    body: JSON.stringify({
-      url,
-      waitForSelector: config.containerSelector,
-      waitForTimeout: 10000,
-    }),
-  });
+  let lastError: Error | null = null;
+  let html = '';
 
-  if (!response.ok) {
-    throw new Error(`Browserless request failed: ${response.status} ${response.statusText}`);
+  // Try each URL until one succeeds
+  for (let i = 0; i < urlsToTry.length; i++) {
+    const browserlessUrl = urlsToTry[i];
+    
+    if (i > 0) {
+      console.log(`🔄 Retrying with: ${browserlessUrl}`);
+    }
+
+    try {
+      // Fetch fully-rendered HTML using Browserless /content endpoint
+      // Token must be passed as query parameter per Browserless documentation
+      const response = await fetch(`${browserlessUrl}/content?token=${browserlessToken}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({
+          url,
+          waitForSelector: {
+            selector: config.containerSelector,
+            timeout: 10000
+          },
+          gotoOptions: {
+            waitUntil: 'networkidle2',
+            timeout: 30000
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const errorPreview = errorText.substring(0, 300);
+        console.error(`❌ Browserless ${response.status} from ${browserlessUrl}:`);
+        console.error(`   Selector: ${config.containerSelector}`);
+        console.error(`   Response: ${errorPreview}`);
+        
+        // If this is retriable error and we have more URLs, continue to next
+        if (i < urlsToTry.length - 1 && [400, 401, 403, 500, 502, 503, 504].includes(response.status)) {
+          lastError = new Error(`Browserless ${response.status}: ${errorPreview}`);
+          continue;
+        }
+        
+        throw new Error(`Browserless request failed: ${response.status} ${errorPreview}`);
+      }
+
+      html = await response.text();
+      console.log(`✅ Retrieved ${html.length} characters of HTML from ${browserlessUrl}`);
+      break; // Success, exit retry loop
+      
+    } catch (error) {
+      lastError = error as Error;
+      
+      // If we have more URLs to try, continue
+      if (i < urlsToTry.length - 1) {
+        console.log(`⚠️ Attempt failed: ${lastError.message}`);
+        continue;
+      }
+      
+      // No more URLs to try, throw the error
+      throw error;
+    }
   }
 
-  const html = await response.text();
+  if (!html && lastError) {
+    throw lastError;
+  }
   console.log(`✅ Retrieved ${html.length} characters of HTML`);
 
   // Parse HTML
