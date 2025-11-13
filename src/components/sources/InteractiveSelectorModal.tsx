@@ -184,6 +184,19 @@ export function InteractiveSelectorModal({
 
       console.log('Generated config from container analysis:', config);
 
+      // Validate selector works in the HTML before calling backend
+      const validationParser = new DOMParser();
+      const validationDoc = validationParser.parseFromString(renderedHtml, 'text/html');
+      const matchCount = validationDoc.querySelectorAll(containerSelector).length;
+      
+      console.log(`Validating selector "${containerSelector}" → ${matchCount} matches`);
+      
+      if (matchCount === 0) {
+        toast.error(`Generated selector "${containerSelector}" doesn't match any elements! Try selecting different containers.`);
+        setIsAnalyzing(false);
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke('test-scrape-config', {
         body: {
           sourceUrl,
@@ -194,14 +207,19 @@ export function InteractiveSelectorModal({
 
       if (error) throw error;
 
-      if (data?.success && data.articles && data.articles.length > 0) {
-        setDetectedConfig(config);
-        setPreviewArticles(data.articles);
-        setShowPreview(true);
-        toast.success(`Found ${data.articles.length} matching articles!`);
+      if (data?.success) {
+        if (data.articles && data.articles.length > 0) {
+          setDetectedConfig(config);
+          setPreviewArticles(data.articles);
+          setShowPreview(true);
+          toast.success(`Found ${data.articles.length} matching articles!`);
+        } else {
+          toast.error(`Selector "${containerSelector}" matched containers but found no article data. Try selecting different containers.`);
+          console.log('Config that found 0 articles:', config);
+        }
       } else {
-        toast.error('No articles found with this pattern. Try selecting different containers.');
-        console.log('Config that found 0 articles:', config);
+        toast.error(data?.error || 'Failed to analyze pattern. The selector may not work correctly.');
+        console.log('Backend error:', data);
       }
     } catch (error) {
       console.error('Pattern detection failed:', error);

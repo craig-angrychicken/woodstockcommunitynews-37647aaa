@@ -6,6 +6,8 @@
  * validation, and error handling.
  */
 
+import { DOMParser, Element } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
+
 const BROWSERLESS_URL = Deno.env.get('BROWSERLESS_URL') || 'https://production-sfo.browserless.io';
 const BROWSERLESS_API_KEY = Deno.env.get('BROWSERLESS_API_KEY');
 
@@ -623,81 +625,19 @@ export async function testConfiguration(
     }
   }
 
-  // If strict user-provided selector found nothing, apply zero-assumption local fallback on HTML
-  if (containers.length === 0 && html) {
-    console.log('  🔄 No strict matches found, applying local discovery on provided HTML...');
-    try {
-      const bodyStructures = findRepeatedStructures(html);
-      if (bodyStructures.length > 0) {
-        const best = bodyStructures[0];
-        console.log(`     ✅ Using discovered pattern: ${best.selector} (${best.count} items)`);
-        const pattern = new RegExp(
-          `<${best.tagName}[^>]*class=["'][^"']*\\b${best.className}\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/${best.tagName}>`,
-          'gi'
-        );
-        const matches = Array.from(html.matchAll(pattern)).slice(0, 20);
-        containers = matches.map((m) => ({ html: m[0], text: htmlToText(m[0]) }));
-        chosenSelector = `${best.selector} (local discovery)`;
+  // If strict user-provided selector found nothing, return error
+  if (containers.length === 0) {
+    console.log(`  ❌ Selector "${config.containerSelector}" found 0 matches`);
+    return {
+      articles: [],
+      diagnostics: {
+        error: `Selector "${config.containerSelector}" found 0 matches in provided HTML`,
+        containersFound: 0,
+        chosenSelector: config.containerSelector,
+        issues: ['User-provided selector did not match any elements. Please try selecting different containers.'],
+        testTime: Date.now() - testStartTime,
       }
-    } catch (err) {
-      console.warn('  ⚠️ Local discovery failed:', err);
-    }
-  }
-
-  // FINAL fallback: only when no HTML provided (rare) or discovery above failed without HTML
-  if (containers.length === 0 && !html) {
-    console.log('  🌐 No HTML provided, attempting remote scrape with candidate ranking');
-
-    // 1) Build candidate list: prefer provided container first
-    const structures = findRepeatedStructures(await fetchHTML(url));
-    const discoveredSelectors = structures.slice(0, 5).map((g) => g.selector);
-
-    const candidateContainers = Array.from(new Set([
-      config.containerSelector, // User-provided FIRST
-      ...discoveredSelectors,   // Then discovered
-      '.post', '.entry', '.card',
-    ])).slice(0, 6);
-
-    console.log(`  📋 Candidates (in order): ${candidateContainers.join(', ')}`);
-
-    const ranked = candidateContainers.map((sel) => ({
-      selector: sel,
-      score: scoreSelector(await fetchHTML(url), sel),
-      isDiscovered: discoveredSelectors.includes(sel),
-    }));
-
-    const preferClass = (s: string) => (s.includes('.') || s.includes('#')) ? 1 : 0;
-    ranked.sort((a, b) =>
-      (a.selector === config.containerSelector ? 1 : 0) - (b.selector === config.containerSelector ? 1 : 0) ||
-      (b.isDiscovered ? 1 : 0) - (a.isDiscovered ? 1 : 0) ||
-      b.score - a.score ||
-      preferClass(b.selector) - preferClass(a.selector)
-    );
-
-    const maxAttempts = Math.min(4, ranked.length);
-    for (let i = 0; i < maxAttempts; i++) {
-      const { selector } = ranked[i];
-      const attemptStart = Date.now();
-      try {
-        console.log(`  ▶️ [${i + 1}/${maxAttempts}] Trying: ${selector}`);
-        const res = await scrapeWithSelectors(url, [{ selector, timeout: 2000 }]);
-        console.log(`     ⏱️ Took ${Date.now() - attemptStart}ms`);
-        const group = res[0]?.results || [];
-        const validGroup = group.filter((r) => /<a[^>]*href=/i.test(r.html || ''));
-        if (validGroup.length > 0) {
-          chosenSelector = selector;
-          containers = validGroup.map((r) => ({ html: r.html, text: r.text }));
-          console.log(`     ✅ Found ${containers.length} valid containers`);
-          break;
-        }
-      } catch (err) {
-        console.warn(`     ⚠️ Remote attempt failed in ${Date.now() - attemptStart}ms: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      if (Date.now() - testStartTime > 18000) {
-        console.log('  ⏱️ Approaching time limit, stopping remote attempts');
-        break;
-      }
-    }
+    };
   }
 
   console.log(`  ✅ Chosen container selector: ${chosenSelector}`);
