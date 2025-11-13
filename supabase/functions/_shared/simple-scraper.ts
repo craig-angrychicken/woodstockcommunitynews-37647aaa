@@ -35,10 +35,10 @@ export async function scrapeArticlesSimple(
   
   console.log(`🔗 Will try Browserless URL: ${urlsToTry[0]}`);
   console.log(`📍 Selector: ${config.containerSelector}`);
-  console.log(`⏱️ Timeouts: waitForTimeout=10s, gotoOptions=60s (no selector wait)`);
+  console.log(`⏱️ Using /scrape endpoint with elements extraction`);
 
   let lastError: Error | null = null;
-  let html = '';
+  let containerResults: any[] = [];
 
   // Try each URL until one succeeds
   for (let i = 0; i < urlsToTry.length; i++) {
@@ -51,14 +51,14 @@ export async function scrapeArticlesSimple(
     try {
       const requestBody = {
         url,
-        waitForTimeout: 10000,
+        elements: [{ selector: config.containerSelector }],
         gotoOptions: {
           waitUntil: 'networkidle2',
           timeout: 60000
         }
       };
 
-      const response = await fetch(`${browserlessUrl}/content?token=${browserlessToken}`, {
+      const response = await fetch(`${browserlessUrl}/scrape?token=${browserlessToken}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -83,8 +83,9 @@ export async function scrapeArticlesSimple(
         throw new Error(`Browserless request failed: ${response.status} ${errorPreview}`);
       }
 
-      html = await response.text();
-      console.log(`✅ Retrieved ${html.length} characters of HTML from ${browserlessUrl}`);
+      const result = await response.json();
+      containerResults = result?.data?.[0]?.results || [];
+      console.log(`✅ Found ${containerResults.length} article containers from ${browserlessUrl}`);
       break; // Success, exit retry loop
       
     } catch (error) {
@@ -101,35 +102,25 @@ export async function scrapeArticlesSimple(
     }
   }
 
-  if (!html && lastError) {
+  if (containerResults.length === 0 && lastError) {
     throw lastError;
   }
-  console.log(`✅ Retrieved ${html.length} characters of HTML`);
 
-  // Parse HTML
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, 'text/html');
-  
-  if (!doc) {
-    throw new Error('Failed to parse HTML document');
-  }
-
-  // Find all article containers using the configured selector
-  const containers = doc.querySelectorAll(config.containerSelector);
-  console.log(`✅ Found ${containers.length} article containers`);
-
-  if (containers.length === 0) {
+  if (containerResults.length === 0) {
     console.log(`⚠️ No containers found with selector: ${config.containerSelector}`);
     return [];
   }
 
-  // Extract article data from each container
+  // Parse HTML fragments
+  const parser = new DOMParser();
   const articles: Article[] = [];
   
-  for (const container of Array.from(containers) as Element[]) {
+  for (const containerResult of containerResults) {
+    const fragDoc = parser.parseFromString(containerResult.html || '', 'text/html');
+    if (!fragDoc) continue;
     try {
       // Extract title
-      const titleEl = container.querySelector(config.titleSelector);
+      const titleEl = fragDoc.querySelector(config.titleSelector);
       const title = titleEl?.textContent?.trim() || '';
       
       if (!title) {
@@ -138,24 +129,36 @@ export async function scrapeArticlesSimple(
       }
 
       // Extract link
-      const linkEl = container.querySelector(config.linkSelector) as Element;
+      const linkEl = fragDoc.querySelector(config.linkSelector) as Element;
       let articleUrl = linkEl?.getAttribute('href') || '';
       
+      if (!articleUrl) {
+        console.log(`⚠️ Skipping container - no link found`);
+        continue;
+      }
+      
       // Make relative URLs absolute
-      if (articleUrl && !articleUrl.startsWith('http')) {
+      if (!articleUrl.startsWith('http')) {
         const baseUrl = new URL(url);
         articleUrl = new URL(articleUrl, baseUrl.origin).href;
       }
 
       // Extract date
-      const dateEl = container.querySelector(config.dateSelector);
+      const dateEl = fragDoc.querySelector(config.dateSelector);
       const date = dateEl?.textContent?.trim() || '';
 
-      // Extract image (optional)
+      // Extract image (from img tag or background-image style)
       let imageUrl = '';
       if (config.imageSelector) {
-        const imgEl = container.querySelector(config.imageSelector) as Element;
+        const imgEl = fragDoc.querySelector(config.imageSelector) as Element;
         imageUrl = imgEl?.getAttribute('src') || imgEl?.getAttribute('data-src') || '';
+        
+        // Also check for background-image in style attribute
+        if (!imageUrl) {
+          const styleAttr = imgEl?.getAttribute('style') || '';
+          const bgMatch = styleAttr.match(/url\(['"]?([^'"]+)['"]?\)/);
+          if (bgMatch) imageUrl = bgMatch[1];
+        }
         
         // Make relative URLs absolute
         if (imageUrl && !imageUrl.startsWith('http')) {
@@ -167,7 +170,7 @@ export async function scrapeArticlesSimple(
       // Extract content (optional)
       let content = '';
       if (config.contentSelector) {
-        const contentEl = container.querySelector(config.contentSelector);
+        const contentEl = fragDoc.querySelector(config.contentSelector);
         content = contentEl?.textContent?.trim() || '';
       }
 
