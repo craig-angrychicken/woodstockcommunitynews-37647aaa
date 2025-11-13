@@ -35,7 +35,7 @@ export async function scrapeArticlesSimple(
   
   console.log(`🔗 Will try Browserless URL: ${urlsToTry[0]}`);
   console.log(`📍 Selector: ${config.containerSelector}`);
-  console.log(`⏱️ Timeouts: waitForTimeout=10s, waitForSelector=45s, gotoOptions=60s`);
+  console.log(`⏱️ Timeouts: waitForTimeout=10s, gotoOptions=60s (no selector wait)`);
 
   let lastError: Error | null = null;
   let html = '';
@@ -52,10 +52,6 @@ export async function scrapeArticlesSimple(
       const requestBody = {
         url,
         waitForTimeout: 10000,
-        waitForSelector: {
-          selector: config.containerSelector,
-          timeout: 45000
-        },
         gotoOptions: {
           waitUntil: 'networkidle2',
           timeout: 60000
