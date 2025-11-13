@@ -24,17 +24,18 @@ export async function scrapeArticlesSimple(
 ): Promise<Article[]> {
   console.log(`\n📰 Fetching fully-rendered HTML from: ${url}`);
 
-  // Determine Browserless URLs to try
+  // Determine Browserless URLs to try (production-sfo preferred for stability)
   const envUrl = Deno.env.get('BROWSERLESS_URL');
   const DEFAULT_URLS = [
-    'https://chrome.browserless.io',
-    'https://production-sfo.browserless.io'
+    'https://production-sfo.browserless.io',
+    'https://chrome.browserless.io'
   ];
   
   const urlsToTry = envUrl ? [envUrl, ...DEFAULT_URLS] : DEFAULT_URLS;
   
   console.log(`🔗 Will try Browserless URL: ${urlsToTry[0]}`);
   console.log(`📍 Selector: ${config.containerSelector}`);
+  console.log(`⏱️ Timeouts: waitForSelector=30s, gotoOptions=60s`);
 
   let lastError: Error | null = null;
   let html = '';
@@ -47,26 +48,27 @@ export async function scrapeArticlesSimple(
       console.log(`🔄 Retrying with: ${browserlessUrl}`);
     }
 
+    // Attempt A: Try with waitForSelector
     try {
-      // Fetch fully-rendered HTML using Browserless /content endpoint
-      // Token must be passed as query parameter per Browserless documentation
+      const requestBody = {
+        url,
+        waitForSelector: {
+          selector: config.containerSelector,
+          timeout: 30000
+        },
+        gotoOptions: {
+          waitUntil: 'networkidle2',
+          timeout: 60000
+        }
+      };
+
       const response = await fetch(`${browserlessUrl}/content?token=${browserlessToken}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache',
         },
-        body: JSON.stringify({
-          url,
-          waitForSelector: {
-            selector: config.containerSelector,
-            timeout: 10000
-          },
-          gotoOptions: {
-            waitUntil: 'networkidle2',
-            timeout: 30000
-          }
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -75,6 +77,62 @@ export async function scrapeArticlesSimple(
         console.error(`❌ Browserless ${response.status} from ${browserlessUrl}:`);
         console.error(`   Selector: ${config.containerSelector}`);
         console.error(`   Response: ${errorPreview}`);
+        
+        // Check if this is a selector timeout error
+        const isSelectorTimeout = errorPreview.includes('Waiting for selector') || 
+                                  errorPreview.includes('TimeoutError');
+        
+        if (isSelectorTimeout) {
+          // Attempt B: Retry same URL without waitForSelector
+          console.log(`⚠️ Selector timeout detected, retrying without waitForSelector on ${browserlessUrl}`);
+          
+          try {
+            const fallbackBody = {
+              url,
+              gotoOptions: {
+                waitUntil: 'networkidle2',
+                timeout: 60000
+              }
+            };
+
+            const fallbackResponse = await fetch(`${browserlessUrl}/content?token=${browserlessToken}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache',
+              },
+              body: JSON.stringify(fallbackBody),
+            });
+
+            if (!fallbackResponse.ok) {
+              const fallbackError = await fallbackResponse.text();
+              console.error(`❌ Fallback also failed: ${fallbackResponse.status} ${fallbackError.substring(0, 150)}`);
+              
+              // If we have more URLs to try, continue to next URL
+              if (i < urlsToTry.length - 1) {
+                lastError = new Error(`Browserless ${fallbackResponse.status}: ${fallbackError.substring(0, 150)}`);
+                continue;
+              }
+              
+              throw new Error(`Browserless fallback failed: ${fallbackResponse.status} ${fallbackError.substring(0, 150)}`);
+            }
+
+            html = await fallbackResponse.text();
+            console.log(`✅ Retrieved ${html.length} characters of HTML from ${browserlessUrl} (without selector wait)`);
+            break; // Success with fallback, exit retry loop
+            
+          } catch (fallbackError) {
+            console.error(`❌ Fallback attempt error:`, fallbackError);
+            lastError = fallbackError as Error;
+            
+            // If we have more URLs to try, continue
+            if (i < urlsToTry.length - 1) {
+              continue;
+            }
+            
+            throw fallbackError;
+          }
+        }
         
         // If this is retriable error and we have more URLs, continue to next
         if (i < urlsToTry.length - 1 && [400, 401, 403, 500, 502, 503, 504].includes(response.status)) {
