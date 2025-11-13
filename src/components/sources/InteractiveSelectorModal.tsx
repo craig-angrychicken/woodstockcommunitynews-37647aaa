@@ -116,9 +116,14 @@ export function InteractiveSelectorModal({
         
         if (!container) return;
         
-        // Extract link
+        // Extract link - filter out invalid URLs
         const linkEl = container.querySelector('a[href]');
-        const href = linkEl?.getAttribute('href') || linkEl?.getAttribute('data-original-href') || '';
+        let href = linkEl?.getAttribute('href') || linkEl?.getAttribute('data-original-href') || '';
+        
+        // Skip if URL is just a hash anchor or empty
+        if (href === '#' || href === '' || href === 'javascript:void(0)') {
+          href = '';
+        }
         
         // Extract title (prioritize headings or elements with "title" in class)
         const titleEl = container.querySelector('h1, h2, h3, h4, h5, h6, [class*="title"], [class*="headline"]');
@@ -126,19 +131,41 @@ export function InteractiveSelectorModal({
         
         if (!title || title.length < 5) return; // Skip if no valid title
         
-        // Extract images
+        // Extract images - check multiple sources
         const images: string[] = [];
-        const imgEls = container.querySelectorAll('img[src]');
+        
+        // Try img[src], data-src, data-lazy-src
+        const imgEls = container.querySelectorAll('img');
         imgEls.forEach(img => {
-          const src = img.getAttribute('src');
-          if (src && !src.startsWith('data:')) {
+          const src = img.getAttribute('src') || 
+                      img.getAttribute('data-src') || 
+                      img.getAttribute('data-lazy-src');
+          if (src && !src.startsWith('data:') && src !== '#') {
             images.push(src);
           }
         });
         
-        // Extract excerpt (first paragraph or container text)
-        const excerptEl = container.querySelector('p, [class*="excerpt"], [class*="description"]');
-        const excerpt = (excerptEl?.textContent?.trim() || container.textContent?.trim() || '').substring(0, 200);
+        // Try background images if no img tags found
+        if (images.length === 0) {
+          const bgEls = container.querySelectorAll('[style*="background"]');
+          bgEls.forEach(el => {
+            const style = el.getAttribute('style') || '';
+            const match = style.match(/url\(['"]?([^'"]+)['"]?\)/);
+            if (match && match[1]) {
+              images.push(match[1]);
+            }
+          });
+        }
+        
+        // Extract excerpt - clone container and remove date elements to avoid duplication
+        const containerClone = container.cloneNode(true) as Element;
+        const dateElements = containerClone.querySelectorAll('[class*="date"], [class*="time"], time');
+        dateElements.forEach(el => el.remove());
+        
+        const excerptEl = containerClone.querySelector('p, [class*="excerpt"], [class*="description"]');
+        const excerpt = (excerptEl?.textContent?.trim() || containerClone.textContent?.trim() || '')
+          .replace(/\s+/g, ' ')  // Normalize whitespace
+          .substring(0, 200);
         
         // Try to extract date
         const dateEl = container.querySelector('[class*="date"], [class*="time"], time');
@@ -445,7 +472,7 @@ export function InteractiveSelectorModal({
                       <img src={article.images[0]} alt="" className="w-full h-32 object-cover rounded mb-2" />
                     )}
                     <h4 className="font-medium text-sm">{article.title || 'No title'}</h4>
-                    {article.url && (
+                    {article.url && article.url !== '#' && (
                       <a 
                         href={article.url} 
                         target="_blank" 
