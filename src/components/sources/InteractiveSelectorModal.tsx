@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +34,7 @@ export function InteractiveSelectorModal({
   
   const [selectedContainers, setSelectedContainers] = useState<ContainerSelection[]>([]);
   const [containersFound, setContainersFound] = useState(0);
-  const [snapshotResolver, setSnapshotResolver] = useState<((html: string) => void) | null>(null);
+  const snapshotResolverRef = useRef<((html: string) => void) | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
   // Load proxied page when modal opens
@@ -78,7 +78,7 @@ export function InteractiveSelectorModal({
     iframe.contentWindow.postMessage({ type: 'REQUEST_CLICK_HANDLER' }, '*');
   };
 
-  // Helper to get live HTML snapshot from iframe
+  // Helper to get live HTML snapshot from iframe (best-effort)
   const getIframeHtmlSnapshot = (): Promise<string> => {
     return new Promise((resolve, reject) => {
       const iframe = document.getElementById('selector-iframe') as HTMLIFrameElement;
@@ -86,18 +86,18 @@ export function InteractiveSelectorModal({
         return reject(new Error('Iframe not ready'));
       }
 
-      // Store resolver in state so the permanent listener can call it
-      setSnapshotResolver(() => resolve);
+      // Store resolver in ref to avoid race conditions
+      snapshotResolverRef.current = resolve;
       
       // Send request
       console.log('📸 Requesting HTML snapshot from iframe...');
       iframe.contentWindow.postMessage({ type: 'REQUEST_HTML_SNAPSHOT' }, '*');
 
-      // Timeout after 3 seconds
+      // Timeout after 8 seconds (increased from 3s)
       setTimeout(() => {
-        setSnapshotResolver(null);
+        snapshotResolverRef.current = null;
         reject(new Error('HTML snapshot timed out'));
-      }, 3000);
+      }, 8000);
     });
   };
 
@@ -127,16 +127,16 @@ export function InteractiveSelectorModal({
         setContainersFound(count);
       } else if (event.data.type === 'HTML_SNAPSHOT') {
         console.log('✅ Received HTML_SNAPSHOT from iframe, length:', event.data.html?.length);
-        if (snapshotResolver) {
-          snapshotResolver(event.data.html);
-          setSnapshotResolver(null);
+        if (snapshotResolverRef.current) {
+          snapshotResolverRef.current(event.data.html);
+          snapshotResolverRef.current = null;
         }
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [snapshotResolver]);
+  }, []);
 
   const handleAnalyzePattern = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -217,35 +217,27 @@ export function InteractiveSelectorModal({
 
       console.log('Generated config from container analysis:', config);
 
-      // Get live HTML snapshot from iframe (includes JS-rendered content)
+      // Collect container HTML for backend processing
+      const containersHtml = selectedContainers.map(c => c.html);
+      console.log(`📦 Analyzing ${containersHtml.length} selected containers (no snapshot required)...`);
+
+      // Get live HTML snapshot from iframe as best-effort (for future features)
       let snapshotHtml = renderedHtml;
       try {
-        console.log('📸 Requesting live HTML snapshot from iframe...');
+        console.log('📸 Requesting live HTML snapshot from iframe (best-effort)...');
         snapshotHtml = await getIframeHtmlSnapshot();
         console.log('✅ Got live HTML snapshot, length:', snapshotHtml.length);
       } catch (error) {
-        console.warn('⚠️ Failed to get live snapshot, using initial HTML:', error);
-        toast.warning('Using initial HTML (snapshot failed)');
+        console.warn('⚠️ Snapshot unavailable, will use selected containers directly:', error);
       }
 
-      // Validate selector works in the live HTML before calling backend
-      const validationParser = new DOMParser();
-      const validationDoc = validationParser.parseFromString(snapshotHtml, 'text/html');
-      const matchCount = validationDoc.querySelectorAll(containerSelector).length;
-      
-      console.log(`Validating selector "${containerSelector}" → ${matchCount} matches in live DOM`);
-      
-      if (matchCount === 0) {
-        toast.error(`Generated selector "${containerSelector}" doesn't match any elements in live DOM! Try selecting different containers.`);
-        setIsAnalyzing(false);
-        return;
-      }
-
+      // Skip local validation - let backend process the selected containers directly
       const { data, error } = await supabase.functions.invoke('test-scrape-config', {
         body: {
           sourceUrl,
           config,
-          html: snapshotHtml  // Use live snapshot instead of stale initial HTML
+          html: snapshotHtml,
+          containersHtml  // Pass selected container HTML directly
         }
       });
 

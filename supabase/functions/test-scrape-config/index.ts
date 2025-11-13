@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { sourceUrl, config, html } = await req.json();
+    const { sourceUrl, config, html, containersHtml } = await req.json();
 
     if (!sourceUrl || !config) {
       return new Response(
@@ -23,9 +23,9 @@ serve(async (req) => {
 
     console.log(`🧪 Testing scrape config for: ${sourceUrl}`);
     console.log('Config:', JSON.stringify(config, null, 2));
-    console.log(`📄 Using ${html ? 'provided' : 'fetched'} HTML`);
+    console.log(`📄 Using ${containersHtml ? `${containersHtml.length} selected containers` : html ? 'provided' : 'fetched'} HTML`);
 
-    const { articles } = await testConfiguration(sourceUrl, config, html);
+    const { articles } = await testConfiguration(sourceUrl, config, html, containersHtml);
 
     console.log(`✅ Found ${articles.length} articles`);
 
