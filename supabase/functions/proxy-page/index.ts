@@ -118,11 +118,11 @@ serve(async (req) => {
                   container.element.classList.add('selected-container');
                 }
                 
-                // Send selection to parent
+                // Send selection to parent with outerHTML for better context
                 window.parent.postMessage({
                   type: 'CONTAINER_SELECTED',
                   selector: container.selector,
-                  html: container.element.innerHTML,
+                  html: container.element.outerHTML,
                   isSelected: !isSelected,
                   totalSelected: selectedContainers.length
                 }, '*');
@@ -133,6 +133,13 @@ serve(async (req) => {
             window.parent.postMessage({ 
               type: 'HANDLER_READY',
               containersFound: detectedContainers.length
+            }, '*');
+          } else if (event.data.type === 'REQUEST_HTML_SNAPSHOT') {
+            // Send current live DOM snapshot to parent
+            console.log('📸 Sending HTML snapshot of live DOM');
+            window.parent.postMessage({
+              type: 'HTML_SNAPSHOT',
+              html: document.documentElement.outerHTML
             }, '*');
           }
         });
