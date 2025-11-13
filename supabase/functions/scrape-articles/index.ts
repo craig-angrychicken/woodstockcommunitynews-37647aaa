@@ -106,7 +106,7 @@ serve(async (req) => {
               .insert({
                 name: article.title,
                 title: article.title,
-                content: article.content,
+                content: article.markdown || article.content, // Store markdown if available
                 type: 'news',
                 date: article.date ? new Date(article.date).toISOString() : new Date().toISOString(),
                 source_id: source.id,

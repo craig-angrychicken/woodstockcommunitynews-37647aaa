@@ -33,6 +33,7 @@ export interface Article {
   content: string;
   excerpt: string;
   images: string[];
+  markdown?: string; // Full article in markdown format
 }
 
 export interface AnalysisResult {
@@ -743,6 +744,63 @@ function calculateConfidence(diagnostics: any): number {
 }
 
 // ============================================================================
+// MARKDOWN CONVERSION
+// ============================================================================
+
+function htmlToMarkdown(html: string): string {
+  if (!html) return '';
+  
+  let markdown = html;
+  
+  // Headers
+  markdown = markdown.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n');
+  markdown = markdown.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n\n');
+  markdown = markdown.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n\n');
+  markdown = markdown.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '#### $1\n\n');
+  
+  // Links
+  markdown = markdown.replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)');
+  
+  // Images
+  markdown = markdown.replace(/<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"[^>]*>/gi, '![$2]($1)\n\n');
+  markdown = markdown.replace(/<img[^>]*src="([^"]*)"[^>]*>/gi, '![]($1)\n\n');
+  
+  // Lists
+  markdown = markdown.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n');
+  markdown = markdown.replace(/<\/?[uo]l[^>]*>/gi, '\n');
+  
+  // Paragraphs
+  markdown = markdown.replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n');
+  
+  // Bold and italic
+  markdown = markdown.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**');
+  markdown = markdown.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**');
+  markdown = markdown.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*');
+  markdown = markdown.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*');
+  
+  // Line breaks
+  markdown = markdown.replace(/<br[^>]*>/gi, '\n');
+  
+  // Remove remaining HTML tags
+  markdown = markdown.replace(/<[^>]*>/g, '');
+  
+  // Decode HTML entities
+  markdown = markdown
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+  
+  // Clean up extra whitespace
+  markdown = markdown.replace(/\n{3,}/g, '\n\n');
+  markdown = markdown.trim();
+  
+  return markdown;
+}
+
+// ============================================================================
 // PRODUCTION SCRAPING
 // ============================================================================
 
@@ -753,18 +811,85 @@ export async function scrapeArticles(
   console.log(`\n📰 SCRAPING ARTICLES: ${url}`);
   console.log('='.repeat(60));
 
-  // Scrape only containers; parse inner HTML to extract data
-  const elements: BrowserlessElement[] = [
-    { 
-      selector: config.containerSelector,
-      timeout: config.timeout || 30000  // Use config timeout or default to 30s
+  try {
+    // Try selector-based scraping first
+    const elements: BrowserlessElement[] = [
+      { 
+        selector: config.containerSelector,
+        timeout: config.timeout || 30000
+      }
+    ];
+
+    const results = await scrapeWithSelectors(url, elements);
+    const containers = results[0]?.results || [];
+
+    if (containers.length > 0) {
+      console.log(`✅ Found ${containers.length} articles with selectors`);
+      return await processContainers(containers, url, config);
     }
-  ];
+    
+    console.log('⚠️ No containers found with selectors, trying fallback...');
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.log(`⚠️ Selector-based scraping failed: ${errorMessage}`);
+    console.log('🔄 Attempting fallback: Full HTML fetch and parse...');
+  }
 
-  const results = await scrapeWithSelectors(url, elements);
+  // Fallback: Fetch full HTML and parse locally
+  try {
+    const html = await fetchHTML(url);
+    console.log('✅ Fetched full HTML, parsing locally...');
+    
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    
+    if (!doc) {
+      throw new Error('Failed to parse HTML');
+    }
 
-  const containers = results[0]?.results || [];
+    // Try to find containers using the configured selector
+    const containerElements = doc.querySelectorAll(config.containerSelector);
+    console.log(`🔍 Found ${containerElements.length} containers in HTML`);
+    
+    if (containerElements.length === 0) {
+      console.log('⚠️ No containers found with configured selector');
+      console.log(`🔍 Trying fallback selectors...`);
+      
+      // Try common article container patterns
+      const fallbackSelectors = [
+        'article',
+        '[class*="news"]',
+        '[class*="post"]',
+        '[class*="item"]',
+        '.card',
+      ];
+      
+      for (const fallbackSelector of fallbackSelectors) {
+        const els = doc.querySelectorAll(fallbackSelector);
+        if (els.length > 0) {
+          console.log(`✅ Found ${els.length} articles with fallback selector: ${fallbackSelector}`);
+          return await parseArticlesFromElements(Array.from(els) as Element[], url, config);
+        }
+      }
+      
+      console.log('❌ No articles found with any selector');
+      return [];
+    }
+    
+    return await parseArticlesFromElements(Array.from(containerElements) as Element[], url, config);
+    
+  } catch (fallbackError) {
+    console.error('❌ Fallback scraping also failed:', fallbackError);
+    return [];
+  }
+}
 
+async function processContainers(
+  containers: Array<{ html: string; text: string }>,
+  baseUrl: string,
+  config: ScrapeConfig
+): Promise<Article[]> {
   const articles: Article[] = [];
 
   for (let i = 0; i < containers.length; i++) {
@@ -779,15 +904,19 @@ export async function scrapeArticles(
 
     const dateText = extractDate(containerHtml) || '';
     const contentHtml = extractContent(containerHtml) || containerHtml;
-    const images = extractImages(contentHtml, url);
+    const images = extractImages(contentHtml, baseUrl);
+    
+    const plainTextContent = htmlToText(contentHtml) || containerText;
+    const markdownContent = htmlToMarkdown(contentHtml);
 
     articles.push({
       title,
       date: dateText || null,
-      url: href ? normalizeUrl(href, url) : url,
-      content: htmlToText(contentHtml) || containerText,
-      excerpt: (htmlToText(contentHtml) || containerText).substring(0, 200) + '...',
+      url: href ? normalizeUrl(href, baseUrl) : baseUrl,
+      content: plainTextContent,
+      excerpt: plainTextContent.substring(0, 200) + '...',
       images,
+      markdown: formatArticleMarkdown(title, dateText, markdownContent, images, href ? normalizeUrl(href, baseUrl) : baseUrl),
     });
 
     console.log(`✅ Article ${i + 1}: "${title}"`);
@@ -795,6 +924,89 @@ export async function scrapeArticles(
 
   console.log(`\n✅ Extracted ${articles.length} articles`);
   return articles;
+}
+
+async function parseArticlesFromElements(
+  elements: Element[],
+  baseUrl: string,
+  config: ScrapeConfig
+): Promise<Article[]> {
+  const articles: Article[] = [];
+  
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    const html = el.innerHTML;
+    const text = el.textContent || '';
+    
+    // Extract title and link
+    const titleEl = el.querySelector(config.titleSelector);
+    const linkEl = el.querySelector(config.linkSelector);
+    
+    let title = titleEl?.textContent?.trim() || '';
+    let href = linkEl?.getAttribute('href') || '';
+    
+    if (!title || title.length < 5) {
+      continue;
+    }
+    
+    // Extract date
+    const dateEl = el.querySelector(config.dateSelector);
+    const dateText = dateEl?.textContent?.trim() || dateEl?.getAttribute('datetime') || '';
+    
+    // Extract content
+    const contentEl = el.querySelector(config.contentSelector);
+    const contentHtml = contentEl?.innerHTML || html;
+    
+    // Extract images
+    const imageEls = el.querySelectorAll(config.imageSelector || 'img');
+    const images = Array.from(imageEls)
+      .filter((img): img is Element => img instanceof Element)
+      .map(img => img.getAttribute('src'))
+      .filter((src): src is string => src !== null && src.length > 0)
+      .map(src => normalizeUrl(src, baseUrl));
+    
+    const plainTextContent = htmlToText(contentHtml);
+    const markdownContent = htmlToMarkdown(contentHtml);
+    
+    articles.push({
+      title,
+      date: dateText || null,
+      url: href ? normalizeUrl(href, baseUrl) : baseUrl,
+      content: plainTextContent,
+      excerpt: plainTextContent.substring(0, 200) + '...',
+      images,
+      markdown: formatArticleMarkdown(title, dateText, markdownContent, images, href ? normalizeUrl(href, baseUrl) : baseUrl),
+    });
+    
+    console.log(`✅ Article ${i + 1}: "${title}"`);
+  }
+  
+  console.log(`\n✅ Extracted ${articles.length} articles from local parsing`);
+  return articles;
+}
+
+function formatArticleMarkdown(
+  title: string,
+  date: string | null,
+  content: string,
+  images: string[],
+  url: string
+): string {
+  let markdown = `# ${title}\n\n`;
+  
+  if (date) {
+    markdown += `**Date:** ${date}\n\n`;
+  }
+  
+  markdown += `**Source:** [View Original](${url})\n\n`;
+  
+  if (images.length > 0) {
+    markdown += `![Article Image](${images[0]})\n\n`;
+  }
+  
+  markdown += `---\n\n${content}`;
+  
+  return markdown;
 }
 
 // ============================================================================
