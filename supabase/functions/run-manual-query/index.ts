@@ -248,15 +248,26 @@ async function fetchArticlesWithBrowserless(
 ): Promise<any[]> {
   console.log(`\n🌐 Fetching articles from: ${source.name}`);
 
-  // Validate source has Browserless config
+  // Validate source has parser config
   if (!source.parser_config?.scrapeConfig) {
-    throw new Error(`Source ${source.name} does not have a Browserless configuration. Please run analysis first.`);
+    throw new Error(`Source ${source.name} does not have a scraper configuration.`);
   }
 
-  const scrapeConfig = source.parser_config.scrapeConfig;
-  
+  const config = source.parser_config.scrapeConfig;
+
+  // Build Browserless elements array from the new simple format
+  const browserlessConfig = {
+    elements: [
+      { selector: config.containerSelector },
+      { selector: config.titleSelector },
+      { selector: config.dateSelector },
+      { selector: config.linkSelector },
+      { selector: config.contentSelector }
+    ]
+  };
+
   // Scrape the source URL
-  const scrapeResult = await scrapeWithBrowserless(source.url, scrapeConfig);
+  const scrapeResult = await scrapeWithBrowserless(source.url, browserlessConfig);
   
   console.log(`✅ Scraped ${scrapeResult.data.length} element groups`);
 
@@ -313,13 +324,24 @@ async function fetchArticlesWithBrowserless(
     const content = contentData?.results[i]?.html || container.html || '';
     const contentMarkdown = htmlToMarkdown(content);
 
-    // Extract images from content
+    // Extract images from container HTML
     const images: string[] = [];
-    const imgMatches = content.matchAll(/<img[^>]+src=["']([^"']+)["']/gi);
+    const imgMatches = (container.html || content).matchAll(/<img[^>]+src=["']([^"']+)["']/gi);
     for (const match of imgMatches) {
       const imgUrl = normalizeUrl(match[1], source.url);
       if (isValidImageUrl(imgUrl)) {
         images.push(imgUrl);
+      }
+    }
+    
+    // Also check for background images if imageSelector is defined
+    if (config.imageSelector && container.html) {
+      const bgMatches = container.html.matchAll(/url\(['"]?([^'"]+)['"]?\)/gi);
+      for (const match of bgMatches) {
+        const imgUrl = normalizeUrl(match[1], source.url);
+        if (isValidImageUrl(imgUrl) && !imgUrl.startsWith('data:')) {
+          images.push(imgUrl);
+        }
       }
     }
 
