@@ -587,12 +587,56 @@ export async function analyzeSource(url: string): Promise<AnalysisResult> {
 export async function testConfiguration(
   url: string,
   config: ScrapeConfig,
-  html?: string
+  html?: string,
+  containersHtml?: string[]
 ): Promise<{ articles: Article[]; diagnostics: any }> {
   console.log('\n🧪 Testing configuration...');
   const testStartTime = Date.now();
 
-  // Fetch HTML only if not provided
+  // Priority 1: Use provided container HTML directly
+  if (containersHtml && containersHtml.length > 0) {
+    console.log(`✅ Using ${containersHtml.length} provided container(s) directly`);
+    
+    const articles: Article[] = [];
+    for (const containerHtml of containersHtml) {
+      // Extract article data from this container HTML
+      const { title, href } = extractTitleAndLink(containerHtml);
+      if (!title || title.length < 5) {
+        console.log('⏭️ Skipping container: No valid title');
+        continue;
+      }
+      
+      const dateText = extractDate(containerHtml) || '';
+      const contentHtml = extractContent(containerHtml) || containerHtml;
+      const images = extractImages(contentHtml, url);
+      
+      const article: Article = {
+        title,
+        date: dateText || null,
+        url: href ? normalizeUrl(href, url) : url,
+        content: htmlToText(contentHtml) || htmlToText(containerHtml),
+        excerpt: (htmlToText(contentHtml) || htmlToText(containerHtml)).substring(0, 200) + '...',
+        images,
+      };
+      
+      articles.push(article);
+    }
+    
+    console.log(`  ⏱️ Extracted ${articles.length} articles from containers in ${Date.now() - testStartTime}ms`);
+    
+    return {
+      articles,
+      diagnostics: {
+        containersFound: containersHtml.length,
+        articlesExtracted: articles.length,
+        hasValidTitles: articles.every(a => a.title),
+        hasValidLinks: articles.every(a => a.url),
+        issues: articles.length === 0 ? ['Selected containers do not contain expected article elements (title/link)'] : [],
+      }
+    };
+  }
+
+  // Priority 2: Use provided HTML
   if (!html) {
     html = await fetchHTML(url);
   }
