@@ -34,6 +34,7 @@ export function InteractiveSelectorModal({
   
   const [selectedContainers, setSelectedContainers] = useState<ContainerSelection[]>([]);
   const [containersFound, setContainersFound] = useState(0);
+  const [snapshotResolver, setSnapshotResolver] = useState<((html: string) => void) | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
   // Load proxied page when modal opens
@@ -85,19 +86,16 @@ export function InteractiveSelectorModal({
         return reject(new Error('Iframe not ready'));
       }
 
-      const handler = (event: MessageEvent) => {
-        if (event.data?.type === 'HTML_SNAPSHOT') {
-          window.removeEventListener('message', handler);
-          resolve(event.data.html as string);
-        }
-      };
-
-      window.addEventListener('message', handler);
+      // Store resolver in state so the permanent listener can call it
+      setSnapshotResolver(() => resolve);
+      
+      // Send request
+      console.log('📸 Requesting HTML snapshot from iframe...');
       iframe.contentWindow.postMessage({ type: 'REQUEST_HTML_SNAPSHOT' }, '*');
 
       // Timeout after 3 seconds
       setTimeout(() => {
-        window.removeEventListener('message', handler);
+        setSnapshotResolver(null);
         reject(new Error('HTML snapshot timed out'));
       }, 3000);
     });
@@ -109,27 +107,36 @@ export function InteractiveSelectorModal({
       if (event.data.type === 'CONTAINER_SELECTED') {
         const { selector, html, isSelected, totalSelected } = event.data;
         
-        if (isSelected) {
-          setSelectedContainers(prev => [...prev, { selector, html }]);
-          toast.success(`Container selected (${totalSelected} total)`);
-        } else {
-          setSelectedContainers(prev => prev.filter(c => c.selector !== selector));
-          toast.info(`Container deselected (${totalSelected} total)`);
-        }
+        console.log('Container selection event:', {
+          selector,
+          isSelected,
+          totalSelected,
+          htmlLength: html?.length
+        });
+
+        setSelectedContainers(prev => {
+          if (isSelected) {
+            return [...prev, { selector, html }];
+          } else {
+            return prev.filter(c => c.selector !== selector);
+          }
+        });
       } else if (event.data.type === 'HANDLER_READY') {
-        const count = event.data.containersFound || 0;
+        const { containersFound: count } = event.data;
+        console.log(`✅ Click handler ready, detected ${count} containers`);
         setContainersFound(count);
-        if (count > 0) {
-          toast.success(`Detected ${count} article containers - click 2 to establish pattern`);
-        } else {
-          toast.error('No article containers detected on this page');
+      } else if (event.data.type === 'HTML_SNAPSHOT') {
+        console.log('✅ Received HTML_SNAPSHOT from iframe, length:', event.data.html?.length);
+        if (snapshotResolver) {
+          snapshotResolver(event.data.html);
+          setSnapshotResolver(null);
         }
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [snapshotResolver]);
 
   const handleAnalyzePattern = async (e: React.MouseEvent) => {
     e.preventDefault();
