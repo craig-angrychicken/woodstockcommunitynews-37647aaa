@@ -368,48 +368,52 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let queryHistoryId: string | undefined;
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
   try {
     const { 
       dateFrom, 
       dateTo, 
       sourceIds, 
       environment = 'production',
-      queryHistoryId 
+      queryHistoryId: qhId 
     } = await req.json();
+    
+    queryHistoryId = qhId;
 
     console.log(`\n🚀 Starting manual query`);
     console.log(`📅 Date range: ${dateFrom} to ${dateTo}`);
     console.log(`🎯 Environment: ${environment}`);
     console.log(`📊 Sources: ${sourceIds.length}`);
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
     
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    try {
+      const dateFromObj = new Date(dateFrom);
+      const dateToObj = new Date(dateTo);
+      const isTest = environment === 'test';
 
-    const dateFromObj = new Date(dateFrom);
-    const dateToObj = new Date(dateTo);
-    const isTest = environment === 'test';
+      // Fetch sources
+      const { data: sources, error: sourcesError } = await supabase
+        .from('sources')
+        .select('*')
+        .in('id', sourceIds);
 
-    // Fetch sources
-    const { data: sources, error: sourcesError } = await supabase
-      .from('sources')
-      .select('*')
-      .in('id', sourceIds);
+      if (sourcesError) throw sourcesError;
 
-    if (sourcesError) throw sourcesError;
+      console.log(`✅ Loaded ${sources.length} sources`);
 
-    console.log(`✅ Loaded ${sources.length} sources`);
+      let totalArtifacts = 0;
 
-    let totalArtifacts = 0;
-
-    // Process each source
-    for (const source of sources) {
-      try {
-        console.log(`\n${'='.repeat(60)}`);
-        console.log(`Processing: ${source.name}`);
-        console.log(`${'='.repeat(60)}`);
+      // Process each source
+      for (const source of sources) {
+        try {
+          console.log(`\n${'='.repeat(60)}`);
+          console.log(`Processing: ${source.name}`);
+          console.log(`${'='.repeat(60)}`);
 
         // Update query history
         if (queryHistoryId) {
@@ -468,43 +472,71 @@ serve(async (req) => {
           })
           .eq('id', source.id);
 
-      } catch (error) {
-        console.error(`❌ Error processing source ${source.name}:`, error);
+        } catch (error) {
+          console.error(`❌ Error processing source ${source.name}:`, error);
+        }
       }
+
+      // Update query history to completed
+      if (queryHistoryId) {
+        await supabase
+          .from('query_history')
+          .update({
+            status: 'completed',
+            artifacts_count: totalArtifacts,
+            sources_processed: sources.length,
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', queryHistoryId);
+      }
+
+      console.log(`\n✅ Query complete! Created ${totalArtifacts} artifacts`);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          artifactsCreated: totalArtifacts,
+          sourcesProcessed: sources.length
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+
+    } catch (error) {
+      console.error('❌ Critical error in run-manual-query:', error);
+      
+      // ALWAYS update query_history to failed on error
+      if (queryHistoryId) {
+        try {
+          await supabase
+            .from('query_history')
+            .update({
+              status: 'failed',
+              completed_at: new Date().toISOString(),
+              error_message: error instanceof Error ? error.message : 'Unknown error'
+            })
+            .eq('id', queryHistoryId);
+        } catch (updateError) {
+          console.error('❌ Failed to update query_history:', updateError);
+        }
+      }
+      
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      );
     }
-
-    // Update query history
-    if (queryHistoryId) {
-      await supabase
-        .from('query_history')
-        .update({
-          status: 'completed',
-          artifacts_count: totalArtifacts,
-          sources_processed: sources.length,
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', queryHistoryId);
-    }
-
-    console.log(`\n✅ Query complete! Created ${totalArtifacts} artifacts`);
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        artifactsCreated: totalArtifacts,
-        sourcesProcessed: sources.length
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
 
   } catch (error) {
-    console.error('❌ Error in run-manual-query:', error);
+    console.error('❌ Error parsing request:', error);
     return new Response(
       JSON.stringify({
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Invalid request'
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
     );
   }
 });

@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
@@ -16,12 +17,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarIcon, Loader2, Play, CheckCircle, XCircle, X, Info } from "lucide-react";
+import { CalendarIcon, Loader2, Play, CheckCircle, XCircle, X, Info, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { TestBadge } from "@/components/ui/status-badge";
 import { Progress } from "@/components/ui/progress";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const ManualQuery = () => {
   const { toast } = useToast();
@@ -124,6 +124,11 @@ const ManualQuery = () => {
     enabled: !!currentHistoryId && isRunning,
     refetchInterval: 2000, // Poll every 2 seconds
   });
+
+  // Detect stale queries (running for > 5 minutes)
+  const isStaleQuery = currentProgress?.status === 'running' && 
+    currentProgress?.created_at &&
+    new Date().getTime() - new Date(currentProgress.created_at).getTime() > 5 * 60 * 1000;
 
   // Cancel query mutation
   const cancelQueryMutation = useMutation({
@@ -306,6 +311,16 @@ const ManualQuery = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {isStaleQuery && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Query may be stuck</AlertTitle>
+                <AlertDescription>
+                  This query has been running for over 5 minutes. It may have encountered an error.
+                </AlertDescription>
+              </Alert>
+            )}
+            
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span>Sources Progress</span>
@@ -337,6 +352,21 @@ const ManualQuery = () => {
                 <div className="text-2xl font-bold">{currentProgress.stories_count || 0}</div>
               </div>
             </div>
+            
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => {
+                setIsRunning(false);
+                setCurrentHistoryId(null);
+                toast({
+                  title: "Stopped Monitoring",
+                  description: "Query will continue running in the background",
+                });
+              }}
+            >
+              Stop Monitoring
+            </Button>
           </CardContent>
         </Card>
       )}
