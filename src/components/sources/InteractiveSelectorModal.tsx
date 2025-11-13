@@ -101,6 +101,83 @@ export function InteractiveSelectorModal({
     });
   };
 
+  // Analyze containers locally from iframe matches
+  const analyzeContainersLocally = (matches: { html: string }[], containerSelector: string) => {
+    setIsAnalyzing(true);
+    
+    try {
+      const parser = new DOMParser();
+      const articles: any[] = [];
+      
+      // Extract article data from each match
+      matches.forEach(match => {
+        const doc = parser.parseFromString(match.html, 'text/html');
+        const container = doc.body.firstElementChild;
+        
+        if (!container) return;
+        
+        // Extract link
+        const linkEl = container.querySelector('a[href]');
+        const href = linkEl?.getAttribute('href') || linkEl?.getAttribute('data-original-href') || '';
+        
+        // Extract title (prioritize headings or elements with "title" in class)
+        const titleEl = container.querySelector('h1, h2, h3, h4, h5, h6, [class*="title"], [class*="headline"]');
+        const title = titleEl?.textContent?.trim() || linkEl?.textContent?.trim() || '';
+        
+        if (!title || title.length < 5) return; // Skip if no valid title
+        
+        // Extract images
+        const images: string[] = [];
+        const imgEls = container.querySelectorAll('img[src]');
+        imgEls.forEach(img => {
+          const src = img.getAttribute('src');
+          if (src && !src.startsWith('data:')) {
+            images.push(src);
+          }
+        });
+        
+        // Extract excerpt (first paragraph or container text)
+        const excerptEl = container.querySelector('p, [class*="excerpt"], [class*="description"]');
+        const excerpt = (excerptEl?.textContent?.trim() || container.textContent?.trim() || '').substring(0, 200);
+        
+        // Try to extract date
+        const dateEl = container.querySelector('[class*="date"], [class*="time"], time');
+        const dateText = dateEl?.textContent?.trim() || dateEl?.getAttribute('datetime') || null;
+        
+        articles.push({
+          title,
+          url: href,
+          excerpt,
+          images,
+          date: dateText
+        });
+      });
+      
+      console.log(`✅ Extracted ${articles.length} articles from ${matches.length} containers`);
+      
+      // Build detected config
+      const config = {
+        containerSelector,
+        linkSelector: 'a[href]',
+        imageSelector: 'img[src]',
+        titleSelector: 'h1, h2, h3, h4, h5, h6, [class*="title"]',
+        dateSelector: '[class*="date"], [class*="time"], time',
+        contentSelector: 'p, [class*="excerpt"], [class*="description"]'
+      };
+      
+      setDetectedConfig(config);
+      setPreviewArticles(articles);
+      setShowPreview(true);
+      
+      toast.success(`Found ${articles.length} matching articles!`);
+    } catch (error) {
+      console.error('Failed to analyze matches:', error);
+      toast.error('Failed to analyze pattern. Please try again.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   // Listen for container selections from iframe
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -115,11 +192,26 @@ export function InteractiveSelectorModal({
         });
 
         setSelectedContainers(prev => {
-          if (isSelected) {
-            return [...prev, { selector, html }];
-          } else {
-            return prev.filter(c => c.selector !== selector);
+          const newContainers = isSelected
+            ? [...prev, { selector, html }]
+            : prev.filter(c => c.selector !== selector);
+          
+          // Auto-trigger pattern detection when 2 containers selected
+          if (newContainers.length === 2) {
+            const containerSelector = newContainers[0].selector;
+            console.log('🎯 Auto-detecting pattern for selector:', containerSelector);
+            
+            // Send message to iframe to find all matching containers
+            const iframe = document.getElementById('selector-iframe') as HTMLIFrameElement;
+            if (iframe?.contentWindow) {
+              iframe.contentWindow.postMessage({
+                type: 'FIND_ALL_MATCHES',
+                selector: containerSelector
+              }, '*');
+            }
           }
+          
+          return newContainers;
         });
       } else if (event.data.type === 'HANDLER_READY') {
         const { containersFound: count } = event.data;
@@ -131,6 +223,12 @@ export function InteractiveSelectorModal({
           snapshotResolverRef.current(event.data.html);
           snapshotResolverRef.current = null;
         }
+      } else if (event.data.type === 'ALL_MATCHES_FOUND') {
+        const { selector, matches, count } = event.data;
+        console.log(`✅ Found ${count} matching articles for selector: ${selector}`);
+        
+        // Analyze matches locally and show preview immediately
+        analyzeContainersLocally(matches, selector);
       }
     };
 
@@ -309,7 +407,7 @@ export function InteractiveSelectorModal({
           </DialogTitle>
           <DialogDescription>
             {!showPreview 
-              ? 'Click on 2 article containers to establish a pattern, then click "Analyze Pattern"'
+              ? 'Click on 2 article containers - pattern will detect automatically'
               : `Found ${previewArticles.length} articles - review and save when ready`}
           </DialogDescription>
         </DialogHeader>
@@ -405,23 +503,16 @@ export function InteractiveSelectorModal({
                   <div className="text-xs text-muted-foreground">
                     {selectedContainers.length < 2 
                       ? `Select ${2 - selectedContainers.length} more container(s)`
-                      : 'Ready to analyze! ✓'}
+                      : isAnalyzing 
+                        ? 'Detecting pattern...'
+                        : 'Pattern will auto-detect ✓'}
                   </div>
-                  <Button
-                    type="button"
-                    className="w-full"
-                    onClick={handleAnalyzePattern}
-                    disabled={selectedContainers.length < 2 || isAnalyzing}
-                  >
-                    {isAnalyzing ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Analyzing...
-                      </>
-                    ) : (
-                      'Analyze Pattern'
-                    )}
-                  </Button>
+                  {isAnalyzing && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Analyzing...</span>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : detectedConfig ? (
