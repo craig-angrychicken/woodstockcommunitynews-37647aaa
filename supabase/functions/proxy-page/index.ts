@@ -93,6 +93,7 @@ serve(async (req) => {
         let detectedContainers = [];
         let selectedContainers = [];
         let selectedImages = [];
+        let containerHandlers = new Map();
         
         window.addEventListener('message', (event) => {
           if (event.data.type === 'REQUEST_CLICK_HANDLER') {
@@ -103,7 +104,7 @@ serve(async (req) => {
             
             // Add click handlers to detected containers
             detectedContainers.forEach(container => {
-              container.element.addEventListener('click', (e) => {
+              const handler = (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 
@@ -127,7 +128,10 @@ serve(async (req) => {
                   isSelected: !isSelected,
                   totalSelected: selectedContainers.length
                 }, '*');
-              }, true);
+              };
+              
+              containerHandlers.set(container.element, handler);
+              container.element.addEventListener('click', handler, true);
             });
             
             console.log(\`✅ Detected \${detectedContainers.length} containers\`);
@@ -140,7 +144,17 @@ serve(async (req) => {
             const checkImageSelection = setInterval(() => {
               if (selectedContainers.length === 2) {
                 clearInterval(checkImageSelection);
-                console.log('✅ 2 containers selected, enabling image selection...');
+                console.log('✅ 2 containers selected, disabling container handlers...');
+                
+                // Remove container click handlers to prevent deselection
+                detectedContainers.forEach(container => {
+                  const handler = containerHandlers.get(container.element);
+                  if (handler) {
+                    container.element.removeEventListener('click', handler, true);
+                  }
+                });
+                
+                console.log('✅ Enabling image selection...');
                 
                 // Add click handlers to all images and background-image elements
                 const imageElements = document.querySelectorAll('img, [style*="background"]');
