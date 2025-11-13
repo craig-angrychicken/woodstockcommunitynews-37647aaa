@@ -593,50 +593,42 @@ export async function testConfiguration(
   console.log('\n🧪 Testing configuration...');
   const testStartTime = Date.now();
 
-  // Priority 1: Use provided container HTML directly
+  // Priority 1: If containersHtml provided, validate pattern then apply to full page
   if (containersHtml && containersHtml.length > 0) {
-    console.log(`✅ Using ${containersHtml.length} provided container(s) directly`);
+    console.log(`✅ Validating pattern with ${containersHtml.length} selected container(s)...`);
     
-    const articles: Article[] = [];
+    // Validate the pattern works with selected containers
+    let validationPassed = false;
     for (const containerHtml of containersHtml) {
-      // Extract article data from this container HTML
       const { title, href } = extractTitleAndLink(containerHtml);
-      if (!title || title.length < 5) {
-        console.log('⏭️ Skipping container: No valid title');
-        continue;
+      if (title && title.length >= 5) {
+        validationPassed = true;
+        break;
       }
-      
-      const dateText = extractDate(containerHtml) || '';
-      const contentHtml = extractContent(containerHtml) || containerHtml;
-      const images = extractImages(contentHtml, url);
-      
-      const article: Article = {
-        title,
-        date: dateText || null,
-        url: href ? normalizeUrl(href, url) : url,
-        content: htmlToText(contentHtml) || htmlToText(containerHtml),
-        excerpt: (htmlToText(contentHtml) || htmlToText(containerHtml)).substring(0, 200) + '...',
-        images,
-      };
-      
-      articles.push(article);
     }
     
-    console.log(`  ⏱️ Extracted ${articles.length} articles from containers in ${Date.now() - testStartTime}ms`);
+    if (!validationPassed) {
+      return {
+        articles: [],
+        diagnostics: {
+          containersFound: containersHtml.length,
+          articlesExtracted: 0,
+          hasValidTitles: false,
+          hasValidLinks: false,
+          issues: ['Selected containers do not contain expected article elements (title/link)'],
+        }
+      };
+    }
     
-    return {
-      articles,
-      diagnostics: {
-        containersFound: containersHtml.length,
-        articlesExtracted: articles.length,
-        hasValidTitles: articles.every(a => a.title),
-        hasValidLinks: articles.every(a => a.url),
-        issues: articles.length === 0 ? ['Selected containers do not contain expected article elements (title/link)'] : [],
-      }
-    };
+    console.log('✅ Pattern validated, now applying to full page...');
+    
+    // Fetch full HTML if not provided
+    if (!html) {
+      html = await fetchHTML(url);
+    }
   }
 
-  // Priority 2: Use provided HTML
+  // Priority 2: Use provided HTML or fetch it
   if (!html) {
     html = await fetchHTML(url);
   }
