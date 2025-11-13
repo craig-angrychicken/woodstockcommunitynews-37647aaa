@@ -29,7 +29,13 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
-    const browserlessToken = Deno.env.get('BROWSERLESS_API_KEY')!;
+    
+    // Backward compatible token retrieval
+    const browserlessToken = Deno.env.get('BROWSERLESS_API_KEY') || Deno.env.get('BROWSERLESS_TOKEN');
+    if (!browserlessToken) {
+      throw new Error('Missing Browserless API key. Please set BROWSERLESS_API_KEY.');
+    }
+    console.log(`🔐 Browserless token detected (length: ${browserlessToken.length})`);
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -175,7 +181,8 @@ serve(async (req) => {
           success: true,
           artifactsCreated: totalArtifacts,
           sourcesProcessed: sources.length,
-          errors: totalErrors
+          errors: totalErrors,
+          message: `Scrape complete: ${totalArtifacts} artifacts, ${totalErrors} errors`
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );

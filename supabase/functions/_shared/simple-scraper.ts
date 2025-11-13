@@ -24,8 +24,11 @@ export async function scrapeArticlesSimple(
 ): Promise<Article[]> {
   console.log(`\n📰 Fetching fully-rendered HTML from: ${url}`);
 
+  const BROWSERLESS_URL = Deno.env.get('BROWSERLESS_URL') || 'https://production-sfo.browserless.io';
+
   // Fetch fully-rendered HTML using Browserless /content endpoint
-  const response = await fetch('https://production-sfo.browserless.io/content', {
+  // Token must be passed as query parameter per Browserless documentation
+  const response = await fetch(`${BROWSERLESS_URL}/content?token=${browserlessToken}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -33,7 +36,6 @@ export async function scrapeArticlesSimple(
     },
     body: JSON.stringify({
       url,
-      token: browserlessToken,
       waitForSelector: config.containerSelector,
       waitForTimeout: 10000,
     }),
