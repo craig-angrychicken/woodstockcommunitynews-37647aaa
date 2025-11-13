@@ -35,7 +35,7 @@ const ManualQuery = () => {
   const [promptMode, setPromptMode] = useState<"active" | "select">("active");
   const [selectedPromptVersion, setSelectedPromptVersion] = useState<string>("");
   
-  const [maxArticles, setMaxArticles] = useState<number | null>(20);
+  const [maxArticles, setMaxArticles] = useState<number>(10);
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
 
@@ -547,17 +547,16 @@ const ManualQuery = () => {
               <div className="space-y-2">
                 <Label>Article Limit (for testing)</Label>
                 <Select 
-                  value={maxArticles?.toString() || "all"} 
-                  onValueChange={(v) => setMaxArticles(v === "all" ? null : parseInt(v))}
+                  value={maxArticles?.toString() || "10"} 
+                  onValueChange={(v) => setMaxArticles(parseInt(v))}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="10">First 10 articles (max per source)</SelectItem>
-                    <SelectItem value="20">First 20 articles</SelectItem>
-                    <SelectItem value="50">First 50 articles</SelectItem>
-                    <SelectItem value="all">All articles</SelectItem>
+                    <SelectItem value="1">First 1 article per source</SelectItem>
+                    <SelectItem value="5">First 5 articles per source</SelectItem>
+                    <SelectItem value="10">First 10 articles per source (max)</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
