@@ -88,6 +88,7 @@ async function fetchHTML(url: string): Promise<string> {
           waitUntil: 'networkidle2',
           timeout: 30000,
         },
+        waitForTimeout: 5000,
       }),
     }
   );
@@ -120,6 +121,7 @@ async function scrapeWithSelectors(
       waitUntil: 'networkidle2',
       timeout: 30000, // Increased to 30s for pages with heavy JS
     },
+    waitForTimeout: 5000,
   };
 
   const response = await fetch(

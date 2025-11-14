@@ -85,7 +85,8 @@ serve(async (req) => {
       gotoOptions: {
         waitUntil: 'networkidle2',
         timeout: 30000
-      }
+      },
+      waitForTimeout: 5000
     };
     
     console.log('📤 Browserless request payload:', JSON.stringify(browserlessPayload, null, 2));
