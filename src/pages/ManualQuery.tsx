@@ -497,7 +497,7 @@ const ManualQuery = () => {
                         const config = source.parser_config as any;
                         setPreviewSource({
                           url: source.url,
-                          selector: config?.containerSelector || '',
+                          selector: config?.scrapeConfig?.containerSelector || '',
                         });
                         setPreviewModalOpen(true);
                       }
