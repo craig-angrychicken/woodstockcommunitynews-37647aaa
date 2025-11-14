@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { scrapeArticlesSimple } from "../_shared/simple-scraper.ts";
+import { scrapeArticles } from "../_shared/browserless-scraper.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -115,8 +115,8 @@ serve(async (req) => {
 
           console.log(`  ⏳ Waiting for container selector: ${config.containerSelector}`);
 
-          // Scrape articles using simple scraper
-          const articles = await scrapeArticlesSimple(source.url, config, browserlessToken);
+          // Scrape articles using browserless scraper
+          const articles = await scrapeArticles(source.url, config);
 
           console.log(`\n📝 Processing ${articles.length} articles...`);
 
@@ -144,6 +144,9 @@ serve(async (req) => {
 
           // Process each article
           for (const article of filteredArticles) {
+            // Select best hero image from available images
+            const heroImage = await selectBestHeroImage(article.images || [], article.title, lovableApiKey);
+            
             // Create artifact
             const { error: artifactError } = await supabase
               .from('artifacts')
@@ -154,7 +157,7 @@ serve(async (req) => {
                 type: 'news',
                 date: article.date ? new Date(article.date).toISOString() : new Date().toISOString(),
                 source_id: source.id,
-                hero_image_url: article.imageUrl || null,
+                hero_image_url: heroImage,
                 url: article.url,
                 environment: isTest ? 'test' : 'production'
               });
