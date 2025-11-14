@@ -811,32 +811,7 @@ export async function scrapeArticles(
   console.log(`\n📰 SCRAPING ARTICLES: ${url}`);
   console.log('='.repeat(60));
 
-  try {
-    // Try selector-based scraping first
-    const elements: BrowserlessElement[] = [
-      { 
-        selector: config.containerSelector,
-        timeout: config.timeout || 30000
-      }
-    ];
-
-    const results = await scrapeWithSelectors(url, elements);
-    const containers = results[0]?.results || [];
-
-    if (containers.length > 0) {
-      console.log(`✅ Found ${containers.length} articles with selectors`);
-      return await processContainers(containers, url, config);
-    }
-    
-    console.log('⚠️ No containers found with selectors, trying fallback...');
-    
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.log(`⚠️ Selector-based scraping failed: ${errorMessage}`);
-    console.log('🔄 Attempting fallback: Full HTML fetch and parse...');
-  }
-
-  // Fallback: Fetch full HTML and parse locally
+  // Fetch full HTML and parse locally (using proven content endpoint method)
   try {
     const html = await fetchHTML(url);
     console.log('✅ Fetched full HTML, parsing locally...');
