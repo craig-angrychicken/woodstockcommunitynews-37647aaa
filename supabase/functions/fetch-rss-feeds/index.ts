@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { dateFrom, dateTo, sourceIds, environment } = await req.json();
+    const { dateFrom, dateTo, sourceIds, environment, queryHistoryId } = await req.json();
 
     console.log('\n🚀 Starting RSS feed fetch');
     console.log('📊 Sources:', sourceIds.length);
@@ -59,6 +59,16 @@ Deno.serve(async (req) => {
 
     console.log(`✅ Loaded ${sources.length} RSS feed sources`);
 
+    // Update query history with total sources
+    if (queryHistoryId) {
+      await supabase
+        .from('query_history')
+        .update({
+          sources_total: sources.length,
+        })
+        .eq('id', queryHistoryId);
+    }
+
     const dateFromTime = new Date(dateFrom).getTime();
     const dateToTime = new Date(dateTo).getTime();
     let totalArtifacts = 0;
@@ -66,6 +76,17 @@ Deno.serve(async (req) => {
 
     for (const source of sources) {
       try {
+        // Update query history with current source
+        if (queryHistoryId) {
+          await supabase
+            .from('query_history')
+            .update({
+              current_source_id: source.id,
+              current_source_name: source.name,
+            })
+            .eq('id', queryHistoryId);
+        }
+
         console.log(`\n📡 Fetching RSS feed: ${source.name}`);
         console.log(`   URL: ${source.url}`);
 
@@ -130,15 +151,58 @@ Deno.serve(async (req) => {
           })
           .eq('id', source.id);
 
+        // Update query history with progress
+        if (queryHistoryId) {
+          const currentProcessed = sources.indexOf(source) + 1;
+          await supabase
+            .from('query_history')
+            .update({
+              sources_processed: currentProcessed,
+              artifacts_count: totalArtifacts,
+            })
+            .eq('id', queryHistoryId);
+        }
+
       } catch (error) {
         console.error(`❌ Error processing ${source.name}:`, error);
         totalErrors++;
+        
+        // Update query history with failed count
+        if (queryHistoryId) {
+          const { data: currentHistory } = await supabase
+            .from('query_history')
+            .select('sources_failed')
+            .eq('id', queryHistoryId)
+            .single();
+          
+          await supabase
+            .from('query_history')
+            .update({
+              sources_failed: (currentHistory?.sources_failed || 0) + 1,
+            })
+            .eq('id', queryHistoryId);
+        }
       }
     }
 
     console.log('\n✅ RSS fetch complete!');
     console.log(`  Artifacts created: ${totalArtifacts}`);
     console.log(`  Errors: ${totalErrors}`);
+
+    // Update query history with final status
+    if (queryHistoryId) {
+      await supabase
+        .from('query_history')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          artifacts_count: totalArtifacts,
+          sources_processed: sources.length,
+          current_source_id: null,
+          current_source_name: null,
+        })
+        .eq('id', queryHistoryId);
+    }
 
     return new Response(
       JSON.stringify({
@@ -153,6 +217,30 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('❌ Fatal error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
+    
+    // Try to update query history with error status
+    try {
+      const body = await req.clone().json().catch(() => ({}));
+      const queryHistoryId = body.queryHistoryId;
+      
+      if (queryHistoryId) {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+        
+        await supabase
+          .from('query_history')
+          .update({
+            status: 'failed',
+            error_message: message,
+            completed_at: new Date().toISOString(),
+          })
+          .eq('id', queryHistoryId);
+      }
+    } catch (updateError) {
+      console.error('Failed to update query history:', updateError);
+    }
+    
     return new Response(
       JSON.stringify({ error: message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
@@ -190,9 +278,18 @@ function parseRSSFeed(xmlText: string): RSSFeed {
 }
 
 function extractTag(xml: string, tagName: string): string {
-  const regex = new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\/${tagName}>`, 'i');
+  const regex = new RegExp(`<${tagName}[^>]*>([\s\S]*?)<\/${tagName}>`, 'i');
   const match = xml.match(regex);
-  return match ? match[1].trim() : '';
+  if (!match) return '';
+  
+  let content = match[1].trim();
+  
+  // Remove CDATA wrapper if present
+  if (content.startsWith('<![CDATA[') && content.endsWith(']]>')) {
+    content = content.slice(9, -3); // Remove <![CDATA[ and ]]>
+  }
+  
+  return content;
 }
 
 function extractAttr(xml: string, tagName: string, attrName: string): string {

@@ -216,7 +216,8 @@ const ManualQuery = () => {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
             sourceIds: rssSources,
-            environment
+            environment,
+            queryHistoryId: historyRecord.id
           }
         });
 
