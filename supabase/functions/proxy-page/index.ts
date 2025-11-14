@@ -32,11 +32,10 @@ serve(async (req) => {
     const cached = pageCache.get(url);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       console.log('✅ Returning cached page for:', url);
-      return new Response(cached.html, {
+      return new Response(JSON.stringify({ html: cached.html }), {
         headers: {
           ...corsHeaders,
-          'Content-Type': 'text/html; charset=utf-8',
-          'X-Frame-Options': 'SAMEORIGIN',
+          'Content-Type': 'application/json',
         },
       });
     }
@@ -386,11 +385,10 @@ serve(async (req) => {
       pageCache.delete(oldestKey);
     }
 
-    return new Response(html, {
+    return new Response(JSON.stringify({ html }), {
       headers: {
         ...corsHeaders,
-        'Content-Type': 'text/html; charset=utf-8',
-        'X-Frame-Options': 'SAMEORIGIN',
+        'Content-Type': 'application/json',
       },
     });
   } catch (error) {

@@ -51,16 +51,21 @@ export function PreviewRenderedPageModal({
 
       if (error) throw error;
       
+      const html = data?.html || '';
+      if (!html) {
+        throw new Error('No HTML received from proxy-page');
+      }
+      
       // Revoke previous blob URL if it exists
       if (proxiedUrl) {
         URL.revokeObjectURL(proxiedUrl);
       }
       
       // Create blob URL for iframe
-      const blob = new Blob([data], { type: 'text/html' });
+      const blob = new Blob([html], { type: 'text/html' });
       const newProxiedUrl = URL.createObjectURL(blob);
       
-      setHtml(data);
+      setHtml(html);
       setProxiedUrl(newProxiedUrl);
     } catch (error) {
       console.error("Error fetching rendered page:", error);

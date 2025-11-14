@@ -33,7 +33,7 @@ export async function scrapeArticlesSimple(
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   // Call the proxy-page function to get rendered HTML
-  const { data: html, error } = await supabase.functions.invoke('proxy-page', {
+  const { data, error } = await supabase.functions.invoke('proxy-page', {
     body: { url }
   });
 
@@ -42,6 +42,7 @@ export async function scrapeArticlesSimple(
     throw new Error(`Failed to render page: ${error.message}`);
   }
 
+  const html = data?.html || '';
   if (!html) {
     console.log(`⚠️ No HTML retrieved from proxy-page`);
     return [];
