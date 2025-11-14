@@ -29,6 +29,7 @@ export type Database = {
           source_id: string | null
           title: string | null
           type: string
+          url: string | null
         }
         Insert: {
           content?: string | null
@@ -44,6 +45,7 @@ export type Database = {
           source_id?: string | null
           title?: string | null
           type: string
+          url?: string | null
         }
         Update: {
           content?: string | null
@@ -59,6 +61,7 @@ export type Database = {
           source_id?: string | null
           title?: string | null
           type?: string
+          url?: string | null
         }
         Relationships: [
           {
