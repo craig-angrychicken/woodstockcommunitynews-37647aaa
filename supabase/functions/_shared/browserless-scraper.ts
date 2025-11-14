@@ -86,9 +86,9 @@ async function fetchHTML(url: string): Promise<string> {
         url,
         gotoOptions: {
           waitUntil: 'networkidle2',
-          timeout: 30000,
+          timeout: 45000,
         },
-        waitForTimeout: 5000,
+        waitForTimeout: 15000,
       }),
     }
   );
@@ -100,6 +100,14 @@ async function fetchHTML(url: string): Promise<string> {
 
   const html = await response.text();
   console.log(`✅ Retrieved ${html.length} characters`);
+  
+  // Debug: Verify JavaScript executed and rendered the elements
+  const hasNewsItems = html.includes('news-list-item');
+  const hasClassAttributes = html.includes('class=');
+  console.log(`🔍 HTML contains "news-list-item": ${hasNewsItems}`);
+  console.log(`🔍 HTML contains class attributes: ${hasClassAttributes}`);
+  console.log(`📋 First 2000 characters of HTML:`, html.substring(0, 2000));
+  
   return html;
 }
 
