@@ -127,11 +127,38 @@ export async function scrapeArticlesSimple(
   }
 
   // Find containers using querySelectorAll
-  const containerElements = doc.querySelectorAll(config.containerSelector);
-  console.log(`✅ Found ${containerElements.length} containers matching "${config.containerSelector}"`);
+  let containerElements = doc.querySelectorAll(config.containerSelector);
+  let containerCount = containerElements.length;
+  console.log(`✅ Found ${containerCount} containers matching "${config.containerSelector}"`);
 
-  if (containerElements.length === 0) {
-    console.log(`⚠️ No containers found with selector: ${config.containerSelector}`);
+  // If none found, try sensible fallbacks for common news list patterns
+  if (containerCount === 0) {
+    const fallbackSelectors = [
+      '#post .list li',
+      '#post .news-list li',
+      '#post li',
+      '.news-list li',
+      '.news-list__item',
+      '.news-item',
+      '.article-list .article',
+      'article',
+      'li'
+    ];
+
+    for (const sel of fallbackSelectors) {
+      const test = doc.querySelectorAll(sel);
+      console.log(`🔎 Testing fallback selector "${sel}" → ${test.length}`);
+      if (test.length > 0) {
+        console.log(`🧭 Using fallback selector: "${sel}" (${test.length} matches)`);
+        containerElements = test;
+        containerCount = test.length;
+        break;
+      }
+    }
+  }
+
+  if (containerCount === 0) {
+    console.log(`⚠️ No containers found with primary or fallback selectors (primary: ${config.containerSelector})`);
     return [];
   }
 
