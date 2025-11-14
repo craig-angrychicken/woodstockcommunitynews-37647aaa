@@ -110,8 +110,7 @@ Deno.serve(async (req) => {
               hero_image_url: imageUrl,
               date: itemDate?.toISOString() || new Date().toISOString(),
               type: 'article',
-              is_test: environment === 'test',
-              environment: environment
+              is_test: environment === 'test'
             });
 
           if (insertError) {
