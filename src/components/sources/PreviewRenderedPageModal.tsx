@@ -23,6 +23,7 @@ export function PreviewRenderedPageModal({
   containerSelector,
 }: PreviewRenderedPageModalProps) {
   const [html, setHtml] = useState<string>("");
+  const [renderedHtml, setRenderedHtml] = useState<string>("");
   const [proxiedUrl, setProxiedUrl] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [selectorInput, setSelectorInput] = useState(containerSelector);
@@ -43,8 +44,28 @@ export function PreviewRenderedPageModal({
     setSelectorInput(containerSelector);
   }, [containerSelector]);
 
+  const handleRenderIframeLoad = () => {
+    if (!renderIframeRef.current?.contentDocument) return;
+    
+    try {
+      // Extract the fully rendered HTML from the iframe's DOM
+      const fullHtml = renderIframeRef.current.contentDocument.documentElement.outerHTML;
+      setRenderedHtml(fullHtml);
+      
+      console.log(`📄 Extracted ${fullHtml.length} characters of rendered HTML`);
+    } catch (error) {
+      console.error("Error extracting rendered HTML:", error);
+      toast({
+        title: "Warning",
+        description: "Could not extract rendered HTML",
+        variant: "destructive",
+      });
+    }
+  };
+
   const fetchRenderedPage = async () => {
     setLoading(true);
+    setRenderedHtml(""); // Reset rendered HTML when fetching new page
     try {
       const { data, error } = await supabase.functions.invoke("proxy-page", {
         body: { url },
@@ -144,7 +165,7 @@ export function PreviewRenderedPageModal({
   }, [open]);
 
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(html);
+    navigator.clipboard.writeText(renderedHtml || html);
     toast({
       title: "Copied",
       description: "HTML copied to clipboard",
@@ -152,7 +173,7 @@ export function PreviewRenderedPageModal({
   };
 
   const downloadHtml = () => {
-    const blob = new Blob([html], { type: "text/html" });
+    const blob = new Blob([renderedHtml || html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -184,6 +205,7 @@ export function PreviewRenderedPageModal({
               <iframe
                 ref={renderIframeRef}
                 src={proxiedUrl}
+                onLoad={handleRenderIframeLoad}
                 sandbox="allow-scripts allow-same-origin"
                 className="w-full h-full border rounded"
               />
@@ -201,10 +223,10 @@ export function PreviewRenderedPageModal({
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Showing rendered HTML after JavaScript execution
+                {renderedHtml ? 'Showing fully rendered HTML after JavaScript execution' : 'Loading rendered HTML...'}
               </p>
               <pre className="flex-1 overflow-auto bg-muted p-4 rounded text-xs">
-                {html}
+                {renderedHtml || html}
               </pre>
             </TabsContent>
 
