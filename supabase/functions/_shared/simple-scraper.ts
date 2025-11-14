@@ -22,7 +22,7 @@ export async function scrapeArticlesSimple(
   config: ScrapeConfig,
   browserlessToken: string
 ): Promise<Article[]> {
-  console.log(`\n📰 Scraping with proven testConfiguration: ${url}`);
+  console.log(`\n📰 Scraping: ${url}`);
   console.log(`📍 Container Selector: ${config.containerSelector}`);
 
   // Map to browserless-scraper config format
@@ -36,24 +36,49 @@ export async function scrapeArticlesSimple(
     timeout: 30000
   };
 
-  console.log(`🔧 Using testConfiguration with /content API (networkidle2)`);
-
   try {
-    // Use the proven testConfiguration that works in Selector Check
-    const { articles, diagnostics } = await testConfiguration(url, blConfig);
+    // Step 1: Render HTML via Browserless /content (same as proxy-page)
+    const BROWSERLESS_URL = 'https://production-sfo.browserless.io';
+    console.log(`🌐 Rendering page with Browserless /content API...`);
     
-    console.log(`✅ testConfiguration found ${articles.length} articles`);
+    const response = await fetch(`${BROWSERLESS_URL}/content?token=${browserlessToken}`, {
+      method: 'POST',
+      headers: {
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url,
+        gotoOptions: {
+          waitUntil: 'networkidle2',
+          timeout: 30000
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Browserless /content failed: ${response.status} ${response.statusText}`);
+    }
+
+    const renderedHtml = await response.text();
+    console.log(`✅ Rendered HTML length: ${renderedHtml.length}`);
+
+    // Step 2: Extract articles from rendered HTML using strict selectors
+    console.log(`🔍 Extracting with strict selector: ${config.containerSelector}`);
+    const { articles, diagnostics } = await testConfiguration(url, blConfig, renderedHtml);
+    
+    console.log(`✅ Strict match found ${articles.length} articles`);
     
     if (diagnostics) {
       console.log(`📊 Diagnostics:`, JSON.stringify(diagnostics, null, 2));
     }
 
     if (articles.length === 0) {
-      console.log(`⚠️ No articles found. Check diagnostics above.`);
+      console.log(`⚠️ 0 containers matched selector '${config.containerSelector}' in rendered HTML`);
       return [];
     }
 
-    // Map to expected format
+    // Step 3: Map to expected format
     const mappedArticles: Article[] = articles.map(a => ({
       title: a.title,
       url: a.url,
@@ -65,7 +90,7 @@ export async function scrapeArticlesSimple(
     console.log(`\n✅ Successfully extracted ${mappedArticles.length} articles`);
     return mappedArticles;
   } catch (error) {
-    console.error(`❌ Error in testConfiguration:`, error);
+    console.error(`❌ Error in scraping:`, error);
     throw error;
   }
 }
