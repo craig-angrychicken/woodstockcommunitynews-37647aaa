@@ -822,11 +822,11 @@ export async function scrapeArticles(
   console.log('='.repeat(60));
 
   try {
-    // Use Browserless /scrape endpoint to extract elements server-side
-    console.log(`🌐 Using Browserless /scrape to extract: ${config.containerSelector}`);
+    // Use Browserless /unblock endpoint to bypass bot detection
+    console.log(`🌐 Using Browserless /unblock to extract: ${config.containerSelector}`);
     
     const response = await fetch(
-      `${BROWSERLESS_URL}/scrape?token=${BROWSERLESS_API_KEY}`,
+      `${BROWSERLESS_URL}/unblock?token=${BROWSERLESS_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -837,25 +837,42 @@ export async function scrapeArticles(
           }],
           gotoOptions: {
             waitUntil: 'networkidle2',
-            timeout: 45000
+            timeout: 60000  // Increase to 60 seconds
           },
-          waitForTimeout: 15000
+          waitForTimeout: 20000,  // Increase to 20 seconds
+          // /unblock specific options
+          stealth: true,
+          blockAds: true
         })
       }
     );
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Browserless /scrape error: ${response.statusText} - ${errorText}`);
+      console.error(`❌ Browserless /unblock error: ${response.statusText}`);
+      console.error(`Response: ${errorText}`);
+      throw new Error(`Browserless /unblock error: ${response.statusText} - ${errorText}`);
     }
 
     const result = await response.json();
+    
+    // /unblock returns elements in the same format as /scrape
     const elements = result.data?.[0]?.results || [];
     
     console.log(`📦 Browserless found ${elements.length} elements matching "${config.containerSelector}"`);
     
     if (elements.length === 0) {
-      console.log('❌ No articles found with configured selector');
+      console.log('⚠️ No articles found - checking HTML content');
+      
+      // Fallback: If no elements found, check the full HTML content
+      const htmlContent = result.data?.[0]?.content || '';
+      
+      if (htmlContent) {
+        console.log(`📄 Got ${htmlContent.length} characters of HTML from /unblock`);
+        console.log(`🔍 HTML contains ".news-list-item": ${htmlContent.includes('news-list-item')}`);
+        console.log(`🔍 HTML contains "class=": ${htmlContent.includes('class=')}`);
+      }
+      
       return [];
     }
     
