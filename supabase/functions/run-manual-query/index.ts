@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { scrapeWithBrowserless, normalizeUrl } from "../_shared/browserless-service.ts";
+import { scrapeArticlesSimple } from "../_shared/simple-scraper.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -240,7 +240,7 @@ function isDateInRange(date: Date | null, dateFrom: Date, dateTo: Date): boolean
   return date >= dateFrom && date <= dateTo;
 }
 
-// Fetch articles using Browserless
+// Fetch articles using Browserless with frames-aware scraper
 async function fetchArticlesWithBrowserless(
   source: any,
   dateFrom: Date,
@@ -254,112 +254,37 @@ async function fetchArticlesWithBrowserless(
   }
 
   const config = source.parser_config.scrapeConfig;
+  const BROWSERLESS_API_KEY = Deno.env.get('BROWSERLESS_API_KEY')!;
 
-  // Build Browserless elements array from the new simple format
-  const browserlessConfig = {
-    elements: [
-      { selector: config.containerSelector },
-      { selector: config.titleSelector },
-      { selector: config.dateSelector },
-      { selector: config.linkSelector },
-      { selector: config.contentSelector }
-    ]
-  };
-
-  // Scrape the source URL
-  const scrapeResult = await scrapeWithBrowserless(source.url, browserlessConfig);
+  // Use the working frames-aware scraper
+  const articles = await scrapeArticlesSimple(source.url, config, BROWSERLESS_API_KEY);
   
-  console.log(`✅ Scraped ${scrapeResult.data.length} element groups`);
+  console.log(`✅ Found ${articles.length} articles from frames-aware scraper`);
 
-  // Transform Browserless results into article objects
-  // Elements are ordered: [0]=container, [1]=title, [2]=date, [3]=link, [4]=content
-  const articles: any[] = [];
-  
-  if (!scrapeResult.data || scrapeResult.data.length === 0) {
-    console.log('⚠️ No scrape results found');
-    return [];
-  }
-
-  const containerData = scrapeResult.data[0]; // First element is container
-  const titleData = scrapeResult.data[1];     // Second element is title
-  const dateData = scrapeResult.data[2];      // Third element is date
-  const linkData = scrapeResult.data[3];      // Fourth element is link
-  const contentData = scrapeResult.data[4];   // Fifth element is content
-
-  if (!containerData || !containerData.results || containerData.results.length === 0) {
-    console.log('⚠️ No container results found');
-    return [];
-  }
-
-  console.log(`📦 Found ${containerData.results.length} containers`);
-
-  // Process each container
-  for (let i = 0; i < containerData.results.length; i++) {
-    const container = containerData.results[i];
-    
-    // Extract title
-    const title = titleData?.results[i]?.text?.trim() || '';
-    
-    if (!title || title.length < 10) {
-      console.log(`⏭️ Skipping container ${i}: no valid title`);
-      continue;
-    }
-
-    // Extract date
-    const dateText = dateData?.results[i]?.text?.trim() || 
-                     dateData?.results[i]?.attributes?.find((a: any) => a.name === 'datetime')?.value || '';
-    const articleDate = parseDate(dateText);
-
-    // Filter by date range
-    if (!isDateInRange(articleDate, dateFrom, dateTo)) {
-      console.log(`⏭️ Skipping "${title}": outside date range`);
-      continue;
-    }
-
-    // Extract link
-    const href = linkData?.results[i]?.attributes?.find((a: any) => a.name === 'href')?.value || '';
-    const articleUrl = href ? normalizeUrl(href, source.url) : '';
-
-    // Extract content
-    const content = contentData?.results[i]?.html || container.html || '';
-    const contentMarkdown = htmlToMarkdown(content);
-
-    // Extract images from container HTML
-    const images: string[] = [];
-    const imgMatches = (container.html || content).matchAll(/<img[^>]+src=["']([^"']+)["']/gi);
-    for (const match of imgMatches) {
-      const imgUrl = normalizeUrl(match[1], source.url);
-      if (isValidImageUrl(imgUrl)) {
-        images.push(imgUrl);
+  // Filter by date range and transform to expected format
+  const filteredArticles = articles
+    .map(article => {
+      const articleDate = parseDate(article.date);
+      
+      if (!isDateInRange(articleDate, dateFrom, dateTo)) {
+        console.log(`⏭️ Skipping "${article.title}": outside date range`);
+        return null;
       }
-    }
-    
-    // Also check for background images if imageSelector is defined
-    if (config.imageSelector && container.html) {
-      const bgMatches = container.html.matchAll(/url\(['"]?([^'"]+)['"]?\)/gi);
-      for (const match of bgMatches) {
-        const imgUrl = normalizeUrl(match[1], source.url);
-        if (isValidImageUrl(imgUrl) && !imgUrl.startsWith('data:')) {
-          images.push(imgUrl);
-        }
-      }
-    }
 
-    articles.push({
-      title,
-      date: articleDate ? articleDate.toISOString() : null,
-      articleUrl,
-      content: contentMarkdown,
-      images,
-      sourceId: source.id,
-      sourceName: source.name
-    });
+      return {
+        title: article.title,
+        date: article.date,
+        articleUrl: article.url,
+        content: article.content || '',
+        images: article.imageUrl ? [article.imageUrl] : [],
+        sourceId: source.id,
+        sourceName: source.name
+      };
+    })
+    .filter(Boolean);
 
-    console.log(`✅ Article ${i + 1}: "${title}"`);
-  }
-
-  console.log(`\n✅ Extracted ${articles.length} articles from ${source.name}`);
-  return articles;
+  console.log(`📊 ${filteredArticles.length} articles in date range`);
+  return filteredArticles;
 }
 
 // Main handler
