@@ -811,52 +811,34 @@ export async function scrapeArticles(
   console.log(`\n📰 SCRAPING ARTICLES: ${url}`);
   console.log('='.repeat(60));
 
-  // Fetch full HTML and parse locally (using proven content endpoint method)
+  // Use /scrape endpoint with browser rendering and networkidle2 wait
   try {
-    const html = await fetchHTML(url);
-    console.log('✅ Fetched full HTML, parsing locally...');
-    
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    
-    if (!doc) {
-      throw new Error('Failed to parse HTML');
-    }
-
-    // Try to find containers using the configured selector
-    const containerElements = doc.querySelectorAll(config.containerSelector);
-    console.log(`🔍 Found ${containerElements.length} containers in HTML`);
-    
-    if (containerElements.length === 0) {
-      console.log('⚠️ No containers found with configured selector');
-      console.log(`🔍 Trying fallback selectors...`);
-      
-      // Try common article container patterns
-      const fallbackSelectors = [
-        'article',
-        '[class*="news"]',
-        '[class*="post"]',
-        '[class*="item"]',
-        '.card',
-      ];
-      
-      for (const fallbackSelector of fallbackSelectors) {
-        const els = doc.querySelectorAll(fallbackSelector);
-        if (els.length > 0) {
-          console.log(`✅ Found ${els.length} articles with fallback selector: ${fallbackSelector}`);
-          return await parseArticlesFromElements(Array.from(els) as Element[], url, config);
-        }
+    const elements: BrowserlessElement[] = [
+      { 
+        selector: config.containerSelector,
+        timeout: config.timeout || 30000
       }
-      
-      console.log('❌ No articles found with any selector');
-      return [];
+    ];
+
+    console.log(`🌐 Using /scrape endpoint with browser rendering`);
+    console.log(`🔍 Waiting for networkidle2 before querying: ${config.containerSelector}`);
+    
+    const results = await scrapeWithSelectors(url, elements);
+    const containers = results[0]?.results || [];
+
+    console.log(`📦 Found ${containers.length} containers after JavaScript execution`);
+
+    if (containers.length > 0) {
+      return await processContainers(containers, url, config);
     }
     
-    return await parseArticlesFromElements(Array.from(containerElements) as Element[], url, config);
-    
-  } catch (fallbackError) {
-    console.error('❌ Fallback scraping also failed:', fallbackError);
+    console.log('❌ No articles found with configured selector after browser render');
     return [];
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`❌ Browser-based scraping failed: ${errorMessage}`);
+    throw error;
   }
 }
 
