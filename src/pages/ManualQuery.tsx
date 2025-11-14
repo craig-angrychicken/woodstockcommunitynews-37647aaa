@@ -200,19 +200,57 @@ const ManualQuery = () => {
       // Store the history ID for potential cancellation
       setCurrentHistoryId(historyRecord.id);
 
-      // Call edge function
-      const { data, error } = await supabase.functions.invoke('scrape-articles', {
-        body: {
-          dateFrom: dateFrom.toISOString(),
-          dateTo: dateTo.toISOString(),
-          sourceIds: selectedSources,
-          environment,
-          promptVersionId,
-          runStages: 'manual',
-          queryHistoryId: historyRecord.id,
-          maxArticles
+      // Determine which sources are RSS feeds vs web scraping
+      const allSources = sources || [];
+      const selectedSourceData = allSources.filter(s => selectedSources.includes(s.id));
+      const rssSources = selectedSourceData.filter(s => s.type === 'RSS Feed').map(s => s.id);
+      const scrapeSources = selectedSourceData.filter(s => s.type !== 'RSS Feed').map(s => s.id);
+
+      let totalArtifacts = 0;
+
+      // Fetch RSS feeds first (if any)
+      if (rssSources.length > 0) {
+        console.log('📡 Fetching RSS feeds:', rssSources.length);
+        const { data: rssData, error: rssError } = await supabase.functions.invoke('fetch-rss-feeds', {
+          body: {
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
+            sourceIds: rssSources,
+            environment
+          }
+        });
+
+        if (rssError) {
+          console.error('RSS fetch error:', rssError);
+        } else {
+          totalArtifacts += rssData?.artifactsCreated || 0;
+          console.log('✅ RSS feeds fetched:', rssData?.artifactsCreated || 0, 'artifacts');
         }
-      });
+      }
+
+      // Scrape web sources (if any)
+      let scrapeData = null;
+      if (scrapeSources.length > 0) {
+        console.log('🕷️ Scraping web sources:', scrapeSources.length);
+        const { data, error } = await supabase.functions.invoke('scrape-articles', {
+          body: {
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
+            sourceIds: scrapeSources,
+            environment,
+            promptVersionId,
+            runStages: 'manual',
+            queryHistoryId: historyRecord.id,
+            maxArticles
+          }
+        });
+
+        if (error) throw error;
+        scrapeData = data;
+        totalArtifacts += data?.artifactsCreated || 0;
+      }
+
+      const { data, error } = { data: { ...scrapeData, totalArtifacts }, error: null };
 
       if (error) throw error;
       return data;
