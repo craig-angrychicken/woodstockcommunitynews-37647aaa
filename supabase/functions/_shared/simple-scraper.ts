@@ -60,44 +60,56 @@ export async function scrapeArticlesSimple(
   try {
     const BROWSERLESS_URL = 'https://production-sfo.browserless.io';
     
-    // Step 1: Use Browserless /scrape to match containers in REAL BROWSER
-    console.log(`🌐 Finding containers with Browserless /scrape in real Chromium...`);
-    console.log(`🔍 Container selector: ${config.containerSelector}`);
+    // Escape the URL and selector for safe injection into the function code
+    const escapedUrl = url.replace(/'/g, "\\'");
+    const escapedSelector = config.containerSelector.replace(/'/g, "\\'");
     
-    const scrapeResponse = await fetch(`${BROWSERLESS_URL}/scrape?token=${browserlessToken}`, {
+    // ONE call to /function - renders FIRST, queries AFTER
+    console.log(`🌐 Using Browserless /function: render page first, then query DOM`);
+    
+    const functionCode = `export default async function({ page }) {
+  // Step 1: Render the page FULLY
+  await page.goto('${escapedUrl}', { 
+    waitUntil: 'networkidle2',
+    timeout: 30000 
+  });
+  
+  // Step 2: Query the rendered DOM
+  const containers = await page.$$eval('${escapedSelector}', elements => {
+    return elements.map(el => ({
+      html: el.outerHTML,
+      text: el.textContent || ''
+    }));
+  });
+  
+  return containers;
+}`;
+    
+    const response = await fetch(`${BROWSERLESS_URL}/function?token=${browserlessToken}`, {
       method: 'POST',
       headers: {
-        'Cache-Control': 'no-cache',
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/javascript',
+        'Cache-Control': 'no-cache'
       },
-      body: JSON.stringify({
-        url,
-        elements: [{
-          selector: config.containerSelector,
-          timeout: 30000
-        }],
-        gotoOptions: {
-          waitUntil: 'networkidle2',
-          timeout: 30000
-        }
-      })
+      body: functionCode
     });
 
-    if (!scrapeResponse.ok) {
-      throw new Error(`Browserless /scrape failed: ${scrapeResponse.status} ${scrapeResponse.statusText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Browserless /function failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
-    const scrapeData = await scrapeResponse.json();
-    const containers = scrapeData.data?.[0]?.results || [];
+    const result = await response.json();
+    const containers = result.data || [];
     
-    console.log(`✅ Real browser matched ${containers.length} containers`);
+    console.log(`✅ Real browser found ${containers.length} containers after full render`);
 
     if (containers.length === 0) {
-      console.log(`⚠️ 0 containers matched selector '${config.containerSelector}' in real Chromium browser`);
+      console.log(`⚠️ 0 containers matched selector '${config.containerSelector}' in rendered page`);
       return [];
     }
 
-    // Step 2: Extract from each container HTML
+    // Step 3: Extract from each container HTML
     const articles: Article[] = [];
     
     for (let i = 0; i < containers.length; i++) {
