@@ -99,7 +99,7 @@ export async function scrapeArticlesSimple(
       if (c > 0) { found = c; break; }
     }
     
-    if (found === 0) await page.waitForTimeout(300);
+    if (found === 0) await new Promise(resolve => setTimeout(resolve, 300));
   }
   
   if (found === 0) {
