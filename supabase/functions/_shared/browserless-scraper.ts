@@ -882,8 +882,8 @@ export async function scrapeArticles(
             const elements = await frame.$$(selector);
             
             for (const element of elements) {
-              const html = await frame.evaluate(el => el.outerHTML, element);
-              const text = await frame.evaluate(el => el.textContent || '', element);
+              const html = await element.evaluate(el => el.outerHTML);
+              const text = await element.evaluate(el => el.textContent || '');
               
               containers.push({ html, text });
             }
