@@ -29,7 +29,8 @@ export function PreviewRenderedPageModal({
   const [matchCount, setMatchCount] = useState(0);
   const [highlightEnabled, setHighlightEnabled] = useState(false);
   const [iframes, setIframes] = useState<string[]>([]);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const renderIframeRef = useRef<HTMLIFrameElement>(null);
+  const selectorIframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -80,9 +81,12 @@ export function PreviewRenderedPageModal({
   };
 
   const checkSelector = () => {
-    if (!iframeRef.current?.contentDocument) return;
+    // Guard against empty selector
+    if (!selectorInput || !selectorInput.trim()) return;
+    
+    if (!selectorIframeRef.current?.contentDocument) return;
 
-    const doc = iframeRef.current.contentDocument;
+    const doc = selectorIframeRef.current.contentDocument;
     
     // Remove previous highlights
     doc.querySelectorAll('[data-lovable-highlight]').forEach(el => {
@@ -117,7 +121,7 @@ export function PreviewRenderedPageModal({
   };
 
   useEffect(() => {
-    if (selectorInput && iframeRef.current?.contentDocument) {
+    if (selectorInput && selectorIframeRef.current?.contentDocument) {
       checkSelector();
     }
   }, [selectorInput, highlightEnabled]);
@@ -177,10 +181,9 @@ export function PreviewRenderedPageModal({
 
             <TabsContent value="render" className="flex-1 mt-4">
               <iframe
-                ref={iframeRef}
+                ref={renderIframeRef}
                 src={proxiedUrl}
                 sandbox="allow-scripts allow-same-origin"
-                onLoad={checkSelector}
                 className="w-full h-full border rounded"
               />
             </TabsContent>
@@ -196,6 +199,9 @@ export function PreviewRenderedPageModal({
                   Download
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Showing rendered HTML after JavaScript execution
+              </p>
               <pre className="flex-1 overflow-auto bg-muted p-4 rounded text-xs">
                 {html}
               </pre>
@@ -247,7 +253,7 @@ export function PreviewRenderedPageModal({
 
               <div className="flex-1 border rounded">
                 <iframe
-                  ref={iframeRef}
+                  ref={selectorIframeRef}
                   src={proxiedUrl}
                   sandbox="allow-scripts allow-same-origin"
                   onLoad={checkSelector}
