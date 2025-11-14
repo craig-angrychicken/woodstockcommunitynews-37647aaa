@@ -1,5 +1,3 @@
-import { testConfiguration, ScrapeConfig as BLConfig } from './browserless-scraper.ts';
-
 interface ScrapeConfig {
   containerSelector: string;
   titleSelector: string;
@@ -17,6 +15,40 @@ interface Article {
   content?: string;
 }
 
+// Helper functions for extraction
+function extractText(html: string, selector: string): string {
+  const match = html.match(new RegExp(`<[^>]*class="[^"]*${selector.replace('.', '')}[^"]*"[^>]*>([^<]+)<`, 'i'));
+  if (match) return match[1].trim();
+  
+  const tagMatch = html.match(new RegExp(`<${selector}>([^<]+)</${selector}>`, 'i'));
+  return tagMatch ? tagMatch[1].trim() : '';
+}
+
+function extractHref(html: string): string | null {
+  const match = html.match(/href="([^"]+)"/i);
+  return match ? match[1] : null;
+}
+
+function extractSrc(html: string): string | null {
+  const match = html.match(/src="([^"]+)"/i);
+  return match ? match[1] : null;
+}
+
+function normalizeUrl(href: string, baseUrl: string): string {
+  try {
+    if (href.startsWith('http://') || href.startsWith('https://')) {
+      return href;
+    }
+    const base = new URL(baseUrl);
+    if (href.startsWith('/')) {
+      return `${base.protocol}//${base.host}${href}`;
+    }
+    return `${base.protocol}//${base.host}${base.pathname}${href}`;
+  } catch {
+    return href;
+  }
+}
+
 export async function scrapeArticlesSimple(
   url: string,
   config: ScrapeConfig,
@@ -25,23 +57,14 @@ export async function scrapeArticlesSimple(
   console.log(`\n📰 Scraping: ${url}`);
   console.log(`📍 Container Selector: ${config.containerSelector}`);
 
-  // Map to browserless-scraper config format
-  const blConfig: BLConfig = {
-    containerSelector: config.containerSelector,
-    titleSelector: config.titleSelector,
-    linkSelector: config.linkSelector,
-    dateSelector: config.dateSelector,
-    contentSelector: config.contentSelector || 'p',
-    imageSelector: config.imageSelector || 'img[src]',
-    timeout: 30000
-  };
-
   try {
-    // Step 1: Render HTML via Browserless /content (same as proxy-page)
     const BROWSERLESS_URL = 'https://production-sfo.browserless.io';
-    console.log(`🌐 Rendering page with Browserless /content API...`);
     
-    const response = await fetch(`${BROWSERLESS_URL}/content?token=${browserlessToken}`, {
+    // Step 1: Use Browserless /scrape to match containers in REAL BROWSER
+    console.log(`🌐 Finding containers with Browserless /scrape in real Chromium...`);
+    console.log(`🔍 Container selector: ${config.containerSelector}`);
+    
+    const scrapeResponse = await fetch(`${BROWSERLESS_URL}/scrape?token=${browserlessToken}`, {
       method: 'POST',
       headers: {
         'Cache-Control': 'no-cache',
@@ -49,6 +72,10 @@ export async function scrapeArticlesSimple(
       },
       body: JSON.stringify({
         url,
+        elements: [{
+          selector: config.containerSelector,
+          timeout: 30000
+        }],
         gotoOptions: {
           waitUntil: 'networkidle2',
           timeout: 30000
@@ -56,39 +83,64 @@ export async function scrapeArticlesSimple(
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`Browserless /content failed: ${response.status} ${response.statusText}`);
+    if (!scrapeResponse.ok) {
+      throw new Error(`Browserless /scrape failed: ${scrapeResponse.status} ${scrapeResponse.statusText}`);
     }
 
-    const renderedHtml = await response.text();
-    console.log(`✅ Rendered HTML length: ${renderedHtml.length}`);
-
-    // Step 2: Extract articles from rendered HTML using strict selectors
-    console.log(`🔍 Extracting with strict selector: ${config.containerSelector}`);
-    const { articles, diagnostics } = await testConfiguration(url, blConfig, renderedHtml);
+    const scrapeData = await scrapeResponse.json();
+    const containers = scrapeData.data?.[0]?.results || [];
     
-    console.log(`✅ Strict match found ${articles.length} articles`);
-    
-    if (diagnostics) {
-      console.log(`📊 Diagnostics:`, JSON.stringify(diagnostics, null, 2));
-    }
+    console.log(`✅ Real browser matched ${containers.length} containers`);
 
-    if (articles.length === 0) {
-      console.log(`⚠️ 0 containers matched selector '${config.containerSelector}' in rendered HTML`);
+    if (containers.length === 0) {
+      console.log(`⚠️ 0 containers matched selector '${config.containerSelector}' in real Chromium browser`);
       return [];
     }
 
-    // Step 3: Map to expected format
-    const mappedArticles: Article[] = articles.map(a => ({
-      title: a.title,
-      url: a.url,
-      date: a.date || '',
-      imageUrl: a.images?.[0] || undefined,
-      content: a.excerpt || a.content || undefined,
-    }));
+    // Step 2: Extract from each container HTML
+    const articles: Article[] = [];
+    
+    for (let i = 0; i < containers.length; i++) {
+      const containerHtml = containers[i].html || '';
+      
+      try {
+        // Extract title
+        const title = extractText(containerHtml, config.titleSelector) || 
+                     containerHtml.match(/<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i)?.[1]?.trim() || '';
+        
+        // Extract link
+        const href = extractHref(containerHtml);
+        
+        // Extract date
+        const date = extractText(containerHtml, config.dateSelector) || 
+                    containerHtml.match(/<time[^>]*>([^<]+)<\/time>/i)?.[1]?.trim() || '';
+        
+        // Extract content
+        const content = extractText(containerHtml, config.contentSelector || 'p') ||
+                       containerHtml.match(/<p[^>]*>([^<]+)<\/p>/i)?.[1]?.trim() || '';
+        
+        // Extract image
+        const imageSrc = extractSrc(containerHtml);
+        const imageUrl = imageSrc ? normalizeUrl(imageSrc, url) : undefined;
+        
+        if (title && title.length >= 5) {
+          articles.push({
+            title,
+            url: href ? normalizeUrl(href, url) : url,
+            date: date || '',
+            imageUrl,
+            content: content || ''
+          });
+        } else {
+          console.log(`⚠️ Container ${i} skipped: title too short or missing ("${title}")`);
+        }
+      } catch (err) {
+        console.log(`⚠️ Container ${i} extraction failed:`, err);
+      }
+    }
 
-    console.log(`\n✅ Successfully extracted ${mappedArticles.length} articles`);
-    return mappedArticles;
+    console.log(`\n✅ Successfully extracted ${articles.length} articles from ${containers.length} containers`);
+    return articles;
   } catch (error) {
     console.error(`❌ Error in scraping:`, error);
     throw error;
