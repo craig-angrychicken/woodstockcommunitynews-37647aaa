@@ -35,10 +35,10 @@ export async function scrapeArticlesSimple(
   
   console.log(`🔗 Will try Browserless URL: ${urlsToTry[0]}`);
   console.log(`📍 Container Selector: ${config.containerSelector}`);
-  console.log(`⏱️ Using /scrape endpoint with elements extraction`);
+  console.log(`⏱️ Using /content endpoint to fetch fully-rendered HTML`);
 
   let lastError: Error | null = null;
-  let containerResults: any[] = [];
+  let html = '';
 
   // Try each URL until one succeeds
   for (let i = 0; i < urlsToTry.length; i++) {
@@ -49,22 +49,19 @@ export async function scrapeArticlesSimple(
     }
 
     try {
-      const requestBody = {
-        url,
-        elements: [{ selector: config.containerSelector, timeout: 30000 }],
-        gotoOptions: {
-          waitUntil: 'networkidle2',
-          timeout: 60000
-        }
-      };
-
-      const response = await fetch(`${browserlessUrl}/scrape?token=${browserlessToken}`, {
+      const response = await fetch(`${browserlessUrl}/content?token=${browserlessToken}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache',
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          url,
+          gotoOptions: {
+            waitUntil: 'networkidle2',
+            timeout: 90000
+          }
+        }),
       });
 
       if (!response.ok) {
@@ -82,9 +79,18 @@ export async function scrapeArticlesSimple(
         throw new Error(`Browserless request failed: ${response.status} ${errorPreview}`);
       }
 
-      const result = await response.json();
-      containerResults = result?.data?.[0]?.results || [];
-      console.log(`✅ Found ${containerResults.length} article containers from ${browserlessUrl}`);
+      html = await response.text();
+      console.log(`✅ Retrieved HTML: ${html.length} characters from ${browserlessUrl}`);
+      
+      // Diagnostic: Check if selector appears in raw HTML
+      const selectorInHtml = html.includes(config.containerSelector.replace('.', '').replace('#', ''));
+      console.log(`🔍 Selector pattern "${config.containerSelector}" found in HTML: ${selectorInHtml}`);
+      
+      // Show snippet around where we expect containers
+      const snippetStart = Math.max(0, html.indexOf('news') - 200);
+      const snippetEnd = Math.min(html.length, snippetStart + 600);
+      console.log(`📄 HTML snippet:\n${html.substring(snippetStart, snippetEnd)}`);
+      
       break; // Success, exit retry loop
       
     } catch (error) {
@@ -101,21 +107,41 @@ export async function scrapeArticlesSimple(
     }
   }
 
-  if (containerResults.length === 0 && lastError) {
+  if (!html && lastError) {
     throw lastError;
   }
 
-  if (containerResults.length === 0) {
+  if (!html) {
+    console.log(`⚠️ No HTML retrieved`);
+    return [];
+  }
+
+  // Parse the full HTML locally with deno-dom
+  console.log(`\n🔍 Parsing HTML with deno-dom...`);
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  
+  if (!doc) {
+    console.log(`❌ DOMParser failed to parse HTML`);
+    return [];
+  }
+
+  // Find containers using querySelectorAll
+  const containerElements = doc.querySelectorAll(config.containerSelector);
+  console.log(`✅ Found ${containerElements.length} containers matching "${config.containerSelector}"`);
+
+  if (containerElements.length === 0) {
     console.log(`⚠️ No containers found with selector: ${config.containerSelector}`);
     return [];
   }
 
-  // Extract articles from each container
-  const parser = new DOMParser();
+  // Extract articles from each container (max 20)
   const articles: Article[] = [];
+  const containersToProcess = Array.from(containerElements).slice(0, 20);
   
-  for (const containerResult of containerResults) {
-    const fragDoc = parser.parseFromString(containerResult.html || '', 'text/html');
+  for (const containerEl of containersToProcess) {
+    const containerHtml = (containerEl as Element).outerHTML;
+    const fragDoc = parser.parseFromString(containerHtml, 'text/html');
     if (!fragDoc) continue;
     
     try {
