@@ -62,15 +62,32 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
       return;
     }
 
+    if (type === "RSS Feed" && !url.trim()) {
+      toast.error("RSS Feed sources require a URL");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
+      // For RSS feeds, set standard parser config
+      const config = type === "RSS Feed" ? {
+        feedType: "rss",
+        fieldMappings: {
+          titleField: "title",
+          linkField: "link",
+          dateField: "pubDate",
+          contentField: "description",
+          imageField: "enclosure.url"
+        }
+      } : parserConfig;
+
       const { error } = await supabase.from("sources").insert({
         name: name.trim(),
         url: url.trim() || null,
         type,
         status: "testing",
         items_fetched: 0,
-        parser_config: parserConfig,
+        parser_config: config,
       });
 
       if (error) throw error;
@@ -114,23 +131,30 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
                   id="url"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://example.com/feed"
+                  placeholder={type === "RSS Feed" ? "https://example.com/feed.xml" : "https://example.com/feed"}
                   type="url"
                   className="flex-1"
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleClickToTrain}
-                  disabled={!url.trim()}
-                >
-                  <MousePointer2 className="h-4 w-4 mr-2" />
-                  Click to Train
-                </Button>
+                {type !== "RSS Feed" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleClickToTrain}
+                    disabled={!url.trim()}
+                  >
+                    <MousePointer2 className="h-4 w-4 mr-2" />
+                    Click to Train
+                  </Button>
+                )}
               </div>
-              {parserConfig && (
+              {parserConfig && type !== "RSS Feed" && (
                 <div className="text-sm text-green-600 dark:text-green-400">
                   ✓ Configuration ready
+                </div>
+              )}
+              {type === "RSS Feed" && (
+                <div className="text-sm text-muted-foreground">
+                  Enter the full URL to your RSS or Atom feed
                 </div>
               )}
             </div>
@@ -142,6 +166,7 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
                 <SelectValue placeholder="Select source type" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="RSS Feed">RSS Feed</SelectItem>
                 <SelectItem value="Government">Government</SelectItem>
                 <SelectItem value="Schools">Schools</SelectItem>
                 <SelectItem value="Safety">Safety</SelectItem>
