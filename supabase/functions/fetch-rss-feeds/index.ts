@@ -283,11 +283,21 @@ function parseRSSFeed(xmlText: string): RSSFeed {
       const testTitle = extractTag(itemXml, 'title');
       const testPubDate = extractTag(itemXml, 'pubDate');
       const testPublished = extractTag(itemXml, 'published');
+      const testDescription = extractTag(itemXml, 'description');
+      const testContent = extractTag(itemXml, 'content');
+      const testSummary = extractTag(itemXml, 'summary');
+      const testEnclosureUrl = extractAttr(itemXml, 'enclosure', 'url');
+      const testMediaContentUrl = extractAttr(itemXml, 'media:content', 'url');
       
       console.log('🧪 Extraction test:');
       console.log(`  title: "${testTitle}"`);
       console.log(`  pubDate: "${testPubDate}"`);
       console.log(`  published: "${testPublished}"`);
+      console.log(`  description: "${testDescription.substring(0, 100)}${testDescription.length > 100 ? '...' : ''}"`);
+      console.log(`  content: "${testContent.substring(0, 100)}${testContent.length > 100 ? '...' : ''}"`);
+      console.log(`  summary: "${testSummary.substring(0, 100)}${testSummary.length > 100 ? '...' : ''}"`);
+      console.log(`  enclosure.url: "${testEnclosureUrl}"`);
+      console.log(`  media:content.url: "${testMediaContentUrl}"`);
       console.log('');
     }
     
