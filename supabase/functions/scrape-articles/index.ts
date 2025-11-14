@@ -82,14 +82,38 @@ serve(async (req) => {
               .eq('id', queryHistoryId);
           }
 
-          // Validate source has configuration
-          if (!source.parser_config?.scrapeConfig) {
-            console.log('⚠️ No scrape configuration found, skipping');
+          // Normalize config: handle both scrapeConfig nested and direct formats
+          const rawConfig = source.parser_config || {};
+          let config = rawConfig.scrapeConfig || rawConfig;
+
+          // If old format with elements array, map to new selector format
+          if (config.elements && Array.isArray(config.elements)) {
+            console.log('  📋 Converting old elements format to selector format');
+            const elementsMap = config.elements.reduce((acc: any, el: any) => {
+              acc[el.name] = el.selector;
+              return acc;
+            }, {});
+            
+            config = {
+              containerSelector: elementsMap.container || config.containerSelector,
+              titleSelector: elementsMap.title || config.titleSelector || 'h1, h2, h3, [class*="title"]',
+              dateSelector: elementsMap.date || config.dateSelector || 'time, .date, [datetime], [class*="date"]',
+              linkSelector: elementsMap.link || config.linkSelector || 'a[href]',
+              contentSelector: elementsMap.content || config.contentSelector || 'p, .excerpt, .description, [class*="content"]',
+              imageSelector: elementsMap.image || config.imageSelector || 'img[src], [style*="background"]',
+              timeout: config.timeout || 30000
+            };
+          }
+
+          // Validate we have a container selector
+          if (!config.containerSelector) {
+            console.log('⚠️ No container selector found in configuration, skipping');
+            console.log('  Config received:', JSON.stringify(rawConfig, null, 2));
             totalErrors++;
             continue;
           }
 
-          const config = source.parser_config.scrapeConfig;
+          console.log(`  ⏳ Waiting for container selector: ${config.containerSelector}`);
 
           // Scrape articles using simple scraper
           const articles = await scrapeArticlesSimple(source.url, config, browserlessToken);
