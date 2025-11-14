@@ -35,7 +35,7 @@ export async function scrapeArticlesSimple(
     }]
   };
 
-  const scrapeResponse = await scrapeWithBrowserless(url, browserlessConfig, browserlessToken);
+  const scrapeResponse = await scrapeWithBrowserless(url, browserlessConfig);
   
   // Extract container results from Browserless response
   const containerData = scrapeResponse.data.find(d => d.selector === config.containerSelector);
