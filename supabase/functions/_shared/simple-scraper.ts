@@ -64,17 +64,35 @@ export async function scrapeArticlesSimple(
     const escapedUrl = url.replace(/'/g, "\\'");
     const escapedSelector = config.containerSelector.replace(/'/g, "\\'");
     
-    // ONE call to /function - renders FIRST, queries AFTER
-    console.log(`🌐 Using Browserless /function: render page first, then query DOM`);
+    // ONE call to /function - renders FIRST, WAITS for selector, THEN queries
+    console.log(`🌐 Using Browserless /function: render page, wait for selector, then query DOM`);
+    console.log(`⏳ Waiting for container selector: ${config.containerSelector}`);
     
     const functionCode = `export default async function({ page }) {
-  // Step 1: Render the page FULLY
+  // Step 1: Set realistic browser environment
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+  await page.setViewport({ width: 1366, height: 768 });
+  
+  // Step 2: Render the page FULLY
   await page.goto('${escapedUrl}', { 
     waitUntil: 'networkidle2',
-    timeout: 30000 
+    timeout: 45000 
   });
   
-  // Step 2: Query the rendered DOM
+  // Step 3: WAIT for the container selector to actually exist and be visible
+  try {
+    await page.waitForSelector('${escapedSelector}', { 
+      timeout: 15000, 
+      visible: true 
+    });
+    // Small stabilization delay after selector appears
+    await page.waitForTimeout(300);
+  } catch (e) {
+    console.log('Selector not found after waiting:', e.message);
+    return [];
+  }
+  
+  // Step 4: Query the rendered DOM (only after selector exists)
   const containers = await page.$$eval('${escapedSelector}', elements => {
     return elements.map(el => ({
       html: el.outerHTML,
