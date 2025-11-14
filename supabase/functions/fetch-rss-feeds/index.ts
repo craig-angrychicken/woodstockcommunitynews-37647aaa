@@ -278,6 +278,17 @@ function parseRSSFeed(xmlText: string): RSSFeed {
       console.log('\n🔍 DEBUG: First item raw XML (first 500 chars):');
       console.log(itemXml.substring(0, 500));
       console.log('...\n');
+      
+      // Test extraction
+      const testTitle = extractTag(itemXml, 'title');
+      const testPubDate = extractTag(itemXml, 'pubDate');
+      const testPublished = extractTag(itemXml, 'published');
+      
+      console.log('🧪 Extraction test:');
+      console.log(`  title: "${testTitle}"`);
+      console.log(`  pubDate: "${testPubDate}"`);
+      console.log(`  published: "${testPublished}"`);
+      console.log('');
     }
     
     items.push({
