@@ -822,36 +822,52 @@ export async function scrapeArticles(
   console.log('='.repeat(60));
 
   try {
-    // Step 1: Get fully rendered HTML from Browserless (no selector filtering)
-    console.log(`🌐 Fetching fully rendered HTML from Browserless`);
-    const html = await fetchHTML(url);
-    console.log(`✅ Retrieved ${html.length} characters of HTML`);
+    // Use Browserless /scrape endpoint to extract elements server-side
+    console.log(`🌐 Using Browserless /scrape to extract: ${config.containerSelector}`);
     
-    // Step 2: Parse HTML locally
-    console.log(`🔍 Parsing HTML locally and searching for: ${config.containerSelector}`);
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    
-    if (!doc) {
-      throw new Error('Failed to parse HTML');
+    const response = await fetch(
+      `${BROWSERLESS_URL}/scrape?token=${BROWSERLESS_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          elements: [{
+            selector: config.containerSelector
+          }],
+          gotoOptions: {
+            waitUntil: 'networkidle2',
+            timeout: 45000
+          },
+          waitForTimeout: 15000
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Browserless /scrape error: ${response.statusText} - ${errorText}`);
     }
+
+    const result = await response.json();
+    const elements = result.data?.[0]?.results || [];
     
-    // Step 3: Find containers using the selector (locally, not in Browserless)
-    const elements = doc.querySelectorAll(config.containerSelector);
-    console.log(`📦 Found ${elements.length} containers matching "${config.containerSelector}"`);
+    console.log(`📦 Browserless found ${elements.length} elements matching "${config.containerSelector}"`);
     
     if (elements.length === 0) {
       console.log('❌ No articles found with configured selector');
       return [];
     }
     
-    // Step 4: Convert elements to the format processContainers expects
-    const containers = Array.from(elements).map((el) => ({
-      html: (el as Element).outerHTML || '',
-      text: (el as Element).textContent || '',
+    // Convert Browserless results to containers format
+    const containers = elements.map((el: any) => ({
+      html: el.html || '',
+      text: el.text || ''
     }));
     
-    // Step 5: Process containers (existing function handles the rest)
+    console.log(`✅ Converted ${containers.length} elements to containers`);
+    
+    // Process containers using existing function
     return await processContainers(containers, url, config);
     
   } catch (error) {
