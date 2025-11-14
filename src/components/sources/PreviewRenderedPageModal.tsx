@@ -23,6 +23,7 @@ export function PreviewRenderedPageModal({
   containerSelector,
 }: PreviewRenderedPageModalProps) {
   const [html, setHtml] = useState<string>("");
+  const [proxiedUrl, setProxiedUrl] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [selectorInput, setSelectorInput] = useState(containerSelector);
   const [matchCount, setMatchCount] = useState(0);
@@ -49,7 +50,18 @@ export function PreviewRenderedPageModal({
       });
 
       if (error) throw error;
+      
+      // Revoke previous blob URL if it exists
+      if (proxiedUrl) {
+        URL.revokeObjectURL(proxiedUrl);
+      }
+      
+      // Create blob URL for iframe
+      const blob = new Blob([data], { type: 'text/html' });
+      const newProxiedUrl = URL.createObjectURL(blob);
+      
       setHtml(data);
+      setProxiedUrl(newProxiedUrl);
     } catch (error) {
       console.error("Error fetching rendered page:", error);
       toast({
@@ -100,14 +112,26 @@ export function PreviewRenderedPageModal({
   };
 
   useEffect(() => {
-    if (html && iframeRef.current) {
-      // Wait for iframe to load
-      const timeout = setTimeout(() => {
-        checkSelector();
-      }, 500);
-      return () => clearTimeout(timeout);
+    if (selectorInput && iframeRef.current?.contentDocument) {
+      checkSelector();
     }
-  }, [html, selectorInput, highlightEnabled]);
+  }, [selectorInput, highlightEnabled]);
+
+  // Cleanup blob URL on unmount or modal close
+  useEffect(() => {
+    return () => {
+      if (proxiedUrl) {
+        URL.revokeObjectURL(proxiedUrl);
+      }
+    };
+  }, [proxiedUrl]);
+
+  useEffect(() => {
+    if (!open && proxiedUrl) {
+      URL.revokeObjectURL(proxiedUrl);
+      setProxiedUrl("");
+    }
+  }, [open]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(html);
@@ -149,8 +173,9 @@ export function PreviewRenderedPageModal({
             <TabsContent value="render" className="flex-1 mt-4">
               <iframe
                 ref={iframeRef}
-                srcDoc={html}
-                sandbox="allow-same-origin"
+                src={proxiedUrl}
+                sandbox="allow-scripts allow-same-origin"
+                onLoad={checkSelector}
                 className="w-full h-full border rounded"
               />
             </TabsContent>
@@ -218,8 +243,9 @@ export function PreviewRenderedPageModal({
               <div className="flex-1 border rounded">
                 <iframe
                   ref={iframeRef}
-                  srcDoc={html}
-                  sandbox="allow-same-origin"
+                  src={proxiedUrl}
+                  sandbox="allow-scripts allow-same-origin"
+                  onLoad={checkSelector}
                   className="w-full h-full"
                 />
               </div>
