@@ -66,6 +66,7 @@ export function PreviewRenderedPageModal({
       const blob = new Blob([html], { type: 'text/html' });
       const newProxiedUrl = URL.createObjectURL(blob);
       
+      // Store the original HTML (will be updated after iframe loads)
       setHtml(html);
       setProxiedUrl(newProxiedUrl);
     } catch (error) {
@@ -77,6 +78,15 @@ export function PreviewRenderedPageModal({
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Extract actual rendered HTML from iframe after load
+  const updateHtmlFromIframe = () => {
+    if (renderIframeRef.current?.contentDocument) {
+      const doc = renderIframeRef.current.contentDocument;
+      const fullHtml = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+      setHtml(fullHtml);
     }
   };
 
@@ -184,6 +194,7 @@ export function PreviewRenderedPageModal({
                 ref={renderIframeRef}
                 src={proxiedUrl}
                 sandbox="allow-scripts allow-same-origin"
+                onLoad={updateHtmlFromIframe}
                 className="w-full h-full border rounded"
               />
             </TabsContent>
