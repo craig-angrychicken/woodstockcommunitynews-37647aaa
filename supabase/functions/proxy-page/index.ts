@@ -13,36 +13,83 @@ const pageCache = new Map<string, { html: string; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 serve(async (req) => {
+  const requestStartTime = Date.now();
+  
   if (req.method === 'OPTIONS') {
+    console.log('📋 CORS preflight request received');
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
+    console.log('\n🚀 ========== PROXY-PAGE REQUEST START ==========');
+    console.log(`⏰ Timestamp: ${new Date().toISOString()}`);
+    
     const { url } = await req.json();
+    console.log(`🎯 Target URL: ${url}`);
 
     if (!url) {
+      console.error('❌ Validation failed: URL is required');
       throw new Error('URL is required');
     }
 
     if (!BROWSERLESS_API_KEY) {
+      console.error('❌ Configuration error: BROWSERLESS_API_KEY is not configured');
       throw new Error('BROWSERLESS_API_KEY is not configured');
     }
+    
+    console.log(`🔐 Browserless API key configured: ${BROWSERLESS_API_KEY.substring(0, 8)}...`);
+    console.log(`🌐 Browserless URL: ${BROWSERLESS_URL}`);
 
     // Check cache first
+    console.log('\n💾 Checking cache...');
+    const cacheCheckStart = Date.now();
     const cached = pageCache.get(url);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      console.log('✅ Returning cached page for:', url);
-      return new Response(JSON.stringify({ html: cached.html }), {
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-      });
+    const cacheCheckDuration = Date.now() - cacheCheckStart;
+    
+    console.log(`📊 Cache stats: ${pageCache.size} entries, check took ${cacheCheckDuration}ms`);
+    
+    if (cached) {
+      const cacheAge = Date.now() - cached.timestamp;
+      const cacheAgeSeconds = Math.floor(cacheAge / 1000);
+      const ttlRemaining = CACHE_TTL - cacheAge;
+      
+      console.log(`📦 Cache entry found for URL`);
+      console.log(`  - Age: ${cacheAgeSeconds}s`);
+      console.log(`  - TTL remaining: ${Math.floor(ttlRemaining / 1000)}s`);
+      console.log(`  - HTML length: ${cached.html.length} chars`);
+      
+      if (ttlRemaining > 0) {
+        const totalDuration = Date.now() - requestStartTime;
+        console.log(`✅ Returning cached page (total request time: ${totalDuration}ms)`);
+        console.log('========== REQUEST END (CACHE HIT) ==========\n');
+        
+        return new Response(JSON.stringify({ html: cached.html }), {
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        });
+      } else {
+        console.log('⏱️ Cache entry expired, will fetch fresh content');
+      }
+    } else {
+      console.log('❌ No cache entry found, will fetch from Browserless');
     }
 
-    console.log('🌐 Proxying and rendering URL with JavaScript:', url);
+    console.log('\n🌐 Starting Browserless fetch...');
 
     // Use Browserless to render the page with JavaScript
+    const browserlessStartTime = Date.now();
+    const browserlessPayload = {
+      url,
+      gotoOptions: {
+        waitUntil: 'networkidle2',
+        timeout: 30000
+      }
+    };
+    
+    console.log('📤 Browserless request payload:', JSON.stringify(browserlessPayload, null, 2));
+    
     const response = await fetch(
       `${BROWSERLESS_URL}/content?token=${BROWSERLESS_API_KEY}`,
       {
@@ -51,21 +98,23 @@ serve(async (req) => {
           'Cache-Control': 'no-cache',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          url,
-          gotoOptions: {
-            waitUntil: 'networkidle2',
-            timeout: 30000
-          }
-        })
+        body: JSON.stringify(browserlessPayload)
       }
     );
+    
+    const browserlessDuration = Date.now() - browserlessStartTime;
+    console.log(`⏱️ Browserless API call took: ${browserlessDuration}ms`);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ Browserless error:', response.status, errorText);
+      console.error('\n❌ BROWSERLESS API ERROR:');
+      console.error(`  - Status: ${response.status} ${response.statusText}`);
+      console.error(`  - Response body: ${errorText}`);
+      console.error(`  - Request duration: ${browserlessDuration}ms`);
+      console.error(`  - Target URL: ${url}`);
       
       if (response.status === 429) {
+        console.error('🚫 Rate limit hit - returning 429 to client');
         return new Response(
           JSON.stringify({ 
             error: 'Rate limit exceeded. Please wait a moment and try again.',
@@ -78,12 +127,20 @@ serve(async (req) => {
         );
       }
       
-      throw new Error(`Failed to render page: ${response.status}`);
+      throw new Error(`Failed to render page: ${response.status} - ${errorText}`);
     }
 
+    console.log('✅ Browserless API call successful');
+    console.log('\n📥 Processing response...');
+    const htmlFetchStart = Date.now();
     let html = await response.text();
-    console.log('✅ Page rendered with JavaScript, HTML length:', html.length);
+    const htmlFetchDuration = Date.now() - htmlFetchStart;
+    
+    console.log(`✅ HTML received and parsed: ${html.length} characters (took ${htmlFetchDuration}ms)`);
 
+    console.log('\n🔧 Starting HTML modification...');
+    const modificationStartTime = Date.now();
+    
     // Inject our container selector script at the end of the body
     const selectorScript = `
       <script>
@@ -376,14 +433,36 @@ serve(async (req) => {
     // Prevent navigation by making links point to #
     html = html.replace(/(<a[^>]+href=["'])(?!#|javascript:)/gi, '$1#" data-original-href="');
 
+    const modificationDuration = Date.now() - modificationStartTime;
+    console.log(`✅ HTML modification complete (took ${modificationDuration}ms)`);
+    console.log(`  - Script injection: complete`);
+    console.log(`  - Link modification: complete`);
+    console.log(`📏 Final HTML length: ${html.length} characters`);
+    
     // Cache the result
+    console.log('\n💾 Caching result...');
+    const cacheWriteStart = Date.now();
     pageCache.set(url, { html, timestamp: Date.now() });
     
     // Clean old cache entries (keep last 10 URLs)
     if (pageCache.size > 10) {
       const oldestKey = Array.from(pageCache.keys())[0];
       pageCache.delete(oldestKey);
+      console.log(`🧹 Cleaned oldest cache entry: ${oldestKey}`);
     }
+    
+    const cacheWriteDuration = Date.now() - cacheWriteStart;
+    console.log(`✅ Result cached (took ${cacheWriteDuration}ms)`);
+    console.log(`📊 Current cache size: ${pageCache.size} entries`);
+    
+    const totalDuration = Date.now() - requestStartTime;
+    console.log('\n📊 PERFORMANCE SUMMARY:');
+    console.log(`  - Browserless API: ${browserlessDuration}ms`);
+    console.log(`  - HTML fetch: ${htmlFetchDuration}ms`);
+    console.log(`  - HTML modification: ${modificationDuration}ms`);
+    console.log(`  - Cache write: ${cacheWriteDuration}ms`);
+    console.log(`  - Total request time: ${totalDuration}ms`);
+    console.log('========== REQUEST END (SUCCESS) ==========\n');
 
     return new Response(JSON.stringify({ html }), {
       headers: {
@@ -392,12 +471,29 @@ serve(async (req) => {
       },
     });
   } catch (error) {
-    console.error('Error proxying page:', error);
+    const totalDuration = Date.now() - requestStartTime;
+    console.error('\n💥 ========== ERROR OCCURRED ==========');
+    console.error(`❌ Error type: ${error instanceof Error ? error.constructor.name : typeof error}`);
+    console.error(`❌ Error message: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`❌ Time until error: ${totalDuration}ms`);
+    
+    if (error instanceof Error && error.stack) {
+      console.error('📚 Stack trace:');
+      console.error(error.stack);
+    }
+    
+    if (error instanceof Error && 'cause' in error && error.cause) {
+      console.error('🔗 Error cause:', error.cause);
+    }
+    
+    console.error('========== REQUEST END (ERROR) ==========\n');
+    
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ 
         error: errorMessage,
-        details: 'Failed to render page. Make sure BROWSERLESS_API_KEY is configured.'
+        details: 'Failed to render page. Make sure BROWSERLESS_API_KEY is configured.',
+        timestamp: new Date().toISOString()
       }),
       {
         status: 500,
