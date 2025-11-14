@@ -310,7 +310,7 @@ function parseRSSFeed(xmlText: string): RSSFeed {
 }
 
 function extractTag(xml: string, tagName: string): string {
-  const regex = new RegExp(`<${tagName}[^>]*>([\s\S]*?)<\/${tagName}>`, 'i');
+  const regex = new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i');
   const match = xml.match(regex);
   if (!match) return '';
   
