@@ -1,5 +1,5 @@
 import { DOMParser, Element } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { scrapeWithBrowserless } from './browserless-service.ts';
 
 interface ScrapeConfig {
   containerSelector: string;
@@ -23,68 +23,39 @@ export async function scrapeArticlesSimple(
   config: ScrapeConfig,
   browserlessToken: string
 ): Promise<Article[]> {
-  console.log(`\n📰 Fetching fully-rendered HTML from: ${url}`);
+  console.log(`\n📰 Scraping with Browserless live selector matching: ${url}`);
   console.log(`📍 Container Selector: ${config.containerSelector}`);
-  console.log(`⏱️ Using proxy-page function for rendering`);
+  console.log(`⏱️ Using Browserless /scrape API`);
 
-  // Create Supabase client to call proxy-page function
-  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  // Call Browserless scrape API to find containers in live browser context
+  const browserlessConfig = {
+    elements: [{ 
+      selector: config.containerSelector, 
+      timeout: 30000 
+    }]
+  };
 
-  // Call the proxy-page function to get rendered HTML
-  const { data, error } = await supabase.functions.invoke('proxy-page', {
-    body: { url }
-  });
-
-  if (error) {
-    console.error(`❌ Error calling proxy-page function:`, error);
-    throw new Error(`Failed to render page: ${error.message}`);
-  }
-
-  const html = data?.html || '';
-  if (!html) {
-    console.log(`⚠️ No HTML retrieved from proxy-page`);
-    return [];
-  }
-
-  console.log(`✅ Retrieved HTML: ${html.length} characters from proxy-page`);
+  const scrapeResponse = await scrapeWithBrowserless(url, browserlessConfig, browserlessToken);
   
-  // Diagnostic: Check if selector appears in raw HTML
-  const selectorInHtml = html.includes(config.containerSelector.replace('.', '').replace('#', ''));
-  console.log(`🔍 Selector pattern "${config.containerSelector}" found in HTML: ${selectorInHtml}`);
+  // Extract container results from Browserless response
+  const containerData = scrapeResponse.data.find(d => d.selector === config.containerSelector);
+  const containerResults = containerData?.results || [];
   
-  // Show snippet around where we expect containers
-  const snippetStart = Math.max(0, html.indexOf('news') - 200);
-  const snippetEnd = Math.min(html.length, snippetStart + 600);
-  console.log(`📄 HTML snippet:\n${html.substring(snippetStart, snippetEnd)}`);
+  console.log(`✅ Found ${containerResults.length} containers via Browserless live matching`);
 
-  // Parse the full HTML locally with deno-dom
-  console.log(`\n🔍 Parsing HTML with deno-dom...`);
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, 'text/html');
-  
-  if (!doc) {
-    console.log(`❌ DOMParser failed to parse HTML`);
-    return [];
-  }
-
-  // Find containers using querySelectorAll
-  const containerElements = doc.querySelectorAll(config.containerSelector);
-  console.log(`✅ Found ${containerElements.length} containers matching "${config.containerSelector}"`);
-
-  if (containerElements.length === 0) {
+  if (containerResults.length === 0) {
     console.log(`⚠️ No containers found with selector: ${config.containerSelector}`);
     return [];
   }
 
   // Extract articles from each container (max 20)
   const articles: Article[] = [];
-  const containersToProcess = Array.from(containerElements).slice(0, 20);
+  const containersToProcess = containerResults.slice(0, 20);
+  const parser = new DOMParser();
   
-  for (const containerEl of containersToProcess) {
-    const containerHtml = (containerEl as Element).outerHTML;
-    const fragDoc = parser.parseFromString(containerHtml, 'text/html');
+  for (const container of containersToProcess) {
+    // Parse each container's HTML snippet
+    const fragDoc = parser.parseFromString(container.html, 'text/html');
     if (!fragDoc) continue;
     
     try {
