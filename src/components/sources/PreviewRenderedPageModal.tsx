@@ -226,7 +226,7 @@ export function PreviewRenderedPageModal({
                 {renderedHtml ? 'Showing fully rendered HTML after JavaScript execution' : 'Loading rendered HTML...'}
               </p>
               <div className="flex-1 overflow-auto bg-muted p-4 rounded min-h-0">
-                <pre className="text-xs m-0">
+                <pre className="text-xs m-0 whitespace-pre-wrap break-words">
                   {renderedHtml || html}
                 </pre>
               </div>
