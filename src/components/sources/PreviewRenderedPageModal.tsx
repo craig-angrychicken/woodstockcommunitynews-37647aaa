@@ -211,8 +211,8 @@ export function PreviewRenderedPageModal({
               />
             </TabsContent>
 
-            <TabsContent value="html" className="flex-1 mt-4 flex flex-col gap-2">
-              <div className="flex gap-2">
+            <TabsContent value="html" className="flex-1 mt-4 flex flex-col gap-2 overflow-hidden">
+              <div className="flex gap-2 shrink-0">
                 <Button onClick={copyToClipboard} variant="outline" size="sm">
                   <Copy className="h-4 w-4 mr-2" />
                   Copy
@@ -222,12 +222,14 @@ export function PreviewRenderedPageModal({
                   Download
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground shrink-0">
                 {renderedHtml ? 'Showing fully rendered HTML after JavaScript execution' : 'Loading rendered HTML...'}
               </p>
-              <pre className="flex-1 overflow-auto bg-muted p-4 rounded text-xs">
-                {renderedHtml || html}
-              </pre>
+              <div className="flex-1 overflow-auto bg-muted p-4 rounded min-h-0">
+                <pre className="text-xs m-0">
+                  {renderedHtml || html}
+                </pre>
+              </div>
             </TabsContent>
 
             <TabsContent value="selector" className="flex-1 mt-4 flex flex-col gap-4">
