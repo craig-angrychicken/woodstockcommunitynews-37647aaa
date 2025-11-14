@@ -273,6 +273,13 @@ function parseRSSFeed(xmlText: string): RSSFeed {
   for (const match of matches) {
     const itemXml = match[1];
     
+    // DEBUG: Log first item's raw XML
+    if (items.length === 0) {
+      console.log('\n🔍 DEBUG: First item raw XML (first 500 chars):');
+      console.log(itemXml.substring(0, 500));
+      console.log('...\n');
+    }
+    
     items.push({
       title: extractTag(itemXml, 'title'),
       link: extractTag(itemXml, 'link') || extractAttr(itemXml, 'link', 'href'),
