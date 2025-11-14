@@ -822,67 +822,107 @@ export async function scrapeArticles(
   console.log('='.repeat(60));
 
   try {
-    // Use Browserless /unblock endpoint to bypass bot detection
-    console.log(`🌐 Using Browserless /unblock to extract: ${config.containerSelector}`);
+    // Use Browserless /function endpoint with custom Puppeteer code
+    console.log(`🌐 Using Browserless /function to extract: ${config.containerSelector}`);
+    
+    const puppeteerCode = `
+      export default async ({ page, context }) => {
+        // Set realistic user agent and viewport
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setViewport({ width: 1920, height: 1080 });
+        
+        // Navigate to the page
+        await page.goto('${url}', { 
+          waitUntil: 'networkidle2',
+          timeout: 60000 
+        });
+        
+        // Wait for selector across all frames with timeout
+        const selector = '${config.containerSelector}';
+        const maxWaitTime = 15000;
+        const startTime = Date.now();
+        
+        let elementsFound = false;
+        while (Date.now() - startTime < maxWaitTime && !elementsFound) {
+          // Check main frame
+          const mainFrameElements = await page.$$(selector);
+          if (mainFrameElements.length > 0) {
+            elementsFound = true;
+            break;
+          }
+          
+          // Check all frames
+          const frames = page.frames();
+          for (const frame of frames) {
+            try {
+              const frameElements = await frame.$$(selector);
+              if (frameElements.length > 0) {
+                elementsFound = true;
+                break;
+              }
+            } catch (e) {
+              // Frame might not be ready, continue
+            }
+          }
+          
+          if (!elementsFound) {
+            await page.waitForTimeout(500);
+          }
+        }
+        
+        // Extract elements from all frames
+        const containers = [];
+        const frames = [page.mainFrame(), ...page.frames()];
+        
+        for (const frame of frames) {
+          try {
+            const elements = await frame.$$(selector);
+            
+            for (const element of elements) {
+              const html = await frame.evaluate(el => el.outerHTML, element);
+              const text = await frame.evaluate(el => el.textContent || '', element);
+              
+              containers.push({ html, text });
+            }
+          } catch (e) {
+            // Frame might not be accessible
+          }
+        }
+        
+        return { containers };
+      };
+    `;
     
     const response = await fetch(
-      `${BROWSERLESS_URL}/unblock?token=${BROWSERLESS_API_KEY}`,
+      `${BROWSERLESS_URL}/function?token=${BROWSERLESS_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url,
-          elements: [{
-            selector: config.containerSelector
-          }],
-          gotoOptions: {
-            waitUntil: 'networkidle2',
-            timeout: 60000  // Increase to 60 seconds
-          },
-          waitForTimeout: 20000,  // Increase to 20 seconds
-          // /unblock specific options
-          stealth: true,
-          blockAds: true
+          code: puppeteerCode,
+          context: {}
         })
       }
     );
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`❌ Browserless /unblock error: ${response.statusText}`);
+      console.error(`❌ Browserless /function error: ${response.statusText}`);
       console.error(`Response: ${errorText}`);
-      throw new Error(`Browserless /unblock error: ${response.statusText} - ${errorText}`);
+      throw new Error(`Browserless /function error: ${response.statusText} - ${errorText}`);
     }
 
     const result = await response.json();
+    const containers = result.containers || [];
     
-    // /unblock returns elements in the same format as /scrape
-    const elements = result.data?.[0]?.results || [];
+    console.log(`📦 Browserless found ${containers.length} elements matching "${config.containerSelector}"`);
     
-    console.log(`📦 Browserless found ${elements.length} elements matching "${config.containerSelector}"`);
-    
-    if (elements.length === 0) {
-      console.log('⚠️ No articles found - checking HTML content');
-      
-      // Fallback: If no elements found, check the full HTML content
-      const htmlContent = result.data?.[0]?.content || '';
-      
-      if (htmlContent) {
-        console.log(`📄 Got ${htmlContent.length} characters of HTML from /unblock`);
-        console.log(`🔍 HTML contains ".news-list-item": ${htmlContent.includes('news-list-item')}`);
-        console.log(`🔍 HTML contains "class=": ${htmlContent.includes('class=')}`);
-      }
-      
+    if (containers.length === 0) {
+      console.log('⚠️ No articles found with configured selector');
       return [];
     }
     
-    // Convert Browserless results to containers format
-    const containers = elements.map((el: any) => ({
-      html: el.html || '',
-      text: el.text || ''
-    }));
-    
-    console.log(`✅ Converted ${containers.length} elements to containers`);
+    console.log(`✅ Processing ${containers.length} containers`);
     
     // Process containers using existing function
     return await processContainers(containers, url, config);
