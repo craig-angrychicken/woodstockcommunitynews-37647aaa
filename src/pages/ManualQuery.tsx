@@ -22,6 +22,7 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { TestBadge } from "@/components/ui/status-badge";
 import { Progress } from "@/components/ui/progress";
+import { PreviewRenderedPageModal } from "@/components/sources/PreviewRenderedPageModal";
 
 const ManualQuery = () => {
   const { toast } = useToast();
@@ -38,6 +39,8 @@ const ManualQuery = () => {
   const [maxArticles, setMaxArticles] = useState<number>(10);
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewSource, setPreviewSource] = useState<{ url: string; selector: string } | null>(null);
 
   // Fetch sources
   const { data: sources } = useQuery({
@@ -474,7 +477,7 @@ const ManualQuery = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Button variant="outline" size="sm" onClick={handleSelectAllSources}>
                   Select All
                 </Button>
@@ -484,6 +487,25 @@ const ManualQuery = () => {
                 <Button variant="outline" size="sm" onClick={handleSelectTestSources}>
                   Select Test
                 </Button>
+                {selectedSources.length === 1 && sources && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const source = sources.find(s => s.id === selectedSources[0]);
+                      if (source) {
+                        const config = source.parser_config as any;
+                        setPreviewSource({
+                          url: source.url,
+                          selector: config?.containerSelector || '',
+                        });
+                        setPreviewModalOpen(true);
+                      }
+                    }}
+                  >
+                    Preview Rendered Page
+                  </Button>
+                )}
               </div>
 
               <div className="grid md:grid-cols-2 gap-3">
@@ -667,6 +689,15 @@ const ManualQuery = () => {
           </Card>
         </div>
       </div>
+
+      {previewSource && (
+        <PreviewRenderedPageModal
+          open={previewModalOpen}
+          onOpenChange={setPreviewModalOpen}
+          url={previewSource.url}
+          containerSelector={previewSource.selector}
+        />
+      )}
     </div>
   );
 };
