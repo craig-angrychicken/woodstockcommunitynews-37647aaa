@@ -822,6 +822,36 @@ export async function scrapeArticles(
   console.log('='.repeat(60));
 
   try {
+    // STATIC-FIRST APPROACH: Use /content endpoint (same as Preview modal)
+    try {
+      console.log('🔍 Step 1: Trying static HTML parse via /content...');
+      const staticHtml = await fetchHTML(url);  // Same endpoint Preview modal uses
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(staticHtml, 'text/html');
+      
+      if (doc) {
+        const elements = Array.from(doc.querySelectorAll(config.containerSelector));
+        console.log(`  📦 Found ${elements.length} elements matching "${config.containerSelector}"`);
+        
+        if (elements.length > 0) {
+          console.log('  ✅ SUCCESS: Using static HTML (bypassing Puppeteer)');
+          const containers = elements
+            .filter((el): el is Element => el instanceof Element)
+            .map(el => ({
+              html: el.outerHTML,
+              text: el.textContent || ''
+            }));
+          return await processContainers(containers, url, config);
+        }
+        console.log('  ⚠️ Static parse found 0 elements, will try Puppeteer fallback...');
+      }
+    } catch (err) {
+      console.warn('  ⚠️ Static parse failed:', err);
+      console.log('  Falling back to Puppeteer...');
+    }
+
+    console.log('🔍 Step 2: Falling back to Puppeteer /function endpoint...');
+    
     // Use Browserless /function endpoint with custom Puppeteer code
     console.log(`🌐 Using Browserless /function to extract: ${config.containerSelector}`);
     
@@ -842,7 +872,7 @@ export async function scrapeArticles(
         
         // Wait for selector across all frames with timeout
         const selector = '${config.containerSelector}';
-        const maxWaitTime = 15000;
+        const maxWaitTime = 30000;  // Give Puppeteer more time if static fails
         const startTime = Date.now();
         
         let elementsFound = false;
