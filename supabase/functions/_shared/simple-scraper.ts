@@ -1,4 +1,5 @@
 import { DOMParser, Element } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
 interface ScrapeConfig {
   containerSelector: string;
@@ -23,98 +24,39 @@ export async function scrapeArticlesSimple(
   browserlessToken: string
 ): Promise<Article[]> {
   console.log(`\n📰 Fetching fully-rendered HTML from: ${url}`);
-
-  // Determine Browserless URLs to try (production-sfo preferred for stability)
-  const envUrl = Deno.env.get('BROWSERLESS_URL');
-  const DEFAULT_URLS = [
-    'https://production-sfo.browserless.io',
-    'https://chrome.browserless.io'
-  ];
-  
-  const urlsToTry = envUrl ? [envUrl, ...DEFAULT_URLS] : DEFAULT_URLS;
-  
-  console.log(`🔗 Will try Browserless URL: ${urlsToTry[0]}`);
   console.log(`📍 Container Selector: ${config.containerSelector}`);
-  console.log(`⏱️ Using /content endpoint to fetch fully-rendered HTML`);
+  console.log(`⏱️ Using proxy-page function for rendering`);
 
-  let lastError: Error | null = null;
-  let html = '';
+  // Create Supabase client to call proxy-page function
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Try each URL until one succeeds
-  for (let i = 0; i < urlsToTry.length; i++) {
-    const browserlessUrl = urlsToTry[i];
-    
-    if (i > 0) {
-      console.log(`🔄 Retrying with: ${browserlessUrl}`);
-    }
+  // Call the proxy-page function to get rendered HTML
+  const { data: html, error } = await supabase.functions.invoke('proxy-page', {
+    body: { url }
+  });
 
-    try {
-      const response = await fetch(`${browserlessUrl}/content?token=${browserlessToken}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-        },
-        body: JSON.stringify({
-          url,
-          gotoOptions: {
-            waitUntil: 'networkidle2',
-            timeout: 90000
-          }
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        const errorPreview = errorText.substring(0, 300);
-        console.error(`❌ Browserless ${response.status} from ${browserlessUrl}:`);
-        console.error(`   Response: ${errorPreview}`);
-        
-        // If this is retriable error and we have more URLs, continue to next
-        if (i < urlsToTry.length - 1 && [400, 401, 403, 500, 502, 503, 504].includes(response.status)) {
-          lastError = new Error(`Browserless ${response.status}: ${errorPreview}`);
-          continue;
-        }
-        
-        throw new Error(`Browserless request failed: ${response.status} ${errorPreview}`);
-      }
-
-      html = await response.text();
-      console.log(`✅ Retrieved HTML: ${html.length} characters from ${browserlessUrl}`);
-      
-      // Diagnostic: Check if selector appears in raw HTML
-      const selectorInHtml = html.includes(config.containerSelector.replace('.', '').replace('#', ''));
-      console.log(`🔍 Selector pattern "${config.containerSelector}" found in HTML: ${selectorInHtml}`);
-      
-      // Show snippet around where we expect containers
-      const snippetStart = Math.max(0, html.indexOf('news') - 200);
-      const snippetEnd = Math.min(html.length, snippetStart + 600);
-      console.log(`📄 HTML snippet:\n${html.substring(snippetStart, snippetEnd)}`);
-      
-      break; // Success, exit retry loop
-      
-    } catch (error) {
-      lastError = error as Error;
-      
-      // If we have more URLs to try, continue
-      if (i < urlsToTry.length - 1) {
-        console.log(`⚠️ Attempt failed: ${lastError.message}`);
-        continue;
-      }
-      
-      // No more URLs to try, throw the error
-      throw error;
-    }
-  }
-
-  if (!html && lastError) {
-    throw lastError;
+  if (error) {
+    console.error(`❌ Error calling proxy-page function:`, error);
+    throw new Error(`Failed to render page: ${error.message}`);
   }
 
   if (!html) {
-    console.log(`⚠️ No HTML retrieved`);
+    console.log(`⚠️ No HTML retrieved from proxy-page`);
     return [];
   }
+
+  console.log(`✅ Retrieved HTML: ${html.length} characters from proxy-page`);
+  
+  // Diagnostic: Check if selector appears in raw HTML
+  const selectorInHtml = html.includes(config.containerSelector.replace('.', '').replace('#', ''));
+  console.log(`🔍 Selector pattern "${config.containerSelector}" found in HTML: ${selectorInHtml}`);
+  
+  // Show snippet around where we expect containers
+  const snippetStart = Math.max(0, html.indexOf('news') - 200);
+  const snippetEnd = Math.min(html.length, snippetStart + 600);
+  console.log(`📄 HTML snippet:\n${html.substring(snippetStart, snippetEnd)}`);
 
   // Parse the full HTML locally with deno-dom
   console.log(`\n🔍 Parsing HTML with deno-dom...`);
