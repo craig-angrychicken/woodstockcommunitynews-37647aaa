@@ -813,33 +813,42 @@ export async function scrapeArticles(
   console.log(`\n📰 SCRAPING ARTICLES: ${url}`);
   console.log('='.repeat(60));
 
-  // Use /scrape endpoint with browser rendering and networkidle2 wait
   try {
-    const elements: BrowserlessElement[] = [
-      { 
-        selector: config.containerSelector,
-        timeout: config.timeout || 30000
-      }
-    ];
-
-    console.log(`🌐 Using /scrape endpoint with browser rendering`);
-    console.log(`🔍 Waiting for networkidle2 before querying: ${config.containerSelector}`);
+    // Step 1: Get fully rendered HTML from Browserless (no selector filtering)
+    console.log(`🌐 Fetching fully rendered HTML from Browserless`);
+    const html = await fetchHTML(url);
+    console.log(`✅ Retrieved ${html.length} characters of HTML`);
     
-    const results = await scrapeWithSelectors(url, elements);
-    const containers = results[0]?.results || [];
-
-    console.log(`📦 Found ${containers.length} containers after JavaScript execution`);
-
-    if (containers.length > 0) {
-      return await processContainers(containers, url, config);
+    // Step 2: Parse HTML locally
+    console.log(`🔍 Parsing HTML locally and searching for: ${config.containerSelector}`);
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    
+    if (!doc) {
+      throw new Error('Failed to parse HTML');
     }
     
-    console.log('❌ No articles found with configured selector after browser render');
-    return [];
+    // Step 3: Find containers using the selector (locally, not in Browserless)
+    const elements = doc.querySelectorAll(config.containerSelector);
+    console.log(`📦 Found ${elements.length} containers matching "${config.containerSelector}"`);
+    
+    if (elements.length === 0) {
+      console.log('❌ No articles found with configured selector');
+      return [];
+    }
+    
+    // Step 4: Convert elements to the format processContainers expects
+    const containers = Array.from(elements).map((el) => ({
+      html: (el as Element).outerHTML || '',
+      text: (el as Element).textContent || '',
+    }));
+    
+    // Step 5: Process containers (existing function handles the rest)
+    return await processContainers(containers, url, config);
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`❌ Browser-based scraping failed: ${errorMessage}`);
+    console.error(`❌ Scraping failed: ${errorMessage}`);
     throw error;
   }
 }
