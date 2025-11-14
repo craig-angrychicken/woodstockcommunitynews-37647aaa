@@ -106,11 +106,25 @@ Deno.serve(async (req) => {
         console.log(`📦 Found ${items.length} items in feed`);
 
         // Filter by date range
-        const filteredItems = items.filter(item => {
-          const itemDate = parseDate(item.pubDate || item.published);
-          if (!itemDate) return false;
+        console.log(`📅 Filtering items by date range...`);
+        console.log(`   From: ${new Date(dateFromTime).toISOString()}`);
+        console.log(`   To: ${new Date(dateToTime).toISOString()}`);
+        
+        const filteredItems = items.filter((item, idx) => {
+          const dateStr = item.pubDate || item.published;
+          console.log(`   Item ${idx + 1}: pubDate="${dateStr}"`);
+          
+          const itemDate = parseDate(dateStr);
+          if (!itemDate) {
+            console.log(`     ❌ Date parse failed`);
+            return false;
+          }
+          
+          console.log(`     ✓ Parsed as: ${itemDate.toISOString()}`);
           const itemTime = itemDate.getTime();
-          return itemTime >= dateFromTime && itemTime <= dateToTime;
+          const inRange = itemTime >= dateFromTime && itemTime <= dateToTime;
+          console.log(`     ${inRange ? '✅' : '❌'} In range: ${inRange}`);
+          return inRange;
         });
 
         console.log(`✅ ${filteredItems.length} items in date range`);
