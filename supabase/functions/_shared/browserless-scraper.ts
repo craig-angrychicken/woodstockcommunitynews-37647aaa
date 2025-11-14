@@ -106,7 +106,16 @@ async function fetchHTML(url: string): Promise<string> {
   const hasClassAttributes = html.includes('class=');
   console.log(`🔍 HTML contains "news-list-item": ${hasNewsItems}`);
   console.log(`🔍 HTML contains class attributes: ${hasClassAttributes}`);
-  console.log(`📋 First 2000 characters of HTML:`, html.substring(0, 2000));
+  
+  // Show context around "news-list-item" occurrences
+  if (hasNewsItems) {
+    const index = html.indexOf('news-list-item');
+    if (index !== -1) {
+      const start = Math.max(0, index - 120);
+      const end = Math.min(html.length, index + 120);
+      console.log(`📋 Context around "news-list-item":`, html.substring(start, end));
+    }
+  }
   
   return html;
 }
@@ -830,20 +839,32 @@ export async function scrapeArticles(
       const doc = parser.parseFromString(staticHtml, 'text/html');
       
       if (doc) {
-        const elements = Array.from(doc.querySelectorAll(config.containerSelector));
+        const elements = Array.from(doc.querySelectorAll(config.containerSelector))
+          .filter((el): el is Element => el instanceof Element);
         console.log(`  📦 Found ${elements.length} elements matching "${config.containerSelector}"`);
         
         if (elements.length > 0) {
-          console.log('  ✅ SUCCESS: Using static HTML (bypassing Puppeteer)');
-          const containers = elements
-            .filter((el): el is Element => el instanceof Element)
-            .map(el => ({
-              html: el.outerHTML,
-              text: el.textContent || ''
-            }));
-          return await processContainers(containers, url, config);
+          console.log('  ✅ Static path with provided selector - using config-driven parsing');
+          return await parseArticlesFromElements(elements, url, config);
         }
-        console.log('  ⚠️ Static parse found 0 elements, will try Puppeteer fallback...');
+        
+        // Fallback: Try auto-detection
+        console.log('  ⚠️ Static parse found 0 with provided selector, trying auto-detection...');
+        const analysisResult = await detectArticleSelectors(staticHtml);
+        
+        if (analysisResult && analysisResult.containerSelector !== config.containerSelector) {
+          console.log(`  🔍 Detected alternative selector: "${analysisResult.containerSelector}"`);
+          const detectedElements = Array.from(doc.querySelectorAll(analysisResult.containerSelector))
+            .filter((el): el is Element => el instanceof Element);
+          console.log(`  📦 Found ${detectedElements.length} elements with detected selector`);
+          
+          if (detectedElements.length > 0) {
+            console.log('  ✅ Static path with detected selector - using detected config');
+            return await parseArticlesFromElements(detectedElements, url, analysisResult);
+          }
+        }
+        
+        console.log('  ⚠️ Static parse found 0 elements even with auto-detection');
       }
     } catch (err) {
       console.warn('  ⚠️ Static parse failed:', err);
@@ -906,10 +927,17 @@ export async function scrapeArticles(
         // Extract elements from all frames
         const containers = [];
         const frames = [page.mainFrame(), ...page.frames()];
+        let finalMainCount = 0;
+        let finalFrameCount = 0;
         
         for (const frame of frames) {
           try {
             const elements = await frame.$$(selector);
+            if (frame === page.mainFrame()) {
+              finalMainCount = elements.length;
+            } else {
+              finalFrameCount += elements.length;
+            }
             
             for (const element of elements) {
               const html = await element.evaluate(el => el.outerHTML);
@@ -922,7 +950,7 @@ export async function scrapeArticles(
           }
         }
         
-        return { containers };
+        return { containers, finalMainCount, finalFrameCount };
       };
     `;
     
@@ -947,15 +975,18 @@ export async function scrapeArticles(
 
     const result = await response.json();
     const containers = result.containers || [];
+    const finalMainCount = result.finalMainCount || 0;
+    const finalFrameCount = result.finalFrameCount || 0;
     
-    console.log(`📦 Browserless found ${containers.length} elements matching "${config.containerSelector}"`);
+    console.log(`📦 Puppeteer found: ${finalMainCount} in main frame, ${finalFrameCount} in iframes`);
+    console.log(`📦 Total containers extracted: ${containers.length}`);
     
     if (containers.length === 0) {
-      console.log('⚠️ No articles found with configured selector');
+      console.log('⚠️ Falling back to Puppeteer - found 0 articles');
       return [];
     }
     
-    console.log(`✅ Processing ${containers.length} containers`);
+    console.log('  ✅ Falling back to Puppeteer - processing containers');
     
     // Process containers using existing function
     return await processContainers(containers, url, config);
