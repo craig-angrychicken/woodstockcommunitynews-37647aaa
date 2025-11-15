@@ -74,6 +74,10 @@ export const TestSourceCard = ({
 
       if (error) throw error;
 
+      console.log('📦 Raw edge function response:', JSON.stringify(data, null, 2));
+      console.log('🔍 Analysis object:', data?.analysis);
+      console.log('⚙️ SuggestedConfig:', data?.analysis?.suggestedConfig);
+      
       setAnalysisResult(data);
       
       if (data.success) {
