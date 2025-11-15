@@ -339,10 +339,26 @@ function parseDate(dateStr: string | undefined): Date | null {
 }
 
 function extractImageUrl(item: RSSItem): string | null {
-  return item.enclosure?.url || 
-         item['media:content']?.url || 
-         item.image?.url || 
-         null;
+  const rawImageUrl = item.enclosure?.url || 
+                      item['media:content']?.url || 
+                      item.image?.url || 
+                      null;
+  
+  if (!rawImageUrl) {
+    return null;
+  }
+  
+  // Properly encode the URL to handle spaces and special characters
+  try {
+    const url = new URL(rawImageUrl);
+    // Reconstruct URL with encoded pathname
+    const encodedUrl = `${url.protocol}//${url.host}${encodeURI(url.pathname)}${url.search}${url.hash}`;
+    console.log(`📸 Found and encoded image: ${encodedUrl}`);
+    return encodedUrl;
+  } catch (error) {
+    console.error(`❌ Invalid image URL: ${rawImageUrl}`, error);
+    return null;
+  }
 }
 
 function cleanText(text: string): string {
