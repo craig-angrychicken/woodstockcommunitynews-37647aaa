@@ -8,40 +8,38 @@ import { InteractiveSelectorModal } from "./InteractiveSelectorModal";
 
 interface AnalysisResult {
   success: boolean;
-  analysis?: {
-    feedType?: string;
-    suggestedConfig?: {
-      feedType: string;
-      fieldMappings: {
-        titleField: string;
-        linkField: string;
-        dateField: string;
-        contentField: string;
-        imageFields: string[];
-      };
+  feedType?: string;
+  suggestedConfig?: {
+    feedType: string;
+    fieldMappings: {
+      titleField: string;
+      linkField: string;
+      dateField: string;
+      contentField: string;
+      imageFields: string[];
     };
-    suggestedSelectors?: {
-      elements: Array<{
-        selector: string;
-        name?: string;
-        timeout?: number;
-      }>;
-      gotoOptions?: {
-        waitUntil?: string;
-        timeout?: number;
-      };
-    };
-    sampleArticles: Array<{
-      title: string;
-      date: string;
-      link: string;
-      excerpt?: string;
-      content?: string;
-      images?: string[];
-    }>;
-    confidence: number;
-    recommendedParser?: string;
   };
+  suggestedSelectors?: {
+    elements: Array<{
+      selector: string;
+      name?: string;
+      timeout?: number;
+    }>;
+    gotoOptions?: {
+      waitUntil?: string;
+      timeout?: number;
+    };
+  };
+  sampleArticles?: Array<{
+    title: string;
+    date: string;
+    link: string;
+    excerpt?: string;
+    content?: string;
+    images?: string[];
+  }>;
+  confidence?: number;
+  recommendedParser?: string;
   error?: string;
 }
 
@@ -71,19 +69,19 @@ export const SourceAnalysisModal = ({
   };
 
   const handleSaveConfig = () => {
-    if (analysisResult?.analysis && onSaveConfig) {
-      console.log('📊 Analysis Result:', JSON.stringify(analysisResult.analysis, null, 2));
-      if (analysisResult.analysis.suggestedConfig) {
-        onSaveConfig({ ...analysisResult.analysis.suggestedConfig, confidence: analysisResult.analysis.confidence });
-      } else if (analysisResult.analysis.suggestedSelectors) {
-        onSaveConfig({ scrapeConfig: analysisResult.analysis.suggestedSelectors, confidence: analysisResult.analysis.confidence });
+    if (analysisResult && onSaveConfig) {
+      console.log('📊 Analysis Result:', JSON.stringify(analysisResult, null, 2));
+      if (analysisResult.suggestedConfig) {
+        onSaveConfig({ ...analysisResult.suggestedConfig, confidence: analysisResult.confidence });
+      } else if (analysisResult.suggestedSelectors) {
+        onSaveConfig({ scrapeConfig: analysisResult.suggestedSelectors, confidence: analysisResult.confidence });
       }
       onOpenChange(false);
     }
   };
 
   const getSelector = (name: string) => {
-    return analysisResult?.analysis?.suggestedSelectors?.elements.find(el => el.name === name)?.selector || 'N/A';
+    return analysisResult?.suggestedSelectors?.elements.find(el => el.name === name)?.selector || 'N/A';
   };
 
   return (
@@ -108,13 +106,13 @@ export const SourceAnalysisModal = ({
             </Alert>
           )}
 
-          {!isAnalyzing && analysisResult?.success && analysisResult.analysis && (
+          {!isAnalyzing && analysisResult?.success && (
             <div className="space-y-6">
               {/* Debug info */}
               <div className="text-xs text-muted-foreground p-2 bg-muted rounded">
-                Debug: confidence={analysisResult.analysis.confidence}, 
-                hasConfig={!!analysisResult.analysis.suggestedConfig},
-                feedType={analysisResult.analysis.feedType}
+                Debug: confidence={analysisResult.confidence}, 
+                hasConfig={!!analysisResult.suggestedConfig},
+                feedType={analysisResult.feedType}
               </div>
 
               <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
@@ -122,28 +120,28 @@ export const SourceAnalysisModal = ({
                   <h3 className="font-semibold">Confidence Score</h3>
                   <p className="text-sm text-muted-foreground">How likely this configuration will work</p>
                 </div>
-                {analysisResult.analysis.confidence !== undefined && getConfidenceBadge(analysisResult.analysis.confidence)}
+                {analysisResult.confidence !== undefined && getConfidenceBadge(analysisResult.confidence)}
               </div>
 
-              {analysisResult.analysis.feedType && (
+              {analysisResult.feedType && (
                 <div>
                   <h3 className="font-semibold mb-2">Feed Type</h3>
-                  <Badge variant="outline" className="text-base px-3 py-1">{analysisResult.analysis.feedType.toUpperCase()}</Badge>
+                  <Badge variant="outline" className="text-base px-3 py-1">{analysisResult.feedType.toUpperCase()}</Badge>
                 </div>
               )}
 
-              {analysisResult.analysis.recommendedParser && (
+              {analysisResult.recommendedParser && (
                 <div>
                   <h3 className="font-semibold mb-2">Recommended Parser</h3>
-                  <Badge variant="outline" className="text-base px-3 py-1">{analysisResult.analysis.recommendedParser}</Badge>
+                  <Badge variant="outline" className="text-base px-3 py-1">{analysisResult.recommendedParser}</Badge>
                 </div>
               )}
 
-              {analysisResult.analysis.suggestedConfig && analysisResult.analysis.suggestedConfig.fieldMappings && (
+              {analysisResult.suggestedConfig && analysisResult.suggestedConfig.fieldMappings && (
                 <div>
                   <h3 className="font-semibold mb-3">Field Mappings</h3>
                   <div className="space-y-2 text-sm">
-                    {Object.entries(analysisResult.analysis.suggestedConfig.fieldMappings).map(([key, value]) => (
+                    {Object.entries(analysisResult.suggestedConfig.fieldMappings).map(([key, value]) => (
                       <div key={key} className="flex flex-col sm:flex-row sm:justify-between items-start gap-2 sm:gap-4">
                         <span className="text-muted-foreground capitalize font-medium min-w-[120px]">
                           {key.replace(/([A-Z])/g, ' $1').replace(/Field$/, '')}:
@@ -163,7 +161,7 @@ export const SourceAnalysisModal = ({
                 </div>
               )}
 
-              {analysisResult.analysis.suggestedSelectors && (
+              {analysisResult.suggestedSelectors && (
                 <div>
                   <h3 className="font-semibold mb-3">Detected CSS Selectors</h3>
                   <div className="space-y-2">
@@ -180,7 +178,7 @@ export const SourceAnalysisModal = ({
               <div>
                 <h3 className="font-semibold mb-3">Sample Articles</h3>
                 <div className="space-y-3">
-                  {analysisResult.analysis.sampleArticles.map((article, idx) => (
+                  {analysisResult.sampleArticles && analysisResult.sampleArticles.map((article, idx) => (
                     <div key={idx} className="p-3 bg-muted rounded-lg space-y-1">
                       <h4 className="font-medium text-sm">{article.title}</h4>
                       <p className="text-xs text-muted-foreground">{article.date}</p>
