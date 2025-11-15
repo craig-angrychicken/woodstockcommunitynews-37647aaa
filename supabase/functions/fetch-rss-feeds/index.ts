@@ -133,6 +133,23 @@ Deno.serve(async (req) => {
         for (const item of filteredItems) {
           const itemDate = parseDate(item.pubDate || item.published);
           const imageUrl = extractImageUrl(item);
+          let articleContent = cleanText(item.description || item.content || item.summary || '');
+          
+          // If no content from RSS, fetch full article HTML
+          if (!articleContent && item.link) {
+            console.log(`📰 Fetching full article: ${item.title}`);
+            console.log(`   URL: ${item.link}`);
+            
+            try {
+              const html = await fetchArticleHTML(item.link);
+              articleContent = extractContentFromHTML(html);
+              console.log(`   ✅ Extracted ${articleContent.length} characters`);
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+              console.error(`   ❌ Failed to fetch article:`, errorMsg);
+              articleContent = ''; // Fallback to empty if fetch fails
+            }
+          }
 
           const { error: insertError } = await supabase
             .from('artifacts')
@@ -141,7 +158,7 @@ Deno.serve(async (req) => {
               title: cleanText(item.title || 'Untitled'),
               name: cleanText(item.title || 'Untitled'),
               url: item.link || item.id,
-              content: cleanText(item.description || item.content || item.summary || ''),
+              content: articleContent,
               hero_image_url: imageUrl,
               date: itemDate?.toISOString() || new Date().toISOString(),
               type: 'article',
@@ -273,34 +290,6 @@ function parseRSSFeed(xmlText: string): RSSFeed {
   for (const match of matches) {
     const itemXml = match[1];
     
-    // DEBUG: Log first item's raw XML
-    if (items.length === 0) {
-      console.log('\n🔍 DEBUG: First item raw XML (first 500 chars):');
-      console.log(itemXml.substring(0, 500));
-      console.log('...\n');
-      
-      // Test extraction
-      const testTitle = extractTag(itemXml, 'title');
-      const testPubDate = extractTag(itemXml, 'pubDate');
-      const testPublished = extractTag(itemXml, 'published');
-      const testDescription = extractTag(itemXml, 'description');
-      const testContent = extractTag(itemXml, 'content');
-      const testSummary = extractTag(itemXml, 'summary');
-      const testEnclosureUrl = extractAttr(itemXml, 'enclosure', 'url');
-      const testMediaContentUrl = extractAttr(itemXml, 'media:content', 'url');
-      
-      console.log('🧪 Extraction test:');
-      console.log(`  title: "${testTitle}"`);
-      console.log(`  pubDate: "${testPubDate}"`);
-      console.log(`  published: "${testPublished}"`);
-      console.log(`  description: "${testDescription.substring(0, 100)}${testDescription.length > 100 ? '...' : ''}"`);
-      console.log(`  content: "${testContent.substring(0, 100)}${testContent.length > 100 ? '...' : ''}"`);
-      console.log(`  summary: "${testSummary.substring(0, 100)}${testSummary.length > 100 ? '...' : ''}"`);
-      console.log(`  enclosure.url: "${testEnclosureUrl}"`);
-      console.log(`  media:content.url: "${testMediaContentUrl}"`);
-      console.log('');
-    }
-    
     items.push({
       title: extractTag(itemXml, 'title'),
       link: extractTag(itemXml, 'link') || extractAttr(itemXml, 'link', 'href'),
@@ -365,4 +354,55 @@ function cleanText(text: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .trim();
+}
+
+/**
+ * Fetch HTML content from a URL using native fetch
+ */
+async function fetchArticleHTML(url: string): Promise<string> {
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; RSSBot/1.0)',
+    },
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  
+  return await response.text();
+}
+
+/**
+ * Extract readable content from HTML
+ */
+function extractContentFromHTML(html: string): string {
+  // Remove script and style tags with their content
+  let cleaned = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+  cleaned = cleaned.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+  
+  // Remove HTML comments
+  cleaned = cleaned.replace(/<!--[\s\S]*?-->/g, '');
+  
+  // Remove all HTML tags
+  cleaned = cleaned.replace(/<[^>]+>/g, ' ');
+  
+  // Decode HTML entities
+  cleaned = cleaned.replace(/&nbsp;/g, ' ');
+  cleaned = cleaned.replace(/&amp;/g, '&');
+  cleaned = cleaned.replace(/&lt;/g, '<');
+  cleaned = cleaned.replace(/&gt;/g, '>');
+  cleaned = cleaned.replace(/&quot;/g, '"');
+  cleaned = cleaned.replace(/&#39;/g, "'");
+  cleaned = cleaned.replace(/&apos;/g, "'");
+  
+  // Clean up whitespace
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  
+  // Limit to reasonable length (5000 characters)
+  if (cleaned.length > 5000) {
+    cleaned = cleaned.substring(0, 5000) + '...';
+  }
+  
+  return cleaned;
 }
