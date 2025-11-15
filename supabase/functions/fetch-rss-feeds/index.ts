@@ -374,35 +374,78 @@ async function fetchArticleHTML(url: string): Promise<string> {
 }
 
 /**
- * Extract readable content from HTML
+ * Extract readable content from HTML, focusing on main article content
  */
 function extractContentFromHTML(html: string): string {
   // Remove script and style tags with their content
-  let cleaned = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-  cleaned = cleaned.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+  let content = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+  content = content.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
   
   // Remove HTML comments
-  cleaned = cleaned.replace(/<!--[\s\S]*?-->/g, '');
+  content = content.replace(/<!--[\s\S]*?-->/g, '');
   
-  // Remove all HTML tags
-  cleaned = cleaned.replace(/<[^>]+>/g, ' ');
+  // Try to extract main content area (article, main, or common content containers)
+  const articleMatch = content.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
+  const mainMatch = content.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+  const contentMatch = content.match(/<div[^>]*class="[^"]*(?:content|article|post|entry)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
   
-  // Decode HTML entities
-  cleaned = cleaned.replace(/&nbsp;/g, ' ');
-  cleaned = cleaned.replace(/&amp;/g, '&');
-  cleaned = cleaned.replace(/&lt;/g, '<');
-  cleaned = cleaned.replace(/&gt;/g, '>');
-  cleaned = cleaned.replace(/&quot;/g, '"');
-  cleaned = cleaned.replace(/&#39;/g, "'");
-  cleaned = cleaned.replace(/&apos;/g, "'");
-  
-  // Clean up whitespace
-  cleaned = cleaned.replace(/\s+/g, ' ').trim();
-  
-  // Limit to reasonable length (5000 characters)
-  if (cleaned.length > 5000) {
-    cleaned = cleaned.substring(0, 5000) + '...';
+  // Use the first match found, or fall back to full HTML
+  if (articleMatch) {
+    content = articleMatch[1];
+  } else if (mainMatch) {
+    content = mainMatch[1];
+  } else if (contentMatch) {
+    content = contentMatch[1];
   }
   
-  return cleaned;
+  // Remove common non-content sections
+  content = content.replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, '');
+  content = content.replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, '');
+  content = content.replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, '');
+  content = content.replace(/<aside\b[^>]*>[\s\S]*?<\/aside>/gi, '');
+  
+  // Convert headers to markdown-style
+  content = content.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '\n\n# $1\n\n');
+  content = content.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n\n## $1\n\n');
+  content = content.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n\n### $1\n\n');
+  
+  // Convert paragraphs to double newlines
+  content = content.replace(/<\/p>/gi, '\n\n');
+  content = content.replace(/<p[^>]*>/gi, '');
+  
+  // Convert line breaks
+  content = content.replace(/<br\s*\/?>/gi, '\n');
+  
+  // Convert lists
+  content = content.replace(/<li[^>]*>/gi, '\n• ');
+  content = content.replace(/<\/li>/gi, '');
+  
+  // Remove all remaining HTML tags
+  content = content.replace(/<[^>]+>/g, '');
+  
+  // Decode HTML entities
+  content = content.replace(/&nbsp;/g, ' ');
+  content = content.replace(/&amp;/g, '&');
+  content = content.replace(/&lt;/g, '<');
+  content = content.replace(/&gt;/g, '>');
+  content = content.replace(/&quot;/g, '"');
+  content = content.replace(/&#39;/g, "'");
+  content = content.replace(/&apos;/g, "'");
+  content = content.replace(/&rsquo;/g, "'");
+  content = content.replace(/&ldquo;/g, '"');
+  content = content.replace(/&rdquo;/g, '"');
+  content = content.replace(/&mdash;/g, '—');
+  content = content.replace(/&ndash;/g, '–');
+  
+  // Clean up excessive whitespace but preserve paragraph breaks
+  content = content.replace(/[ \t]+/g, ' ');
+  content = content.replace(/\n\s*\n\s*\n/g, '\n\n');
+  content = content.trim();
+  
+  // Limit to reasonable length (5000 characters)
+  if (content.length > 5000) {
+    content = content.substring(0, 5000) + '...';
+  }
+  
+  return content;
 }
