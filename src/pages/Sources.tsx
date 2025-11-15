@@ -232,9 +232,11 @@ const Sources = () => {
                   type={source.type}
                   lastFetchAt={source.last_fetch_at}
                   itemsFetched={source.items_fetched || 0}
+                  parserConfig={source.parser_config}
                   onActivate={() => handleActivate(source)}
                   onRemove={() => handleRemove(source.id)}
                   onViewTestArtifacts={() => handleViewTestArtifacts(source.id)}
+                  onRefresh={() => refetchTest()}
                 />
               ))}
             </div>
