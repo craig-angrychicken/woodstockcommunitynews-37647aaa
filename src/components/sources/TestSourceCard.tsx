@@ -74,11 +74,9 @@ export const TestSourceCard = ({
 
       if (error) throw error;
 
-      console.log('📦 Raw edge function response:', JSON.stringify(data, null, 2));
-      console.log('🔍 Analysis object:', data?.analysis);
-      console.log('⚙️ SuggestedConfig:', data?.analysis?.suggestedConfig);
-      
-      setAnalysisResult(data);
+      // Flatten the response structure for the modal
+      const flattened = data.analysis ? { success: data.success, ...data.analysis } : data;
+      setAnalysisResult(flattened);
       
       if (data.success) {
         toast.success("Analysis complete!");

@@ -78,7 +78,9 @@ export const SourceCard = ({
 
       if (error) throw error;
 
-      setAnalysisResult(data);
+      // Flatten the response structure for the modal
+      const flattened = data.analysis ? { success: data.success, ...data.analysis } : data;
+      setAnalysisResult(flattened);
       
       if (data.success) {
         toast.success("Analysis complete!");
