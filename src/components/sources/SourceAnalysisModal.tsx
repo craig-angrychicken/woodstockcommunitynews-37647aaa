@@ -9,7 +9,18 @@ import { InteractiveSelectorModal } from "./InteractiveSelectorModal";
 interface AnalysisResult {
   success: boolean;
   analysis?: {
-    suggestedSelectors: {
+    feedType?: string;
+    suggestedConfig?: {
+      feedType: string;
+      fieldMappings: {
+        titleField: string;
+        linkField: string;
+        dateField: string;
+        contentField: string;
+        imageFields: string[];
+      };
+    };
+    suggestedSelectors?: {
       elements: Array<{
         selector: string;
         name?: string;
@@ -24,10 +35,12 @@ interface AnalysisResult {
       title: string;
       date: string;
       link: string;
-      excerpt: string;
+      excerpt?: string;
+      content?: string;
+      images?: string[];
     }>;
     confidence: number;
-    recommendedParser: string;
+    recommendedParser?: string;
   };
   error?: string;
 }
@@ -50,6 +63,7 @@ export const SourceAnalysisModal = ({
   sourceUrl,
 }: SourceAnalysisModalProps) => {
   const [showInteractiveSelector, setShowInteractiveSelector] = useState(false);
+  
   const getConfidenceBadge = (confidence: number) => {
     if (confidence >= 80) return <Badge className="bg-green-500">High ({confidence}%)</Badge>;
     if (confidence >= 50) return <Badge className="bg-yellow-500">Medium ({confidence}%)</Badge>;
@@ -58,193 +72,142 @@ export const SourceAnalysisModal = ({
 
   const handleSaveConfig = () => {
     if (analysisResult?.analysis && onSaveConfig) {
-      const config = {
-        scrapeConfig: analysisResult.analysis.suggestedSelectors,
-        confidence: analysisResult.analysis.confidence,
-      };
-      onSaveConfig(config);
+      if (analysisResult.analysis.suggestedConfig) {
+        onSaveConfig({ ...analysisResult.analysis.suggestedConfig, confidence: analysisResult.analysis.confidence });
+      } else if (analysisResult.analysis.suggestedSelectors) {
+        onSaveConfig({ scrapeConfig: analysisResult.analysis.suggestedSelectors, confidence: analysisResult.analysis.confidence });
+      }
       onOpenChange(false);
     }
   };
 
-  // Helper to get selector by name from elements array
   const getSelector = (name: string) => {
-    const element = analysisResult?.analysis?.suggestedSelectors.elements.find(
-      el => el.name === name
-    );
-    return element?.selector || 'N/A';
+    return analysisResult?.analysis?.suggestedSelectors?.elements.find(el => el.name === name)?.selector || 'N/A';
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Source Analysis Results</DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Source Analysis Results</DialogTitle>
+          </DialogHeader>
 
-        {isAnalyzing && (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <span className="ml-3">Analyzing source structure...</span>
-          </div>
-        )}
+          {isAnalyzing && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <span className="ml-3">Analyzing source structure...</span>
+            </div>
+          )}
 
-        {!isAnalyzing && analysisResult?.error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{analysisResult.error}</AlertDescription>
-          </Alert>
-        )}
+          {!isAnalyzing && analysisResult?.error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{analysisResult.error}</AlertDescription>
+            </Alert>
+          )}
 
-        {!isAnalyzing && analysisResult?.success && analysisResult.analysis && (
-          <div className="space-y-6">
-            {/* Confidence Score */}
-            <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-              <div>
-                <h3 className="font-semibold">Confidence Score</h3>
-                <p className="text-sm text-muted-foreground">
-                  How likely this configuration will work
-                </p>
+          {!isAnalyzing && analysisResult?.success && analysisResult.analysis && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+                <div>
+                  <h3 className="font-semibold">Confidence Score</h3>
+                  <p className="text-sm text-muted-foreground">How likely this configuration will work</p>
+                </div>
+                {getConfidenceBadge(analysisResult.analysis.confidence)}
               </div>
-              {getConfidenceBadge(analysisResult.analysis.confidence)}
-            </div>
 
-            {/* Recommended Parser */}
-            <div>
-              <h3 className="font-semibold mb-2">Recommended Parser</h3>
-              <Badge variant="outline" className="text-base px-3 py-1">
-                {analysisResult.analysis.recommendedParser}
-              </Badge>
-            </div>
+              {analysisResult.analysis.feedType && (
+                <div>
+                  <h3 className="font-semibold mb-2">Feed Type</h3>
+                  <Badge variant="outline" className="text-base px-3 py-1">{analysisResult.analysis.feedType.toUpperCase()}</Badge>
+                </div>
+              )}
 
-            {/* Detected Selectors */}
-            <div>
-              <h3 className="font-semibold mb-2">Detected Selectors</h3>
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-sm text-muted-foreground">Container:</span>
-                    <code className="block mt-1 p-2 bg-muted rounded text-sm">
-                      {getSelector('container')}
-                    </code>
-                  </div>
-                  <div>
-                    <span className="text-sm text-muted-foreground">Title:</span>
-                    <code className="block mt-1 p-2 bg-muted rounded text-sm">
-                      {getSelector('title')}
-                    </code>
-                  </div>
-                  <div>
-                    <span className="text-sm text-muted-foreground">Date:</span>
-                    <code className="block mt-1 p-2 bg-muted rounded text-sm">
-                      {getSelector('date')}
-                    </code>
-                  </div>
-                  <div>
-                    <span className="text-sm text-muted-foreground">Link:</span>
-                    <code className="block mt-1 p-2 bg-muted rounded text-sm">
-                      {getSelector('link')}
-                    </code>
+              {analysisResult.analysis.recommendedParser && (
+                <div>
+                  <h3 className="font-semibold mb-2">Recommended Parser</h3>
+                  <Badge variant="outline" className="text-base px-3 py-1">{analysisResult.analysis.recommendedParser}</Badge>
+                </div>
+              )}
+
+              {analysisResult.analysis.suggestedConfig && (
+                <div>
+                  <h3 className="font-semibold mb-3">Field Mappings</h3>
+                  <div className="space-y-2 text-sm">
+                    {Object.entries(analysisResult.analysis.suggestedConfig.fieldMappings).map(([key, value]) => (
+                      <div key={key} className="flex justify-between items-start">
+                        <span className="text-muted-foreground capitalize">{key.replace(/([A-Z])/g, ' $1')}:</span>
+                        {Array.isArray(value) ? (
+                          <div className="flex flex-col items-end gap-1">
+                            {value.map((field, idx) => (
+                              <code key={idx} className="bg-muted px-2 py-0.5 rounded text-xs">{field}</code>
+                            ))}
+                          </div>
+                        ) : (
+                          <code className="bg-muted px-2 py-0.5 rounded">{value}</code>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
-              </div>
-            </div>
+              )}
 
-            {/* Sample Articles */}
-            {analysisResult.analysis.sampleArticles && analysisResult.analysis.sampleArticles.length > 0 && (
+              {analysisResult.analysis.suggestedSelectors && (
+                <div>
+                  <h3 className="font-semibold mb-3">Detected CSS Selectors</h3>
+                  <div className="space-y-2">
+                    {['container', 'title', 'link', 'date'].map(name => (
+                      <div key={name} className="flex justify-between text-sm">
+                        <span className="text-muted-foreground capitalize">{name}:</span>
+                        <code className="bg-muted px-2 py-1 rounded text-xs max-w-md truncate">{getSelector(name)}</code>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
-                <h3 className="font-semibold mb-2">Sample Articles Found</h3>
+                <h3 className="font-semibold mb-3">Sample Articles</h3>
                 <div className="space-y-3">
                   {analysisResult.analysis.sampleArticles.map((article, idx) => (
-                    <div key={idx} className="p-3 bg-muted rounded-lg">
-                      <div className="font-medium">{article.title || 'No title detected'}</div>
-                      {article.date && (
-                        <div className="text-sm text-muted-foreground mt-1">
-                          Date: {article.date}
-                        </div>
+                    <div key={idx} className="p-3 bg-muted rounded-lg space-y-1">
+                      <h4 className="font-medium text-sm">{article.title}</h4>
+                      <p className="text-xs text-muted-foreground">{article.date}</p>
+                      <a href={article.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline block truncate">{article.link}</a>
+                      {(article.excerpt || article.content) && (
+                        <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{article.excerpt || article.content}</p>
                       )}
-                      {article.link && (
-                        <div className="text-sm text-muted-foreground mt-1 truncate">
-                          Link: {article.link}
-                        </div>
-                      )}
-                      {article.excerpt && (
-                        <div className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                          {article.excerpt}
+                      {article.images && article.images.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-xs font-medium mb-1">Images ({article.images.length}):</p>
+                          <div className="flex flex-wrap gap-2">
+                            {article.images.slice(0, 3).map((img, imgIdx) => (
+                              <img key={imgIdx} src={img} alt={`Preview ${imgIdx + 1}`} className="w-16 h-16 object-cover rounded border" 
+                                onError={(e) => (e.target as HTMLImageElement).src = '/placeholder.svg'} />
+                            ))}
+                            {article.images.length > 3 && (
+                              <div className="w-16 h-16 flex items-center justify-center bg-muted rounded border text-xs">+{article.images.length - 3}</div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
                   ))}
                 </div>
               </div>
-            )}
-
-            {/* Configuration Preview */}
-            <div>
-              <h3 className="font-semibold mb-2">Configuration Preview</h3>
-              <div className="p-3 bg-muted rounded-lg text-sm">
-                <pre className="text-xs overflow-x-auto">
-                  {JSON.stringify(analysisResult.analysis.suggestedSelectors, null, 2)}
-                </pre>
-              </div>
             </div>
-
-            {analysisResult.analysis.confidence < 50 && (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Low confidence score. The parser may not work reliably. Consider testing
-                  thoroughly before activating this source.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {analysisResult.analysis.confidence >= 50 && (
-              <Alert className="border-green-500 bg-green-50 dark:bg-green-950">
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-                <AlertDescription className="text-green-800 dark:text-green-200">
-                  This configuration looks promising! You can save it and test the source.
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
-        )}
-
-        <DialogFooter className="flex-col sm:flex-row gap-2">
-          {sourceUrl && (
-            <Button 
-              variant="outline" 
-              onClick={() => setShowInteractiveSelector(true)}
-              className="w-full sm:w-auto"
-            >
-              <MousePointer2 className="h-4 w-4 mr-2" />
-              Click to Train
-            </Button>
           )}
-          <div className="flex gap-2 flex-1 justify-end">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Close
-            </Button>
-            {analysisResult?.success && analysisResult.analysis && onSaveConfig && (
-              <Button onClick={handleSaveConfig}>
-                Save Configuration
-              </Button>
-            )}
-          </div>
-        </DialogFooter>
-      </DialogContent>
-      
-      <InteractiveSelectorModal
-        open={showInteractiveSelector}
-        onOpenChange={setShowInteractiveSelector}
-        sourceUrl={sourceUrl || ''}
-        onConfigSelected={(config) => {
-          if (onSaveConfig) {
-            onSaveConfig(config);
-          }
-          setShowInteractiveSelector(false);
-        }}
-      />
-    </Dialog>
+
+          <DialogFooter>
+            {sourceUrl && <Button variant="outline" onClick={() => setShowInteractiveSelector(true)}><MousePointer2 className="h-4 w-4 mr-2" />Interactive Selector</Button>}
+            {!isAnalyzing && analysisResult?.success && <Button onClick={handleSaveConfig}>Save Configuration</Button>}
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {sourceUrl && <InteractiveSelectorModal open={showInteractiveSelector} onOpenChange={setShowInteractiveSelector} sourceUrl={sourceUrl} onSaveConfig={onSaveConfig} />}
+    </>
   );
 };

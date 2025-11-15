@@ -15,9 +15,14 @@ interface RSSItem {
   description?: string;
   content?: string;
   summary?: string;
+  'content:encoded'?: string;
   'media:content'?: { url?: string };
+  'media:thumbnail'?: { url?: string };
+  'media:group'?: { urls?: string[] };
   enclosure?: { url?: string };
   image?: { url?: string };
+  guid?: string;
+  [key: string]: any;
 }
 
 interface RSSFeed {
@@ -89,6 +94,10 @@ Deno.serve(async (req) => {
 
         console.log(`\n📡 Fetching RSS feed: ${source.name}`);
         console.log(`   URL: ${source.url}`);
+        
+        // Get parser config for dynamic field mapping
+        const parserConfig = source.parser_config;
+        console.log(`🔧 Using parser config:`, parserConfig ? 'Custom' : 'Default');
 
         // Fetch the RSS feed
         const response = await fetch(source.url);
@@ -129,47 +138,77 @@ Deno.serve(async (req) => {
 
         console.log(`✅ ${filteredItems.length} items in date range`);
 
-        // Insert artifacts
+        // Process each item
+        let itemsProcessed = 0;
         for (const item of filteredItems) {
-          const itemDate = parseDate(item.pubDate || item.published);
-          const imageUrl = extractImageUrl(item);
-          let articleContent = cleanText(item.description || item.content || item.summary || '');
-          
-          // If no content from RSS, fetch full article HTML
-          if (!articleContent && item.link) {
-            console.log(`📰 Fetching full article: ${item.title}`);
-            console.log(`   URL: ${item.link}`);
+          try {
+            // Extract data using dynamic field mappings
+            const titleField = parserConfig?.fieldMappings?.titleField || 'title';
+            const linkField = parserConfig?.fieldMappings?.linkField || 'link';
+            const dateField = parserConfig?.fieldMappings?.dateField || 'pubDate';
+            const contentField = parserConfig?.fieldMappings?.contentField || 'description';
             
-            try {
-              const html = await fetchArticleHTML(item.link);
-              articleContent = extractContentFromHTML(html);
-              console.log(`   ✅ Extracted ${articleContent.length} characters`);
-            } catch (error) {
-              const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-              console.error(`   ❌ Failed to fetch article:`, errorMsg);
-              articleContent = ''; // Fallback to empty if fetch fails
+            const title = item[titleField] || 'Untitled';
+            const link = item[linkField] || '';
+            const guid = item.id || item.guid || link;
+            const dateStr = item[dateField] || item.pubDate || item.published;
+            const pubDate = parseDate(dateStr) || new Date();
+
+            // Extract ALL images using configured fields
+            const allImages = extractAllImages(item, parserConfig);
+            const heroImage = allImages[0] || null;
+
+            // Get content using configured field
+            let content = item[contentField] || item['content:encoded'] || item.content || item.description || item.summary || '';
+            
+            // If content is short and we have a link, try to fetch full article
+            if (content.length < 500 && link) {
+              try {
+                console.log(`   📄 Fetching full article from ${link}`);
+                const articleHtml = await fetchArticleHTML(link);
+                if (articleHtml) {
+                  const extractedContent = extractContentFromHTML(articleHtml);
+                  if (extractedContent && extractedContent.length > content.length) {
+                    content = extractedContent;
+                    console.log(`   ✅ Extracted ${content.length} characters from article`);
+                  }
+                }
+              } catch (fetchError) {
+                const errorMsg = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+                console.log(`   ⚠️ Could not fetch article: ${errorMsg}`);
+              }
             }
-          }
 
-          const { error: insertError } = await supabase
-            .from('artifacts')
-            .insert({
-              source_id: source.id,
-              title: cleanText(item.title || 'Untitled'),
-              name: cleanText(item.title || 'Untitled'),
-              url: item.link || item.id,
-              content: articleContent,
-              hero_image_url: imageUrl,
-              date: itemDate?.toISOString() || new Date().toISOString(),
-              type: 'article',
-              is_test: environment === 'test'
-            });
+            content = cleanText(content);
 
-          if (insertError) {
-            console.error('❌ Insert error:', insertError);
+            // Insert into artifacts table with ALL images
+            const { error: insertError } = await supabase
+              .from('artifacts')
+              .insert({
+                name: title,
+                title: title,
+                url: link,
+                guid: guid,
+                content: content,
+                hero_image_url: heroImage,
+                images: allImages,
+                date: pubDate.toISOString(),
+                type: 'RSS Article',
+                source_id: source.id,
+                is_test: environment === 'test',
+              });
+
+            if (insertError) {
+              console.error('❌ Insert error:', insertError);
+              totalErrors++;
+            } else {
+              console.log(`✅ Inserted: ${title}`);
+              totalArtifacts++;
+              itemsProcessed++;
+            }
+          } catch (itemError) {
+            console.error(`❌ Error processing item:`, itemError);
             totalErrors++;
-          } else {
-            totalArtifacts++;
           }
         }
 
@@ -338,27 +377,54 @@ function parseDate(dateStr: string | undefined): Date | null {
   }
 }
 
-function extractImageUrl(item: RSSItem): string | null {
-  const rawImageUrl = item.enclosure?.url || 
-                      item['media:content']?.url || 
-                      item.image?.url || 
-                      null;
+function extractAllImages(item: RSSItem, config?: any): string[] {
+  const images: string[] = [];
   
-  if (!rawImageUrl) {
-    return null;
+  // Get image fields from config or use defaults
+  const imageFields = config?.fieldMappings?.imageFields || [
+    'enclosure.url',
+    'media:content.url',
+    'media:thumbnail.url',
+    'image.url'
+  ];
+  
+  // Extract images from configured fields
+  for (const field of imageFields) {
+    const parts = field.split('.');
+    let value: any = item;
+    
+    for (const part of parts) {
+      value = value?.[part];
+    }
+    
+    if (typeof value === 'string' && value) {
+      images.push(value);
+    } else if (Array.isArray(value)) {
+      images.push(...value.filter(v => typeof v === 'string'));
+    }
   }
   
-  // Properly encode the URL to handle spaces and special characters
-  try {
-    const url = new URL(rawImageUrl);
-    // Reconstruct URL with encoded pathname
-    const encodedUrl = `${url.protocol}//${url.host}${encodeURI(url.pathname)}${url.search}${url.hash}`;
-    console.log(`📸 Found and encoded image: ${encodedUrl}`);
-    return encodedUrl;
-  } catch (error) {
-    console.error(`❌ Invalid image URL: ${rawImageUrl}`, error);
-    return null;
+  // Handle media:group special case
+  if (item['media:group']?.urls && Array.isArray(item['media:group'].urls)) {
+    images.push(...item['media:group'].urls);
   }
+  
+  // Encode and validate all URLs
+  const validImages: string[] = [];
+  for (const rawUrl of images) {
+    try {
+      const url = new URL(rawUrl);
+      const encodedUrl = `${url.protocol}//${url.host}${encodeURI(url.pathname)}${url.search}${url.hash}`;
+      validImages.push(encodedUrl);
+    } catch (error) {
+      console.error(`❌ Invalid image URL: ${rawUrl}`, error);
+    }
+  }
+  
+  // Remove duplicates and return
+  const uniqueImages = [...new Set(validImages)];
+  console.log(`📸 Extracted ${uniqueImages.length} image(s)`);
+  return uniqueImages;
 }
 
 function cleanText(text: string): string {
