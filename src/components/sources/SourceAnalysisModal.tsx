@@ -72,6 +72,7 @@ export const SourceAnalysisModal = ({
 
   const handleSaveConfig = () => {
     if (analysisResult?.analysis && onSaveConfig) {
+      console.log('📊 Analysis Result:', JSON.stringify(analysisResult.analysis, null, 2));
       if (analysisResult.analysis.suggestedConfig) {
         onSaveConfig({ ...analysisResult.analysis.suggestedConfig, confidence: analysisResult.analysis.confidence });
       } else if (analysisResult.analysis.suggestedSelectors) {
@@ -109,12 +110,19 @@ export const SourceAnalysisModal = ({
 
           {!isAnalyzing && analysisResult?.success && analysisResult.analysis && (
             <div className="space-y-6">
+              {/* Debug info */}
+              <div className="text-xs text-muted-foreground p-2 bg-muted rounded">
+                Debug: confidence={analysisResult.analysis.confidence}, 
+                hasConfig={!!analysisResult.analysis.suggestedConfig},
+                feedType={analysisResult.analysis.feedType}
+              </div>
+
               <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
                 <div>
                   <h3 className="font-semibold">Confidence Score</h3>
                   <p className="text-sm text-muted-foreground">How likely this configuration will work</p>
                 </div>
-                {getConfidenceBadge(analysisResult.analysis.confidence)}
+                {analysisResult.analysis.confidence !== undefined && getConfidenceBadge(analysisResult.analysis.confidence)}
               </div>
 
               {analysisResult.analysis.feedType && (
@@ -131,21 +139,23 @@ export const SourceAnalysisModal = ({
                 </div>
               )}
 
-              {analysisResult.analysis.suggestedConfig && (
+              {analysisResult.analysis.suggestedConfig && analysisResult.analysis.suggestedConfig.fieldMappings && (
                 <div>
                   <h3 className="font-semibold mb-3">Field Mappings</h3>
                   <div className="space-y-2 text-sm">
                     {Object.entries(analysisResult.analysis.suggestedConfig.fieldMappings).map(([key, value]) => (
-                      <div key={key} className="flex justify-between items-start">
-                        <span className="text-muted-foreground capitalize">{key.replace(/([A-Z])/g, ' $1')}:</span>
+                      <div key={key} className="flex justify-between items-start gap-4">
+                        <span className="text-muted-foreground capitalize font-medium min-w-[120px]">
+                          {key.replace(/([A-Z])/g, ' $1').replace(/Field$/, '')}:
+                        </span>
                         {Array.isArray(value) ? (
                           <div className="flex flex-col items-end gap-1">
                             {value.map((field, idx) => (
-                              <code key={idx} className="bg-muted px-2 py-0.5 rounded text-xs">{field}</code>
+                              <code key={idx} className="bg-background px-2 py-1 rounded text-xs border">{field}</code>
                             ))}
                           </div>
                         ) : (
-                          <code className="bg-muted px-2 py-0.5 rounded">{value}</code>
+                          <code className="bg-background px-2 py-1 rounded text-xs border">{String(value)}</code>
                         )}
                       </div>
                     ))}
