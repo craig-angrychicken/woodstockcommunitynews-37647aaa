@@ -89,7 +89,7 @@ export const SourceAnalysisModal = ({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto overflow-x-hidden">
           <DialogHeader>
             <DialogTitle>Source Analysis Results</DialogTitle>
           </DialogHeader>
@@ -144,18 +144,18 @@ export const SourceAnalysisModal = ({
                   <h3 className="font-semibold mb-3">Field Mappings</h3>
                   <div className="space-y-2 text-sm">
                     {Object.entries(analysisResult.analysis.suggestedConfig.fieldMappings).map(([key, value]) => (
-                      <div key={key} className="flex justify-between items-start gap-4">
+                      <div key={key} className="flex flex-col sm:flex-row sm:justify-between items-start gap-2 sm:gap-4">
                         <span className="text-muted-foreground capitalize font-medium min-w-[120px]">
                           {key.replace(/([A-Z])/g, ' $1').replace(/Field$/, '')}:
                         </span>
                         {Array.isArray(value) ? (
-                          <div className="flex flex-col items-end gap-1">
+                          <div className="flex flex-col items-start sm:items-end gap-1 flex-1">
                             {value.map((field, idx) => (
-                              <code key={idx} className="bg-background px-2 py-1 rounded text-xs border">{field}</code>
+                              <code key={idx} className="bg-background px-2 py-1 rounded text-xs border break-all max-w-full">{field}</code>
                             ))}
                           </div>
                         ) : (
-                          <code className="bg-background px-2 py-1 rounded text-xs border">{String(value)}</code>
+                          <code className="bg-background px-2 py-1 rounded text-xs border break-all flex-1">{String(value)}</code>
                         )}
                       </div>
                     ))}
@@ -168,9 +168,9 @@ export const SourceAnalysisModal = ({
                   <h3 className="font-semibold mb-3">Detected CSS Selectors</h3>
                   <div className="space-y-2">
                     {['container', 'title', 'link', 'date'].map(name => (
-                      <div key={name} className="flex justify-between text-sm">
-                        <span className="text-muted-foreground capitalize">{name}:</span>
-                        <code className="bg-muted px-2 py-1 rounded text-xs max-w-md truncate">{getSelector(name)}</code>
+                      <div key={name} className="flex flex-col sm:flex-row sm:justify-between gap-2 text-sm">
+                        <span className="text-muted-foreground capitalize min-w-[80px]">{name}:</span>
+                        <code className="bg-muted px-2 py-1 rounded text-xs break-all flex-1">{getSelector(name)}</code>
                       </div>
                     ))}
                   </div>
@@ -184,7 +184,7 @@ export const SourceAnalysisModal = ({
                     <div key={idx} className="p-3 bg-muted rounded-lg space-y-1">
                       <h4 className="font-medium text-sm">{article.title}</h4>
                       <p className="text-xs text-muted-foreground">{article.date}</p>
-                      <a href={article.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline block truncate">{article.link}</a>
+                      <a href={article.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline block break-all">{article.link}</a>
                       {(article.excerpt || article.content) && (
                         <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{article.excerpt || article.content}</p>
                       )}
