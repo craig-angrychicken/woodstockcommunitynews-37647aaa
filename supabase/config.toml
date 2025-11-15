@@ -21,6 +21,9 @@ verify_jwt = true
 [functions.fetch-rss-feeds]
 verify_jwt = true
 
+[functions.analyze-rss-feed]
+verify_jwt = true
+
 [functions.scheduled-fetch-artifacts]
 verify_jwt = false
 

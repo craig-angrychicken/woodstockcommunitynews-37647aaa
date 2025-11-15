@@ -68,7 +68,11 @@ export const SourceCard = ({
     setShowAnalysisModal(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('analyze-source', {
+      // Choose the right edge function based on source type
+      const functionName = type === 'RSS Feed' ? 'analyze-rss-feed' : 'analyze-source';
+      console.log(`Using ${functionName} for ${type}`);
+
+      const { data, error } = await supabase.functions.invoke(functionName, {
         body: { sourceUrl: cleanUrl }
       });
 
@@ -160,8 +164,7 @@ export const SourceCard = ({
           </Button>
           {url && (
             <Button variant="outline" size="sm" onClick={handleAnalyze}>
-              <FlaskConical className="h-3 w-3 mr-1" />
-              Auto-Detect
+              {type === 'RSS Feed' ? 'Rescan RSS Feed' : 'Auto-Detect'}
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={onPause}>
