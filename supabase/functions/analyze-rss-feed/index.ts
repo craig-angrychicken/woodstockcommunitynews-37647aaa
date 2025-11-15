@@ -129,6 +129,29 @@ serve(async (req) => {
   }
 });
 
+function decodeHtmlEntities(text: string): string {
+  const entities: Record<string, string> = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#039;': "'",
+    '&#39;': "'",
+    '&nbsp;': ' '
+  };
+  
+  let decoded = text;
+  for (const [entity, char] of Object.entries(entities)) {
+    decoded = decoded.replace(new RegExp(entity, 'g'), char);
+  }
+  
+  // Handle numeric entities like &#123;
+  decoded = decoded.replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(parseInt(dec)));
+  decoded = decoded.replace(/&#x([0-9a-f]+);/gi, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+  
+  return decoded;
+}
+
 function parseRSSFeed(xmlText: string): RSSFeed {
   const items: RSSItem[] = [];
   const itemPattern = /<(?:item|entry)[^>]*>([\s\S]*?)<\/(?:item|entry)>/gi;
@@ -179,13 +202,13 @@ function extractTag(xml: string, tagName: string): string | undefined {
 function extractMediaContent(xml: string): any {
   const pattern = /<media:content[^>]*url="([^"]+)"[^>]*>/i;
   const match = pattern.exec(xml);
-  return match ? { url: match[1] } : undefined;
+  return match ? { url: decodeHtmlEntities(match[1]) } : undefined;
 }
 
 function extractMediaThumbnail(xml: string): any {
   const pattern = /<media:thumbnail[^>]*url="([^"]+)"[^>]*>/i;
   const match = pattern.exec(xml);
-  return match ? { url: match[1] } : undefined;
+  return match ? { url: decodeHtmlEntities(match[1]) } : undefined;
 }
 
 function extractMediaGroup(xml: string): any {
@@ -196,7 +219,7 @@ function extractMediaGroup(xml: string): any {
     const urlPattern = /url="([^"]+)"/gi;
     let urlMatch;
     while ((urlMatch = urlPattern.exec(match[1])) !== null) {
-      urls.push(urlMatch[1]);
+      urls.push(decodeHtmlEntities(urlMatch[1]));
     }
     return urls.length > 0 ? { urls } : undefined;
   }
@@ -206,13 +229,13 @@ function extractMediaGroup(xml: string): any {
 function extractEnclosure(xml: string): any {
   const pattern = /<enclosure[^>]*url="([^"]+)"[^>]*>/i;
   const match = pattern.exec(xml);
-  return match ? { url: match[1] } : undefined;
+  return match ? { url: decodeHtmlEntities(match[1]) } : undefined;
 }
 
 function extractImageTag(xml: string): any {
   const pattern = /<image[^>]*>[\s\S]*?<url>([^<]+)<\/url>[\s\S]*?<\/image>/i;
   const match = pattern.exec(xml);
-  return match ? { url: match[1] } : undefined;
+  return match ? { url: decodeHtmlEntities(match[1]) } : undefined;
 }
 
 function detectFieldMappings(items: RSSItem[], feedType: string) {
@@ -280,9 +303,9 @@ function extractAllImagesFromItem(item: RSSItem, imageFields: string[]): string[
     }
     
     if (typeof value === 'string' && value) {
-      images.push(value);
+      images.push(decodeHtmlEntities(value));
     } else if (Array.isArray(value)) {
-      images.push(...value.filter(v => typeof v === 'string'));
+      images.push(...value.filter(v => typeof v === 'string').map(decodeHtmlEntities));
     }
   }
   
