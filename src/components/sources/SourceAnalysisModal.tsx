@@ -207,7 +207,7 @@ export const SourceAnalysisModal = ({
         </DialogContent>
       </Dialog>
 
-      {sourceUrl && <InteractiveSelectorModal open={showInteractiveSelector} onOpenChange={setShowInteractiveSelector} sourceUrl={sourceUrl} onSaveConfig={onSaveConfig} />}
+      {sourceUrl && <InteractiveSelectorModal open={showInteractiveSelector} onOpenChange={setShowInteractiveSelector} sourceUrl={sourceUrl} onConfigSelected={onSaveConfig || (() => {})} />}
     </>
   );
 };
