@@ -188,7 +188,6 @@ Deno.serve(async (req) => {
                 name: title,
                 title: title,
                 url: link,
-                guid: guid,
                 content: content,
                 hero_image_url: heroImage,
                 images: allImages,
