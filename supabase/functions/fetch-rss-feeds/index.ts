@@ -1,6 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getContentWithBrowserless } from '../_shared/browserless-service.ts';
 
+const BROWSERLESS_URL = Deno.env.get('BROWSERLESS_URL') || 'https://production-sfo.browserless.io';
+const BROWSERLESS_API_KEY = Deno.env.get('BROWSERLESS_API_KEY');
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -162,17 +165,38 @@ Deno.serve(async (req) => {
             // Get content using configured field
             let content = item[contentField] || item['content:encoded'] || item.content || item.description || item.summary || '';
             
-            // If content is short and we have a link, try to fetch full article
-            if (content.length < 500 && link) {
+            // Extract selectors from parser config if available
+            const selectors = parserConfig?.scrapeConfig?.elements?.map((e: any) => e.selector) || [];
+            const shouldFetch = link && (selectors.length > 0 || content.length < 1000);
+            
+            // If we have selectors or content is short, try to fetch full article
+            if (shouldFetch) {
               try {
                 console.log(`   📄 Fetching full article from ${link}`);
-                const articleHtml = await fetchArticleHTML(link);
-                if (articleHtml) {
-                  const extractedContent = extractContentFromHTML(articleHtml);
-                  if (extractedContent && extractedContent.length > content.length) {
-                    content = extractedContent;
-                    console.log(`   ✅ Extracted ${content.length} characters from article`);
+                
+                let extractedContent = '';
+                
+                // Try selector-based extraction first if we have selectors
+                if (selectors.length > 0) {
+                  console.log(`   🎯 Using ${selectors.length} configured selectors`);
+                  extractedContent = await extractContentWithSelectors(link, selectors);
+                  console.log(`   ✅ Selector extraction: ${extractedContent.length} characters`);
+                }
+                
+                // Fallback to generic extraction if no selectors or extraction failed
+                if (!extractedContent || extractedContent.length < 200) {
+                  console.log(`   🔄 Falling back to generic extraction`);
+                  const articleHtml = await fetchArticleHTML(link);
+                  if (articleHtml) {
+                    extractedContent = extractContentFromHTML(articleHtml);
+                    console.log(`   ✅ Generic extraction: ${extractedContent.length} characters`);
                   }
+                }
+                
+                // Replace content if extracted version is better
+                if (extractedContent && extractedContent.length > content.length) {
+                  console.log(`   ✅ Replaced ${content.length} chars with ${extractedContent.length} chars`);
+                  content = extractedContent;
                 }
               } catch (fetchError) {
                 const errorMsg = fetchError instanceof Error ? fetchError.message : 'Unknown error';
@@ -533,10 +557,86 @@ function extractContentFromHTML(html: string): string {
   content = content.replace(/\n\s*\n\s*\n/g, '\n\n');
   content = content.trim();
   
-  // Limit to reasonable length (5000 characters)
-  if (content.length > 5000) {
-    content = content.substring(0, 5000) + '...';
+  // Limit to reasonable length (15000 characters - increased for longer articles)
+  if (content.length > 15000) {
+    content = content.substring(0, 15000) + '...';
   }
+  
+  return content;
+}
+
+/**
+ * Extract content using configured selectors from Source Analysis
+ */
+async function extractContentWithSelectors(url: string, selectors: string[]): Promise<string> {
+  if (!BROWSERLESS_API_KEY) {
+    throw new Error('BROWSERLESS_API_KEY not configured');
+  }
+
+  console.log(`   🌐 Scraping with selectors: ${url}`);
+  
+  const elements = selectors.map(selector => ({ selector }));
+  
+  const response = await fetch(
+    `${BROWSERLESS_URL}/scrape?token=${BROWSERLESS_API_KEY}`,
+    {
+      method: 'POST',
+      headers: {
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url,
+        elements,
+        gotoOptions: {
+          waitUntil: 'networkidle2',
+          timeout: 30000,
+        },
+        waitForTimeout: 5000,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Browserless scrape error (${response.status}): ${errorText}`);
+  }
+
+  const result = await response.json();
+  const data = result.data || [];
+  
+  // Find the longest text block from all selectors
+  let longestText = '';
+  for (const selectorResult of data) {
+    if (selectorResult.results && Array.isArray(selectorResult.results)) {
+      for (const item of selectorResult.results) {
+        const text = item.text || '';
+        if (text.length > longestText.length) {
+          longestText = text;
+        }
+      }
+    }
+  }
+  
+  // Clean and normalize the text
+  let content = longestText
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&rsquo;/g, "'")
+    .replace(/&ldquo;/g, '"')
+    .replace(/&rdquo;/g, '"')
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–');
+  
+  // Clean up excessive whitespace but preserve paragraph breaks
+  content = content.replace(/[ \t]+/g, ' ');
+  content = content.replace(/\n\s*\n\s*\n/g, '\n\n');
+  content = content.trim();
   
   return content;
 }
