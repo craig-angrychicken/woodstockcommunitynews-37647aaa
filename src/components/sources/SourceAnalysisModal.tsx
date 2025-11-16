@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -87,12 +88,13 @@ export const SourceAnalysisModal = ({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto overflow-x-hidden">
+        <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Source Analysis Results</DialogTitle>
           </DialogHeader>
 
-          {isAnalyzing && (
+          <ScrollArea className="flex-1 pr-4">
+            {isAnalyzing && (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <span className="ml-3">Analyzing source structure...</span>
@@ -223,8 +225,9 @@ export const SourceAnalysisModal = ({
               </div>
             </div>
           )}
+          </ScrollArea>
 
-          <DialogFooter>
+          <DialogFooter className="mt-4 pt-4 border-t">
             {sourceUrl && <Button variant="outline" onClick={() => setShowInteractiveSelector(true)}><MousePointer2 className="h-4 w-4 mr-2" />Interactive Selector</Button>}
             {!isAnalyzing && analysisResult?.success && <Button onClick={handleSaveConfig}>Save Configuration</Button>}
             <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
