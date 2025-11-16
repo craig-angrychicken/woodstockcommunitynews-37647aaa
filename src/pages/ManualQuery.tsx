@@ -9,15 +9,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarIcon, Loader2, Play, CheckCircle, XCircle, X, Info, AlertCircle } from "lucide-react";
+import { CalendarIcon, Loader2, Play, CheckCircle, XCircle, X, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { TestBadge } from "@/components/ui/status-badge";
@@ -36,7 +29,6 @@ const ManualQuery = () => {
   const [promptMode, setPromptMode] = useState<"active" | "select">("active");
   const [selectedPromptVersion, setSelectedPromptVersion] = useState<string>("");
   
-  const [maxArticles, setMaxArticles] = useState<number>(10);
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
@@ -241,8 +233,7 @@ const ManualQuery = () => {
             environment,
             promptVersionId,
             runStages: 'manual',
-            queryHistoryId: historyRecord.id,
-            maxArticles
+            queryHistoryId: historyRecord.id
           }
         });
 
@@ -327,16 +318,6 @@ const ManualQuery = () => {
           Fetch and store articles from your sources as artifacts
         </p>
       </div>
-
-      {/* Resource Limits Alert */}
-      <Alert>
-        <Info className="h-4 w-4" />
-        <AlertTitle>Resource Limits</AlertTitle>
-        <AlertDescription>
-          To prevent timeouts, queries are limited to <strong>5 date enrichments</strong> and <strong>10 articles per source</strong>. 
-          This ensures reliable processing while keeping response times reasonable.
-        </AlertDescription>
-      </Alert>
 
       {/* Progress Display */}
       {isRunning && currentProgress && (
@@ -595,35 +576,6 @@ const ManualQuery = () => {
               <p className="text-sm text-muted-foreground">
                 Test mode adds a 🧪 badge and allows testing without affecting production data
               </p>
-            </CardContent>
-          </Card>
-
-          {/* Run Options */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Run Options</CardTitle>
-              <CardDescription>Configure article fetching limits</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Article Limit (for testing)</Label>
-                <Select 
-                  value={maxArticles?.toString() || "10"} 
-                  onValueChange={(v) => setMaxArticles(parseInt(v))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">First 1 article per source</SelectItem>
-                    <SelectItem value="5">First 5 articles per source</SelectItem>
-                    <SelectItem value="10">First 10 articles per source (max)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  ⚠️ Capped at 10 articles per source maximum to prevent timeouts. Only articles within the selected date range will be processed.
-                </p>
-              </div>
             </CardContent>
           </Card>
 
