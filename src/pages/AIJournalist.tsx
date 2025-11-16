@@ -37,6 +37,26 @@ const AIJournalist = () => {
   const [selectionMode, setSelectionMode] = useState<"dateRange" | "specific">("dateRange");
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
 
+  // Check for active queue on page load
+  useEffect(() => {
+    const checkActiveQueue = async () => {
+      const { data: activeRun } = await supabase
+        .from('query_history')
+        .select('id')
+        .eq('status', 'running')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (activeRun) {
+        setCurrentHistoryId(activeRun.id);
+        setIsRunning(true);
+      }
+    };
+    
+    checkActiveQueue();
+  }, []);
+
   // Fetch prompt versions
   const { data: promptVersions } = useQuery({
     queryKey: ['prompt-versions'],
@@ -251,47 +271,60 @@ const AIJournalist = () => {
     }
   });
 
-  // Poll for status updates when a job is running
+  // Poll for status updates when a job is running - check queue status
   useEffect(() => {
     if (!currentHistoryId) return;
 
     const pollInterval = setInterval(async () => {
-      const { data, error } = await supabase
-        .from('query_history')
-        .select('status, stories_count, error_message')
-        .eq('id', currentHistoryId)
-        .single();
+      // Check if there are any pending or processing items in the queue
+      const { data: queueItems, error: queueError } = await supabase
+        .from('journalism_queue')
+        .select('status')
+        .eq('query_history_id', currentHistoryId)
+        .in('status', ['pending', 'processing']);
 
-      if (error) {
-        console.error('Error polling status:', error);
+      if (queueError) {
+        console.error('Error polling queue:', queueError);
         return;
       }
 
-      if (data.status === 'completed') {
+      // If no items are pending or processing, check final status
+      if (!queueItems || queueItems.length === 0) {
+        const { data: history, error: historyError } = await supabase
+          .from('query_history')
+          .select('status, stories_count, error_message')
+          .eq('id', currentHistoryId)
+          .single();
+
+        if (historyError) {
+          console.error('Error fetching history:', historyError);
+          return;
+        }
+
         clearInterval(pollInterval);
         setIsRunning(false);
-        setCurrentHistoryId(null);
         
         queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
         queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
         queryClient.invalidateQueries({ queryKey: ['stories'] });
         
-        toast({
-          title: "AI Journalist Complete!",
-          description: `Generated ${data.stories_count} stories`,
-        });
-      } else if (data.status === 'failed') {
-        clearInterval(pollInterval);
-        setIsRunning(false);
-        setCurrentHistoryId(null);
-        
-        queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
-        
-        toast({
-          title: "AI Journalist Failed",
-          description: data.error_message || "Unknown error",
-          variant: "destructive"
-        });
+        if (history.status === 'completed') {
+          toast({
+            title: "AI Journalist Complete!",
+            description: `Generated ${history.stories_count} stories`,
+          });
+        } else if (history.status === 'failed') {
+          toast({
+            title: "AI Journalist Failed",
+            description: history.error_message || "Unknown error",
+            variant: "destructive"
+          });
+        } else if (history.status === 'cancelled') {
+          toast({
+            title: "AI Journalist Cancelled",
+            description: "The process was stopped by user"
+          });
+        }
       }
     }, 3000); // Poll every 3 seconds
 
@@ -327,7 +360,12 @@ const AIJournalist = () => {
       </div>
 
       {/* Queue Processor - Shows active run status */}
-      {currentHistoryId && <QueueProcessor historyId={currentHistoryId} />}
+      {currentHistoryId && (
+        <QueueProcessor 
+          historyId={currentHistoryId} 
+          onDismiss={() => setCurrentHistoryId(null)}
+        />
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">

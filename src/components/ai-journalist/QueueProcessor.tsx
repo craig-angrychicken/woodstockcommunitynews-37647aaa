@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CheckCircle, XCircle, Clock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Loader2, CheckCircle, XCircle, Clock, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface QueueItem {
@@ -20,9 +21,10 @@ interface QueueItem {
 
 interface QueueProcessorProps {
   historyId: string | null;
+  onDismiss?: () => void;
 }
 
-export const QueueProcessor = ({ historyId }: QueueProcessorProps) => {
+export const QueueProcessor = ({ historyId, onDismiss }: QueueProcessorProps) => {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -94,8 +96,10 @@ export const QueueProcessor = ({ historyId }: QueueProcessorProps) => {
   const completed = queueItems.filter((i) => i.status === "completed").length;
   const failed = queueItems.filter((i) => i.status === "failed").length;
   const processing = queueItems.find((i) => i.status === "processing");
+  const pending = queueItems.filter((i) => i.status === "pending").length;
   const total = queueItems.length;
   const progress = total > 0 ? ((completed + failed) / total) * 100 : 0;
+  const isComplete = pending === 0 && !processing;
 
   return (
     <Card className="border-primary/20 bg-gradient-to-br from-background to-muted/20">
@@ -106,6 +110,16 @@ export const QueueProcessor = ({ historyId }: QueueProcessorProps) => {
           <Badge variant={processing ? "default" : completed === total ? "secondary" : "outline"} className="ml-auto">
             {completed + failed} / {total}
           </Badge>
+          {isComplete && onDismiss && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onDismiss}
+              className="h-6 w-6 ml-2"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
