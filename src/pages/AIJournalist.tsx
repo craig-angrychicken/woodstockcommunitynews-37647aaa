@@ -5,6 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -33,6 +37,8 @@ const AIJournalist = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
+  const [fetchSchedule, setFetchSchedule] = useState("0 6 * * *");
+  const [journalismSchedule, setJournalismSchedule] = useState("0 7 * * *");
   const [selectionMode, setSelectionMode] = useState<"dateRange" | "specific">("dateRange");
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
 
@@ -357,6 +363,13 @@ const AIJournalist = () => {
         </p>
       </div>
 
+      <Tabs defaultValue="run" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="run">Run AI Journalist</TabsTrigger>
+          <TabsTrigger value="schedule">Scheduling</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="run" className="space-y-6">
       {/* Queue Processor - Shows active run status */}
       {currentHistoryId && (
         <QueueProcessor 
@@ -690,6 +703,78 @@ const AIJournalist = () => {
           </Card>
         </div>
       </div>
+        </TabsContent>
+
+        <TabsContent value="schedule" className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Scheduled Tasks</CardTitle>
+            <CardDescription>Configure when artifacts are fetched and when AI journalism runs automatically</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="fetch-schedule" className="text-base font-semibold">Artifact Fetching Schedule</Label>
+                <p className="text-sm text-muted-foreground mb-2">
+                  When to fetch new artifacts from all active sources
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    id="fetch-schedule"
+                    value={fetchSchedule}
+                    onChange={(e) => setFetchSchedule(e.target.value)}
+                    placeholder="0 6 * * *"
+                    className="font-mono"
+                  />
+                  <Button variant="outline" size="sm" onClick={() => setFetchSchedule("0 6 * * *")}>
+                    Daily 6 AM
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Current: Daily at 6:00 AM UTC
+                </p>
+              </div>
+
+              <Separator />
+
+              <div>
+                <Label htmlFor="journalism-schedule" className="text-base font-semibold">AI Journalism Schedule</Label>
+                <p className="text-sm text-muted-foreground mb-2">
+                  When to run the AI journalist to generate stories
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    id="journalism-schedule"
+                    value={journalismSchedule}
+                    onChange={(e) => setJournalismSchedule(e.target.value)}
+                    placeholder="0 7 * * *"
+                    className="font-mono"
+                  />
+                  <Button variant="outline" size="sm" onClick={() => setJournalismSchedule("0 7 * * *")}>
+                    Daily 7 AM
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Current: Daily at 7:00 AM UTC
+                </p>
+              </div>
+            </div>
+
+            <Alert>
+              <AlertDescription>
+                <strong>Cron Expression Format:</strong> minute hour day month weekday
+                <br />
+                Examples: "0 6 * * *" = 6 AM daily, "0 */2 * * *" = Every 2 hours, "0 0 * * 0" = Midnight every Sunday
+              </AlertDescription>
+            </Alert>
+
+            <Button disabled className="w-full">
+              Save Schedules (Coming Soon)
+            </Button>
+          </CardContent>
+        </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };
