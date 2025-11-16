@@ -6,29 +6,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Track active processing to handle graceful shutdown
-let activeHistoryId: string | null = null;
-let activeSupabase: any = null;
-
-// Handle function shutdown gracefully
-addEventListener('beforeunload', async () => {
-  if (activeHistoryId && activeSupabase) {
-    console.log('⚠️ Function shutting down, marking run as interrupted');
-    try {
-      await activeSupabase
-        .from("query_history")
-        .update({
-          status: "failed",
-          error_message: "Function terminated unexpectedly. Run was interrupted before completion.",
-          completed_at: new Date().toISOString(),
-        })
-        .eq("id", activeHistoryId);
-    } catch (error) {
-      console.error('Failed to update status on shutdown:', error);
-    }
-  }
-});
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -57,14 +34,8 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const openRouterApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-    
-    // Track this run for graceful shutdown handling
-    activeHistoryId = historyId;
-    activeSupabase = supabase;
 
     // Fetch the prompt version
     const { data: promptVersion, error: promptError } = await supabase
@@ -127,10 +98,10 @@ Deno.serve(async (req) => {
       artifacts = artifacts.slice(0, maxArtifacts);
     }
 
-    console.log(`📊 Artifact filtering results:`);
-    console.log(`  - Total artifacts in query range: ${allArtifacts?.length || 0}`);
+    console.log(`📊 Queue setup:`);
+    console.log(`  - Total artifacts found: ${allArtifacts?.length || 0}`);
     console.log(`  - Already used (filtered out): ${(allArtifacts?.length || 0) - artifacts.length}`);
-    console.log(`  - Available for processing: ${artifacts.length}`);
+    console.log(`  - Queue size: ${artifacts.length}`);
 
     if (!artifacts || artifacts.length === 0) {
       await supabase
@@ -155,304 +126,53 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Helper functions
-    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    // Create queue entries for all artifacts
+    console.log(`📋 Creating queue with ${artifacts.length} items...`);
     
-    const callAIWithRetry = async (
-      apiUrl: string,
-      headers: HeadersInit,
-      body: any,
-      maxRetries = 3
-    ) => {
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        const response = await fetch(apiUrl, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-        });
-        
-        if (response.status === 429) {
-          const waitTime = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
-          console.log(`Rate limited, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
-          await sleep(waitTime);
-          continue;
-        }
-        
-        return response;
-      }
-      throw new Error("Max retries exceeded for rate limiting");
-    };
+    const queueEntries = artifacts.map((artifact, index) => ({
+      query_history_id: historyId,
+      artifact_id: artifact.id,
+      position: index + 1,
+      status: "pending",
+    }));
 
+    const { error: queueError } = await supabase
+      .from("journalism_queue")
+      .insert(queueEntries);
 
-    // Start background processing
-    const processStories = async () => {
-      const startTime = Date.now();
-      try {
-        console.log(`Processing ${artifacts.length} artifacts (one story per artifact)`);
+    if (queueError) {
+      throw new Error(`Failed to create queue: ${queueError.message}`);
+    }
 
-        let storiesCreated = 0;
-        const failures: Array<{
-          artifact_id: string;
-          artifact_title: string;
-          error: string;
-        }> = [];
+    console.log(`✅ Queue created with ${artifacts.length} items`);
 
-        for (let i = 0; i < artifacts.length; i++) {
-          const artifact = artifacts[i];
-          console.log(`Processing artifact ${i + 1}/${artifacts.length}: ${artifact.title || artifact.name}`);
+    // Get the first item to process
+    const { data: firstItem, error: firstItemError } = await supabase
+      .from("journalism_queue")
+      .select("id")
+      .eq("query_history_id", historyId)
+      .eq("status", "pending")
+      .order("position", { ascending: true })
+      .limit(1)
+      .single();
 
-          // Update progress every 5 artifacts to show the run is still alive
-          if (i > 0 && i % 5 === 0) {
-            await supabase
-              .from("query_history")
-              .update({
-                artifacts_count: i,
-                stories_count: storiesCreated,
-              })
-              .eq("id", historyId);
-            console.log(`📊 Progress checkpoint: ${i}/${artifacts.length} processed, ${storiesCreated} stories created`);
-          }
+    if (firstItemError || !firstItem) {
+      throw new Error("Failed to fetch first queue item");
+    }
 
-          try {
-            // Determine API endpoint and key based on provider
-            const apiUrl = promptVersion.model_provider === "openrouter" 
-              ? "https://openrouter.ai/api/v1/chat/completions"
-              : "https://ai.gateway.lovable.dev/v1/chat/completions";
-            
-            const apiKey = openRouterApiKey;
-            const model = promptVersion.model_name || "google/gemini-2.0-flash-exp:free";
-
-            // Try with full content first
-            let contentToUse = artifact.content || "No content";
-            let attemptNumber = 1;
-
-            const makeAPICall = async (content: string): Promise<Response> => {
-              const artifactData = `
-Title: ${artifact.title || artifact.name}
-Date: ${artifact.date}
-Source: ${artifact.source_id}
-Content: ${content}
-${artifact.image_url ? `Image: ${artifact.image_url}` : ""}
-`;
-
-              const fullPrompt = `${promptVersion.content}
-
-## Artifact:
-${artifactData}`;
-
-              return await callAIWithRetry(
-                apiUrl,
-                {
-                  Authorization: `Bearer ${apiKey}`,
-                  "Content-Type": "application/json",
-                  ...(promptVersion.model_provider === "openrouter" && {
-                    "HTTP-Referer": supabaseUrl,
-                    "X-Title": "Woodstock Wire AI Journalist",
-                  }),
-                },
-                {
-                  model: model,
-                  messages: [
-                    {
-                      role: "user",
-                      content: fullPrompt,
-                    },
-                  ],
-                  max_tokens: 5000,
-                  temperature: 0.6,
-                }
-              );
-            };
-
-            let aiResponse = await makeAPICall(contentToUse);
-
-            // Handle token limit errors by retrying with truncated content
-            if (!aiResponse.ok) {
-              const errorText = await aiResponse.text();
-              
-              if (
-                (aiResponse.status === 413 || 
-                 aiResponse.status === 400 || 
-                 errorText.includes("context_length_exceeded") ||
-                 errorText.includes("too long")) &&
-                contentToUse.length > 20000
-              ) {
-                console.log(`Token limit hit for artifact ${artifact.id}, retrying with truncated content (20k chars)`);
-                contentToUse = contentToUse.substring(0, 20000) + "\n\n[Content truncated due to length...]";
-                attemptNumber = 2;
-                aiResponse = await makeAPICall(contentToUse);
-              }
-            }
-
-            if (!aiResponse.ok) {
-              const errorText = await aiResponse.text();
-              console.error(`✗ AI API error for artifact ${artifact.id}:`, aiResponse.status, errorText);
-              failures.push({
-                artifact_id: artifact.id,
-                artifact_title: artifact.title || artifact.name,
-                error: `API error ${aiResponse.status}: ${errorText}`,
-              });
-              continue;
-            }
-
-            const aiData = await aiResponse.json();
-            const storyContent =
-              aiData.choices?.[0]?.message?.content || "No content generated";
-
-            // Extract title and content properly
-            const lines = storyContent.split("\n").filter((line: string) => line.trim());
-            let title = lines[0]
-              .replace(/^#+\s*/, "")
-              .replace(/^HEADLINE:\s*/i, "")
-              .trim() || "Untitled Story";
-            
-            const content = lines.slice(1).join("\n").trim();
-            const source_id = artifact.source_id || null;
-
-            // Use pre-selected hero image from artifact (selected during artifact creation)
-            const heroImageUrl = artifact.hero_image_url || null;
-            console.log(heroImageUrl ? `✅ Using hero image from artifact: ${heroImageUrl}` : '⚠️ No hero image available for this artifact');
-
-            // Insert story
-            const { data: newStory, error: storyError } = await supabase
-              .from("stories")
-              .insert({
-                title,
-                content,
-                source_id,
-                prompt_version_id: promptVersionId,
-                environment,
-                is_test: environment === "test",
-                hero_image_url: heroImageUrl,
-              })
-              .select()
-              .single();
-
-            if (storyError || !newStory) {
-              console.error(`✗ Failed to insert story for artifact ${artifact.id}:`, storyError);
-              failures.push({
-                artifact_id: artifact.id,
-                artifact_title: artifact.title || artifact.name,
-                error: `Database error: ${storyError?.message || "Unknown error"}`,
-              });
-              continue;
-            }
-
-            // Link single artifact to story
-            await supabase.from("story_artifacts").insert({
-              story_id: newStory.id,
-              artifact_id: artifact.id,
-            });
-
-            storiesCreated++;
-            console.log(`✓ Story ${storiesCreated}/${artifacts.length} created: ${title}`);
-
-            // Add delay between requests to avoid rate limiting
-            if (i < artifacts.length - 1) {
-              await sleep(2000); // 2 second delay
-            }
-          } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : "Unknown error";
-            console.error(`✗ Error generating story for artifact ${artifact.id}:`, errorMsg);
-            failures.push({
-              artifact_id: artifact.id,
-              artifact_title: artifact.title || artifact.name,
-              error: errorMsg,
-            });
-            continue;
-          }
-        }
-
-        // Log summary
-        console.log(`\n=== Processing Summary ===`);
-        console.log(`Total artifacts: ${artifacts.length}`);
-        console.log(`Stories created: ${storiesCreated}`);
-        console.log(`Failures: ${failures.length}`);
-
-        if (failures.length > 0) {
-          console.log("\nFailed artifacts:");
-          failures.forEach(f => {
-            console.log(`- ${f.artifact_title} (${f.artifact_id}): ${f.error}`);
-          });
-        }
-
-        // Update history record with detailed status
-        const duration = Math.round((Date.now() - startTime) / 1000);
-        await supabase
-          .from("query_history")
-          .update({
-            status: storiesCreated === 0 ? "failed" : "completed",
-            stories_count: storiesCreated,
-            artifacts_count: artifacts.length,
-            completed_at: new Date().toISOString(),
-            error_message: failures.length > 0 
-              ? `${storiesCreated} succeeded, ${failures.length} failed. Duration: ${duration}s. Check logs for details.`
-              : null,
-          })
-          .eq("id", historyId);
-
-        console.log(`✅ Background processing complete: ${storiesCreated} stories created in ${duration}s`);
-        
-        // Clear active tracking on successful completion
-        if (activeHistoryId === historyId) {
-          activeHistoryId = null;
-          activeSupabase = null;
-        }
-      } catch (error) {
-        const duration = Math.round((Date.now() - startTime) / 1000);
-        console.error("❌ Background processing error:", error);
-        
-        // Try to get the current count of stories created before the error
-        const { data: currentHistory } = await supabase
-          .from("query_history")
-          .select("stories_count")
-          .eq("id", historyId)
-          .single();
-        
-        await supabase
-          .from("query_history")
-          .update({
-            status: "failed",
-            stories_count: currentHistory?.stories_count || 0,
-            error_message: `Failed after ${duration}s: ${error instanceof Error ? error.message : "Unknown error"}`,
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", historyId);
-        
-        // Clear active tracking on error
-        if (activeHistoryId === historyId) {
-          activeHistoryId = null;
-          activeSupabase = null;
-        }
-      }
-    };
-
-    // Start background processing - Deno.serve handles async tasks
-    // We return immediately while processStories runs in the background
-    processStories().catch(async (error) => {
-      // Final safety net to ensure status is updated even on unexpected errors
-      console.error("🔥 Unhandled error in processStories:", error);
-      try {
-        await supabase
-          .from("query_history")
-          .update({
-            status: "failed",
-            error_message: `Unhandled error: ${error instanceof Error ? error.message : "Unknown error"}`,
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", historyId);
-      } catch (updateError) {
-        console.error("Failed to update error status:", updateError);
-      }
+    // Trigger processing of first item (which will chain to the rest)
+    console.log("🚀 Starting queue processing...");
+    await supabase.functions.invoke("process-journalism-queue-item", {
+      body: { queueItemId: firstItem.id },
     });
 
     // Return immediately with 202 Accepted
     return new Response(
       JSON.stringify({
         success: true,
-        message: "AI Journalist started",
+        message: "AI Journalist queue created and processing started",
         historyId,
-        artifactsCount: artifacts.length,
+        queueSize: artifacts.length,
       }),
       { 
         status: 202,

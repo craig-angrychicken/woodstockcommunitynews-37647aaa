@@ -6,6 +6,9 @@ verify_jwt = true
 [functions.run-ai-journalist]
 verify_jwt = true
 
+[functions.process-journalism-queue-item]
+verify_jwt = false
+
 [functions.backfill-artifact-images]
 verify_jwt = true
 

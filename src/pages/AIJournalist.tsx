@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { CalendarIcon, Loader2, Sparkles, CheckCircle, XCircle, X } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { QueueProcessor } from "@/components/ai-journalist/QueueProcessor";
 
 const AIJournalist = () => {
   const { toast } = useToast();
@@ -324,6 +325,9 @@ const AIJournalist = () => {
           Generate news stories from your stored artifacts using AI
         </p>
       </div>
+
+      {/* Queue Processor - Shows active run status */}
+      {currentHistoryId && <QueueProcessor historyId={currentHistoryId} />}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
