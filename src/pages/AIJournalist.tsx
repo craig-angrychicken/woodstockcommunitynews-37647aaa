@@ -42,24 +42,24 @@ const AIJournalist = () => {
   const [selectionMode, setSelectionMode] = useState<"dateRange" | "specific">("dateRange");
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
 
-  // Check for active queue on page load
+  // Check for most recent query on page load (running or completed)
   useEffect(() => {
-    const checkActiveQueue = async () => {
-      const { data: activeRun } = await supabase
+    const checkLatestQuery = async () => {
+      const { data: latestRun } = await supabase
         .from('query_history')
-        .select('id')
-        .eq('status', 'running')
+        .select('id, status')
+        .eq('run_stages', 'ai_journalism')
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
       
-      if (activeRun) {
-        setCurrentHistoryId(activeRun.id);
-        setIsRunning(true);
+      if (latestRun) {
+        setCurrentHistoryId(latestRun.id);
+        setIsRunning(latestRun.status === 'running');
       }
     };
     
-    checkActiveQueue();
+    checkLatestQuery();
   }, []);
 
   // Fetch prompt versions
@@ -275,9 +275,9 @@ const AIJournalist = () => {
     }
   });
 
-  // Poll for status updates when a job is running - check queue status
+  // Poll for status updates when running
   useEffect(() => {
-    if (!currentHistoryId) return;
+    if (!isRunning || !currentHistoryId) return;
 
     const pollInterval = setInterval(async () => {
       // Check if there are any pending or processing items in the queue
@@ -305,7 +305,6 @@ const AIJournalist = () => {
           return;
         }
 
-        clearInterval(pollInterval);
         setIsRunning(false);
         
         queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
@@ -329,11 +328,12 @@ const AIJournalist = () => {
             description: "The process was stopped by user"
           });
         }
+        // Keep currentHistoryId set so the completed run stays visible
       }
     }, 3000); // Poll every 3 seconds
 
     return () => clearInterval(pollInterval);
-  }, [currentHistoryId, queryClient, toast]);
+  }, [isRunning, currentHistoryId, queryClient, toast]);
 
   const handleRun = () => {
     setIsRunning(true);
@@ -370,11 +370,15 @@ const AIJournalist = () => {
         </TabsList>
 
         <TabsContent value="run" className="space-y-6">
-      {/* Queue Processor - Shows active run status */}
+      {/* Queue Processor - Shows active or last run status */}
       {currentHistoryId && (
         <QueueProcessor 
-          historyId={currentHistoryId} 
-          onDismiss={() => setCurrentHistoryId(null)}
+          historyId={currentHistoryId}
+          isRunning={isRunning}
+          onDismiss={() => {
+            setCurrentHistoryId(null);
+            setIsRunning(false);
+          }}
         />
       )}
 

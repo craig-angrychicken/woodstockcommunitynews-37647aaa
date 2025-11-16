@@ -21,10 +21,11 @@ interface QueueItem {
 
 interface QueueProcessorProps {
   historyId: string | null;
+  isRunning: boolean;
   onDismiss?: () => void;
 }
 
-export const QueueProcessor = ({ historyId, onDismiss }: QueueProcessorProps) => {
+export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcessorProps) => {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -101,23 +102,34 @@ export const QueueProcessor = ({ historyId, onDismiss }: QueueProcessorProps) =>
   const progress = total > 0 ? ((completed + failed) / total) * 100 : 0;
   const isComplete = pending === 0 && !processing;
 
+  const statusConfig = isRunning 
+    ? { icon: Loader2, text: "Running", variant: "default" as const, iconClass: "animate-spin text-primary" }
+    : isComplete && failed === 0
+    ? { icon: CheckCircle, text: "Completed", variant: "secondary" as const, iconClass: "text-green-500" }
+    : failed > 0
+    ? { icon: XCircle, text: "Completed with errors", variant: "destructive" as const, iconClass: "text-destructive" }
+    : { icon: Clock, text: "Pending", variant: "outline" as const, iconClass: "text-muted-foreground" };
+
   return (
     <Card className="border-primary/20 bg-gradient-to-br from-background to-muted/20">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
-          <Loader2 className={cn("h-5 w-5", processing ? "animate-spin text-primary" : "opacity-0")} />
+          <statusConfig.icon className={cn("h-5 w-5", statusConfig.iconClass)} />
           Queue Processor
-          <Badge variant={processing ? "default" : completed === total ? "secondary" : "outline"} className="ml-auto">
+          <Badge variant={statusConfig.variant} className="ml-auto">
+            {statusConfig.text}
+          </Badge>
+          <Badge variant="outline" className="ml-2">
             {completed + failed} / {total}
           </Badge>
-          {isComplete && onDismiss && (
+          {isRunning && onDismiss && (
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={onDismiss}
-              className="h-6 w-6 ml-2"
+              className="ml-2"
             >
-              <X className="h-4 w-4" />
+              Stop Monitoring
             </Button>
           )}
         </CardTitle>
