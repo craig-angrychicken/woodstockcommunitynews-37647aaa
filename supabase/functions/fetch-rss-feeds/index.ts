@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getContentWithBrowserless } from '../_shared/browserless-service.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -438,20 +439,29 @@ function cleanText(text: string): string {
 }
 
 /**
- * Fetch HTML content from a URL using native fetch
+ * Fetch HTML content from a URL using Browserless for better rendering
  */
 async function fetchArticleHTML(url: string): Promise<string> {
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; RSSBot/1.0)',
-    },
-  });
-  
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  try {
+    // Use Browserless to properly render JavaScript-heavy sites
+    console.log(`   🌐 Fetching with Browserless: ${url}`);
+    return await getContentWithBrowserless(url);
+  } catch (error) {
+    console.log(`   ⚠️ Browserless fetch failed, falling back to basic fetch: ${error}`);
+    
+    // Fallback to basic fetch if Browserless fails
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; RSSBot/1.0)',
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    return await response.text();
   }
-  
-  return await response.text();
 }
 
 /**
