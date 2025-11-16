@@ -414,7 +414,7 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
   for (const rawUrl of images) {
     try {
       const url = new URL(rawUrl);
-      const encodedUrl = `${url.protocol}//${url.host}${encodeURI(url.pathname)}${url.search}${url.hash}`;
+      const encodedUrl = `${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
       validImages.push(encodedUrl);
     } catch (error) {
       console.error(`❌ Invalid image URL: ${rawUrl}`, error);
