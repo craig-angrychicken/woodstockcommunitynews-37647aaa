@@ -30,7 +30,6 @@ const AIJournalist = () => {
   const [environment, setEnvironment] = useState<"production" | "test">("test");
   const [promptMode, setPromptMode] = useState<"active" | "select">("active");
   const [selectedPromptVersion, setSelectedPromptVersion] = useState<string>("");
-  const [maxArtifacts, setMaxArtifacts] = useState<number | null>(20);
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
@@ -161,10 +160,10 @@ const AIJournalist = () => {
   );
 
   const costEstimate = useMemo(() => {
-    const estimatedStories = Math.min(artifactsCount || 0, maxArtifacts || 999999) / 3;
+    const estimatedStories = (artifactsCount || 0) / 3;
     const costPerStory = 0.05; // Rough cost estimate
     return (estimatedStories * costPerStory).toFixed(2);
-  }, [artifactsCount, maxArtifacts]);
+  }, [artifactsCount]);
 
   // Cancel mutation
   const cancelMutation = useMutation({
@@ -232,8 +231,7 @@ const AIJournalist = () => {
       const body: any = {
         environment,
         promptVersionId,
-        historyId: historyRecord.id,
-        maxArtifacts
+        historyId: historyRecord.id
       };
 
       if (selectionMode === 'specific') {
@@ -612,42 +610,6 @@ const AIJournalist = () => {
             </CardContent>
           </Card>
 
-          {/* Run Options */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Run Options</CardTitle>
-              <CardDescription>Configure AI processing limits</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Artifact Limit (for testing)</Label>
-                <Select 
-                  value={maxArtifacts?.toString() || "all"} 
-                  onValueChange={(v) => setMaxArtifacts(v === "all" ? null : parseInt(v))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="10">First 10 artifacts</SelectItem>
-                    <SelectItem value="20">First 20 artifacts (recommended)</SelectItem>
-                    <SelectItem value="50">First 50 artifacts</SelectItem>
-                    <SelectItem value="100">First 100 artifacts</SelectItem>
-                    <SelectItem value="all">All artifacts</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  The AI will process up to this many artifacts to generate stories
-                </p>
-              </div>
-
-              <div className="pt-2 border-t">
-                <p className="text-sm">
-                  <span className="font-semibold">Estimated cost:</span> ${costEstimate}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
 
           <div className="flex gap-2">
             <Button

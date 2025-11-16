@@ -18,7 +18,6 @@ Deno.serve(async (req) => {
       environment,
       promptVersionId,
       historyId,
-      maxArtifacts,
       artifactIds,
     } = await req.json();
 
@@ -28,7 +27,6 @@ Deno.serve(async (req) => {
       environment,
       promptVersionId,
       historyId,
-      maxArtifacts,
       artifactIds,
     });
 
@@ -92,11 +90,6 @@ Deno.serve(async (req) => {
 
     // Filter out artifacts that are already used in stories
     let artifacts = allArtifacts?.filter(a => !usedArtifactIds.has(a.id)) || [];
-
-    // Apply maxArtifacts limit AFTER filtering (only if not using specific artifact IDs)
-    if (maxArtifacts && (!artifactIds || artifactIds.length === 0) && artifacts.length > maxArtifacts) {
-      artifacts = artifacts.slice(0, maxArtifacts);
-    }
 
     console.log(`📊 Queue setup:`);
     console.log(`  - Total artifacts found: ${allArtifacts?.length || 0}`);
