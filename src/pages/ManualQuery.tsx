@@ -120,10 +120,13 @@ const ManualQuery = () => {
     refetchInterval: 2000, // Poll every 2 seconds
   });
 
+  // Get the display query (current running or most recent from history)
+  const displayQuery = currentProgress || (queryHistory && queryHistory.length > 0 ? queryHistory[0] : null);
+
   // Detect stale queries (running for > 5 minutes)
-  const isStaleQuery = currentProgress?.status === 'running' && 
-    currentProgress?.created_at &&
-    new Date().getTime() - new Date(currentProgress.created_at).getTime() > 5 * 60 * 1000;
+  const isStaleQuery = displayQuery?.status === 'running' && 
+    displayQuery?.created_at &&
+    new Date().getTime() - new Date(displayQuery.created_at).getTime() > 5 * 60 * 1000;
 
   // Cancel query mutation
   const cancelQueryMutation = useMutation({
@@ -319,18 +322,26 @@ const ManualQuery = () => {
         </p>
       </div>
 
-      {/* Progress Display */}
-      {isRunning && currentProgress && (
-        <Card className="border-primary">
+      {/* Progress Display - Always show last query */}
+      {displayQuery && (
+        <Card className={cn(
+          displayQuery.status === 'running' && "border-primary",
+          displayQuery.status === 'completed' && "border-green-500",
+          displayQuery.status === 'failed' && "border-destructive"
+        )}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Processing Query
+              {displayQuery.status === 'running' && <Loader2 className="h-5 w-5 animate-spin" />}
+              {displayQuery.status === 'completed' && <CheckCircle className="h-5 w-5 text-green-500" />}
+              {displayQuery.status === 'failed' && <XCircle className="h-5 w-5 text-destructive" />}
+              {displayQuery.status === 'running' ? 'Processing Query' : displayQuery.status === 'completed' ? 'Last Query Completed' : 'Last Query Failed'}
             </CardTitle>
             <CardDescription>
-              {currentProgress.current_source_name 
-                ? `Currently processing: ${currentProgress.current_source_name}`
-                : 'Initializing...'}
+              {displayQuery.status === 'running' && displayQuery.current_source_name 
+                ? `Currently processing: ${displayQuery.current_source_name}`
+                : displayQuery.status === 'completed'
+                ? `Completed on ${format(new Date(displayQuery.completed_at || displayQuery.created_at), 'PPp')}`
+                : displayQuery.error_message || 'Query failed'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -348,48 +359,50 @@ const ManualQuery = () => {
               <div className="flex justify-between text-sm">
                 <span>Sources Progress</span>
                 <span className="text-muted-foreground">
-                  {currentProgress.sources_processed || 0} / {currentProgress.sources_total || selectedSources.length}
+                  {displayQuery.sources_processed || 0} / {displayQuery.sources_total || 0}
                 </span>
               </div>
               <Progress 
-                value={currentProgress.sources_total 
-                  ? ((currentProgress.sources_processed || 0) / currentProgress.sources_total) * 100 
+                value={displayQuery.sources_total 
+                  ? ((displayQuery.sources_processed || 0) / displayQuery.sources_total) * 100 
                   : 0
                 } 
               />
             </div>
             
-            {currentProgress.sources_failed > 0 && (
+            {displayQuery.sources_failed > 0 && (
               <div className="text-sm text-yellow-600 dark:text-yellow-500">
-                ⚠️ {currentProgress.sources_failed} source(s) failed to process
+                ⚠️ {displayQuery.sources_failed} source(s) failed to process
               </div>
             )}
             
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <div className="text-muted-foreground">Artifacts Found</div>
-                <div className="text-2xl font-bold">{currentProgress.artifacts_count || 0}</div>
+                <div className="text-2xl font-bold">{displayQuery.artifacts_count || 0}</div>
               </div>
               <div>
                 <div className="text-muted-foreground">Stories Created</div>
-                <div className="text-2xl font-bold">{currentProgress.stories_count || 0}</div>
+                <div className="text-2xl font-bold">{displayQuery.stories_count || 0}</div>
               </div>
             </div>
             
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => {
-                setIsRunning(false);
-                setCurrentHistoryId(null);
-                toast({
-                  title: "Stopped Monitoring",
-                  description: "Query will continue running in the background",
-                });
-              }}
-            >
-              Stop Monitoring
-            </Button>
+            {displayQuery.status === 'running' && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => {
+                  setIsRunning(false);
+                  setCurrentHistoryId(null);
+                  toast({
+                    title: "Stopped Monitoring",
+                    description: "Query will continue running in the background",
+                  });
+                }}
+              >
+                Stop Monitoring
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
