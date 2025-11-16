@@ -73,6 +73,67 @@ export type Database = {
           },
         ]
       }
+      journalism_queue: {
+        Row: {
+          artifact_id: string
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          position: number
+          query_history_id: string
+          started_at: string | null
+          status: string
+          story_id: string | null
+        }
+        Insert: {
+          artifact_id: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          position: number
+          query_history_id: string
+          started_at?: string | null
+          status?: string
+          story_id?: string | null
+        }
+        Update: {
+          artifact_id?: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          position?: number
+          query_history_id?: string
+          started_at?: string | null
+          status?: string
+          story_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "journalism_queue_artifact_id_fkey"
+            columns: ["artifact_id"]
+            isOneToOne: false
+            referencedRelation: "artifacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "journalism_queue_query_history_id_fkey"
+            columns: ["query_history_id"]
+            isOneToOne: false
+            referencedRelation: "query_history"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "journalism_queue_story_id_fkey"
+            columns: ["story_id"]
+            isOneToOne: false
+            referencedRelation: "stories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       prompt_versions: {
         Row: {
           author: string | null

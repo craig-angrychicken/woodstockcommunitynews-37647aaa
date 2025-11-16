@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
       throw new Error(`AI Journalist run failed: ${error.message}`);
     }
 
-    console.log("✅ Journalism run completed successfully:", data);
+    console.log("✅ Journalism queue created and processing started:", data);
 
     return new Response(
       JSON.stringify({
