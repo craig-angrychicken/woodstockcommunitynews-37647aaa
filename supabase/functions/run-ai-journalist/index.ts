@@ -6,6 +6,29 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+// Track active processing to handle graceful shutdown
+let activeHistoryId: string | null = null;
+let activeSupabase: any = null;
+
+// Handle function shutdown gracefully
+addEventListener('beforeunload', async () => {
+  if (activeHistoryId && activeSupabase) {
+    console.log('⚠️ Function shutting down, marking run as interrupted');
+    try {
+      await activeSupabase
+        .from("query_history")
+        .update({
+          status: "failed",
+          error_message: "Function terminated unexpectedly. Run was interrupted before completion.",
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", activeHistoryId);
+    } catch (error) {
+      console.error('Failed to update status on shutdown:', error);
+    }
+  }
+});
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -38,6 +61,10 @@ Deno.serve(async (req) => {
     const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+    
+    // Track this run for graceful shutdown handling
+    activeHistoryId = historyId;
+    activeSupabase = supabase;
 
     // Fetch the prompt version
     const { data: promptVersion, error: promptError } = await supabase
@@ -159,6 +186,7 @@ Deno.serve(async (req) => {
 
     // Start background processing
     const processStories = async () => {
+      const startTime = Date.now();
       try {
         console.log(`Processing ${artifacts.length} artifacts (one story per artifact)`);
 
@@ -172,6 +200,18 @@ Deno.serve(async (req) => {
         for (let i = 0; i < artifacts.length; i++) {
           const artifact = artifacts[i];
           console.log(`Processing artifact ${i + 1}/${artifacts.length}: ${artifact.title || artifact.name}`);
+
+          // Update progress every 5 artifacts to show the run is still alive
+          if (i > 0 && i % 5 === 0) {
+            await supabase
+              .from("query_history")
+              .update({
+                artifacts_count: i,
+                stories_count: storiesCreated,
+              })
+              .eq("id", historyId);
+            console.log(`📊 Progress checkpoint: ${i}/${artifacts.length} processed, ${storiesCreated} stories created`);
+          }
 
           try {
             // Determine API endpoint and key based on provider
@@ -337,34 +377,74 @@ ${artifactData}`;
         }
 
         // Update history record with detailed status
+        const duration = Math.round((Date.now() - startTime) / 1000);
         await supabase
           .from("query_history")
           .update({
             status: storiesCreated === 0 ? "failed" : "completed",
             stories_count: storiesCreated,
+            artifacts_count: artifacts.length,
             completed_at: new Date().toISOString(),
             error_message: failures.length > 0 
-              ? `${storiesCreated} succeeded, ${failures.length} failed. Check logs for details.`
+              ? `${storiesCreated} succeeded, ${failures.length} failed. Duration: ${duration}s. Check logs for details.`
               : null,
           })
           .eq("id", historyId);
 
-        console.log(`Background processing complete: ${storiesCreated} stories created`);
+        console.log(`✅ Background processing complete: ${storiesCreated} stories created in ${duration}s`);
+        
+        // Clear active tracking on successful completion
+        if (activeHistoryId === historyId) {
+          activeHistoryId = null;
+          activeSupabase = null;
+        }
       } catch (error) {
-        console.error("Background processing error:", error);
+        const duration = Math.round((Date.now() - startTime) / 1000);
+        console.error("❌ Background processing error:", error);
+        
+        // Try to get the current count of stories created before the error
+        const { data: currentHistory } = await supabase
+          .from("query_history")
+          .select("stories_count")
+          .eq("id", historyId)
+          .single();
+        
         await supabase
           .from("query_history")
           .update({
             status: "failed",
-            error_message: error instanceof Error ? error.message : "Unknown error",
+            stories_count: currentHistory?.stories_count || 0,
+            error_message: `Failed after ${duration}s: ${error instanceof Error ? error.message : "Unknown error"}`,
             completed_at: new Date().toISOString(),
           })
           .eq("id", historyId);
+        
+        // Clear active tracking on error
+        if (activeHistoryId === historyId) {
+          activeHistoryId = null;
+          activeSupabase = null;
+        }
       }
     };
 
-    // Start background processing without waiting for it to complete
-    processStories();
+    // Start background processing - Deno.serve handles async tasks
+    // We return immediately while processStories runs in the background
+    processStories().catch(async (error) => {
+      // Final safety net to ensure status is updated even on unexpected errors
+      console.error("🔥 Unhandled error in processStories:", error);
+      try {
+        await supabase
+          .from("query_history")
+          .update({
+            status: "failed",
+            error_message: `Unhandled error: ${error instanceof Error ? error.message : "Unknown error"}`,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", historyId);
+      } catch (updateError) {
+        console.error("Failed to update error status:", updateError);
+      }
+    });
 
     // Return immediately with 202 Accepted
     return new Response(
