@@ -3,6 +3,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Eye, Edit, Trash2, CheckCircle } from "lucide-react";
 
+const sanitizeImageUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  try {
+    // Decode any double-encoded URLs (%2520 -> %20)
+    return url.replace(/%25([0-9A-F]{2})/gi, '%$1');
+  } catch {
+    return url;
+  }
+};
+
 interface StoryCardProps {
   story: {
     id: string;
@@ -53,7 +63,7 @@ export const StoryCard = ({ story, sourceCount, onView, onEdit, onPublish, onDel
         {story.hero_image_url && (
           <div className="mt-3">
             <img 
-              src={story.hero_image_url} 
+              src={sanitizeImageUrl(story.hero_image_url) || ''} 
               alt={story.title}
               className="w-full h-32 object-cover rounded-md"
             />
