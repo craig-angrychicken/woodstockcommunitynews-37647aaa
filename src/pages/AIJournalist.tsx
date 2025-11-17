@@ -24,7 +24,8 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { QueueProcessor } from "@/components/ai-journalist/QueueProcessor";
 import { ScheduleTimeSelector } from "@/components/scheduling/ScheduleTimeSelector";
-import { useSchedule, useSaveSchedule } from "@/hooks/useSchedules";
+import { SaveScheduleButton } from "@/components/scheduling/SaveScheduleButton";
+import { useSchedule } from "@/hooks/useSchedules";
 
 const AIJournalist = () => {
   const { toast } = useToast();
@@ -43,21 +44,11 @@ const AIJournalist = () => {
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
   
   // Scheduling state
-  const [fetchScheduleTimes, setFetchScheduleTimes] = useState<string[]>([]);
-  const [fetchScheduleEnabled, setFetchScheduleEnabled] = useState(false);
   const [journalismScheduleTimes, setJournalismScheduleTimes] = useState<string[]>([]);
   const [journalismScheduleEnabled, setJournalismScheduleEnabled] = useState(false);
   
-  // Load existing schedules
-  const { data: fetchSchedule } = useSchedule("artifact_fetch");
+  // Load existing schedule
   const { data: journalismSchedule } = useSchedule("ai_journalism");
-  
-  useEffect(() => {
-    if (fetchSchedule) {
-      setFetchScheduleTimes(fetchSchedule.scheduled_times || []);
-      setFetchScheduleEnabled(fetchSchedule.is_enabled);
-    }
-  }, [fetchSchedule]);
   
   useEffect(() => {
     if (journalismSchedule) {
@@ -736,37 +727,6 @@ const AIJournalist = () => {
         <TabsContent value="schedule" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Artifact Fetching Schedule</CardTitle>
-              <CardDescription>
-                Configure when to automatically fetch new artifacts from all active sources
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="fetch-enabled">Enable Scheduled Fetching</Label>
-                <Switch
-                  id="fetch-enabled"
-                  checked={fetchScheduleEnabled}
-                  onCheckedChange={setFetchScheduleEnabled}
-                />
-              </div>
-              
-              <ScheduleTimeSelector
-                scheduledTimes={fetchScheduleTimes}
-                onChange={setFetchScheduleTimes}
-                label="Fetch Times"
-                description="Choose specific times each day to fetch new artifacts"
-                presets={[
-                  { label: "6 AM", time: "06:00" },
-                  { label: "12 PM", time: "12:00" },
-                  { label: "6 PM", time: "18:00" },
-                ]}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
               <CardTitle>AI Journalism Schedule</CardTitle>
               <CardDescription>
                 Configure when to automatically generate stories from fetched artifacts
@@ -793,12 +753,18 @@ const AIJournalist = () => {
                   { label: "7 PM", time: "19:00" },
                 ]}
               />
+
+              <SaveScheduleButton
+                scheduleType="ai_journalism"
+                times={journalismScheduleTimes}
+                enabled={journalismScheduleEnabled}
+              />
             </CardContent>
           </Card>
 
           <Alert>
             <AlertDescription>
-              <strong>Tip:</strong> Schedule AI journalism runs at least 30 minutes after artifact fetching to ensure new content is available for processing.
+              <strong>Tip:</strong> Schedule AI journalism to run after artifact fetching (configured in the Fetch tab) to ensure new content is available for processing.
             </AlertDescription>
           </Alert>
         </TabsContent>
