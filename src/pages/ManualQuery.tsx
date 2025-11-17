@@ -376,16 +376,10 @@ const ManualQuery = () => {
               </div>
             )}
             
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <div className="text-muted-foreground">Artifacts Found</div>
-                <div className="text-2xl font-bold">{displayQuery.artifacts_count || 0}</div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">Stories Created</div>
-                <div className="text-2xl font-bold">{displayQuery.stories_count || 0}</div>
-              </div>
-            </div>
+                <div className="text-sm">
+                  <div className="text-muted-foreground">Artifacts Found</div>
+                  <div className="text-2xl font-bold">{displayQuery.artifacts_count || 0}</div>
+                </div>
             
             {displayQuery.status === 'running' && (
               <Button 
@@ -680,7 +674,7 @@ const ManualQuery = () => {
                             Progress: {query.sources_processed}/{query.sources_total} sources
                           </div>
                         )}
-                        <div>Results: {query.artifacts_count || 0} artifacts, {query.stories_count || 0} stories</div>
+                        <div>Results: {query.artifacts_count || 0} artifacts</div>
                         {query.sources_failed > 0 && (
                           <div className="text-yellow-600">⚠️ {query.sources_failed} failed</div>
                         )}
