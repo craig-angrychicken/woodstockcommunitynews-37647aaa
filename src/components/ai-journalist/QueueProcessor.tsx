@@ -122,14 +122,14 @@ export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcess
           <Badge variant="outline" className="ml-2">
             {completed + failed} / {total}
           </Badge>
-          {isRunning && onDismiss && (
+          {onDismiss && (
             <Button
               variant="ghost"
               size="sm"
               onClick={onDismiss}
               className="ml-2"
             >
-              Stop Monitoring
+              {isRunning ? "Stop Monitoring" : "Dismiss"}
             </Button>
           )}
         </CardTitle>

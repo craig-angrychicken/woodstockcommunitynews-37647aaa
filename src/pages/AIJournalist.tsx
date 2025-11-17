@@ -384,18 +384,19 @@ const AIJournalist = () => {
           <TabsTrigger value="schedule">Scheduling</TabsTrigger>
         </TabsList>
 
+        {/* Persistent Queue Processor - Shows active or last run status */}
+        {currentHistoryId && (
+          <QueueProcessor 
+            historyId={currentHistoryId}
+            isRunning={isRunning}
+            onDismiss={!isRunning ? () => {
+              setCurrentHistoryId(null);
+              setIsRunning(false);
+            } : undefined}
+          />
+        )}
+
         <TabsContent value="run" className="space-y-6">
-      {/* Queue Processor - Shows active or last run status */}
-      {currentHistoryId && (
-        <QueueProcessor 
-          historyId={currentHistoryId}
-          isRunning={isRunning}
-          onDismiss={() => {
-            setCurrentHistoryId(null);
-            setIsRunning(false);
-          }}
-        />
-      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
