@@ -73,6 +73,17 @@ async function generateGhostToken(apiKey: string): Promise<string> {
   return `${message}.${base64Signature}`;
 }
 
+// Helper function to decode HTML entities in URLs
+function decodeHtmlEntities(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return url
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -179,6 +190,9 @@ serve(async (req) => {
       }
     }
 
+    // Decode HTML entities in hero image URL before sending to Ghost
+    const cleanHeroImageUrl = decodeHtmlEntities(heroImageUrl);
+    
     // Prepare post data
     const postData = {
       posts: [{
@@ -189,7 +203,7 @@ serve(async (req) => {
         featured: featured || false,
         custom_excerpt: excerpt || subhead || null,
         published_at: publishedAt,
-        feature_image: heroImageUrl || null,
+        feature_image: cleanHeroImageUrl,
         // Include updated_at for PUT requests (required by Ghost API)
         ...(method === 'PUT' && updatedAt ? { updated_at: updatedAt } : {})
       }]
