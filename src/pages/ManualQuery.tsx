@@ -10,6 +10,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarIcon, Loader2, Play, CheckCircle, XCircle, X, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
@@ -419,10 +420,17 @@ const ManualQuery = () => {
         </Card>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 space-y-6">
-          {/* Date Range Section */}
-          <Card>
+      <Tabs defaultValue="run" className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-2 mb-6">
+          <TabsTrigger value="run">Run Fetch</TabsTrigger>
+          <TabsTrigger value="schedule">Scheduling</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="run">
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2 space-y-6">
+              {/* Date Range Section */}
+              <Card>
             <CardHeader>
               <CardTitle>Date Range</CardTitle>
               <CardDescription>Select the date range for source fetching</CardDescription>
@@ -604,7 +612,110 @@ const ManualQuery = () => {
             </CardContent>
           </Card>
 
-          {/* Scheduling Section */}
+          <div className="flex gap-2">
+            <Button
+              size="lg"
+              className="flex-1"
+              onClick={handleRunQuery}
+              disabled={isRunning || selectedSources.length === 0}
+            >
+              {isRunning ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Running Query...
+                </>
+              ) : (
+                <>
+                  <Play className="mr-2 h-5 w-5" />
+                  Fetch Artifacts
+                </>
+              )}
+            </Button>
+            
+            {isRunning && (
+              <Button
+                size="lg"
+                variant="destructive"
+                onClick={handleCancelQuery}
+                disabled={cancelQueryMutation.isPending}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            )}
+          </div>
+            </div>
+
+            {/* Query History Sidebar */}
+            <div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Query History</CardTitle>
+                  <CardDescription>Recent query runs</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {queryHistory?.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No query history yet
+                      </p>
+                    ) : (
+                      queryHistory?.map(query => (
+                        <div
+                          key={query.id}
+                          className="border rounded-lg p-3 space-y-2 hover:bg-muted/50 transition-colors"
+                        >
+                          <div className="flex items-start justify-between">
+                            <span className="text-sm font-medium">
+                              {format(new Date(query.created_at), "MMM d, HH:mm")}
+                            </span>
+                            {query.status === 'completed' && (
+                              <CheckCircle className="h-4 w-4 text-green-500" />
+                            )}
+                            {query.status === 'failed' && (
+                              <XCircle className="h-4 w-4 text-red-500" />
+                            )}
+                            {query.status === 'running' && (
+                              <div className="flex items-center gap-2">
+                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    cancelQueryMutation.mutate(query.id);
+                                  }}
+                                  disabled={cancelQueryMutation.isPending}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-xs space-y-1 text-muted-foreground">
+                            <div>Environment: {query.environment}</div>
+                            <div>Prompt: {query.prompt_versions?.version_name}</div>
+                            {query.status === 'running' && query.sources_total > 0 && (
+                              <div className="text-primary font-medium">
+                                Progress: {query.sources_processed}/{query.sources_total} sources
+                              </div>
+                            )}
+                            <div>Results: {query.artifacts_count || 0} artifacts</div>
+                            {query.sources_failed > 0 && (
+                              <div className="text-yellow-600">⚠️ {query.sources_failed} failed</div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="schedule">
           <Card>
             <CardHeader>
               <CardTitle>Artifact Fetching Schedule</CardTitle>
@@ -641,108 +752,8 @@ const ManualQuery = () => {
               />
             </CardContent>
           </Card>
-
-          <div className="flex gap-2">
-            <Button
-              size="lg"
-              className="flex-1"
-              onClick={handleRunQuery}
-              disabled={isRunning || selectedSources.length === 0}
-            >
-              {isRunning ? (
-                <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Running Query...
-                </>
-              ) : (
-                <>
-                  <Play className="mr-2 h-5 w-5" />
-                  Fetch Artifacts
-                </>
-              )}
-            </Button>
-            
-            {isRunning && (
-              <Button
-                size="lg"
-                variant="destructive"
-                onClick={handleCancelQuery}
-                disabled={cancelQueryMutation.isPending}
-              >
-                <X className="h-5 w-5" />
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Query History Sidebar */}
-        <div>
-          <Card>
-            <CardHeader>
-              <CardTitle>Query History</CardTitle>
-              <CardDescription>Recent query runs</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {queryHistory?.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No query history yet
-                  </p>
-                ) : (
-                  queryHistory?.map(query => (
-                    <div
-                      key={query.id}
-                      className="border rounded-lg p-3 space-y-2 hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <span className="text-sm font-medium">
-                          {format(new Date(query.created_at), "MMM d, HH:mm")}
-                        </span>
-                        {query.status === 'completed' && (
-                          <CheckCircle className="h-4 w-4 text-green-500" />
-                        )}
-                        {query.status === 'failed' && (
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        )}
-                        {query.status === 'running' && (
-                          <div className="flex items-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 px-2 text-xs text-destructive hover:text-destructive"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                cancelQueryMutation.mutate(query.id);
-                              }}
-                              disabled={cancelQueryMutation.isPending}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-xs space-y-1 text-muted-foreground">
-                        <div>Environment: {query.environment}</div>
-                        <div>Prompt: {query.prompt_versions?.version_name}</div>
-                        {query.status === 'running' && query.sources_total > 0 && (
-                          <div className="text-primary font-medium">
-                            Progress: {query.sources_processed}/{query.sources_total} sources
-                          </div>
-                        )}
-                        <div>Results: {query.artifacts_count || 0} artifacts</div>
-                        {query.sources_failed > 0 && (
-                          <div className="text-yellow-600">⚠️ {query.sources_failed} failed</div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
 
       {previewSource && (
         <PreviewRenderedPageModal
