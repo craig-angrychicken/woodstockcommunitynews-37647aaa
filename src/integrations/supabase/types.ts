@@ -270,6 +270,33 @@ export type Database = {
           },
         ]
       }
+      schedules: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_enabled: boolean | null
+          schedule_type: string
+          scheduled_times: Json
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          schedule_type: string
+          scheduled_times?: Json
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          schedule_type?: string
+          scheduled_times?: Json
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       sources: {
         Row: {
           created_at: string

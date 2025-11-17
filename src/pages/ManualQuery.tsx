@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarIcon, Loader2, Play, CheckCircle, XCircle, X, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
@@ -16,6 +17,9 @@ import { cn } from "@/lib/utils";
 import { TestBadge } from "@/components/ui/status-badge";
 import { Progress } from "@/components/ui/progress";
 import { PreviewRenderedPageModal } from "@/components/sources/PreviewRenderedPageModal";
+import { ScheduleTimeSelector } from "@/components/scheduling/ScheduleTimeSelector";
+import { SaveScheduleButton } from "@/components/scheduling/SaveScheduleButton";
+import { useSchedule } from "@/hooks/useSchedules";
 
 const ManualQuery = () => {
   const { toast } = useToast();
@@ -33,6 +37,20 @@ const ManualQuery = () => {
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewSource, setPreviewSource] = useState<{ url: string; selector: string } | null>(null);
+  
+  // Scheduling state
+  const [fetchScheduleTimes, setFetchScheduleTimes] = useState<string[]>([]);
+  const [fetchScheduleEnabled, setFetchScheduleEnabled] = useState(false);
+  
+  // Load existing schedule
+  const { data: existingSchedule } = useSchedule("artifact_fetch");
+  
+  useEffect(() => {
+    if (existingSchedule) {
+      setFetchScheduleTimes(existingSchedule.scheduled_times || []);
+      setFetchScheduleEnabled(existingSchedule.is_enabled);
+    }
+  }, [existingSchedule]);
 
   // Fetch sources
   const { data: sources } = useQuery({
@@ -583,6 +601,44 @@ const ManualQuery = () => {
               <p className="text-sm text-muted-foreground">
                 Test mode adds a 🧪 badge and allows testing without affecting production data
               </p>
+            </CardContent>
+          </Card>
+
+          {/* Scheduling Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Artifact Fetching Schedule</CardTitle>
+              <CardDescription>
+                Automatically fetch new artifacts from all active sources at scheduled times
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="fetch-schedule-enabled">Enable Scheduled Fetching</Label>
+                <Switch
+                  id="fetch-schedule-enabled"
+                  checked={fetchScheduleEnabled}
+                  onCheckedChange={setFetchScheduleEnabled}
+                />
+              </div>
+              
+              <ScheduleTimeSelector
+                scheduledTimes={fetchScheduleTimes}
+                onChange={setFetchScheduleTimes}
+                label="Fetch Times"
+                description="Choose specific times each day to fetch new artifacts"
+                presets={[
+                  { label: "6 AM", time: "06:00" },
+                  { label: "12 PM", time: "12:00" },
+                  { label: "6 PM", time: "18:00" },
+                ]}
+              />
+
+              <SaveScheduleButton
+                scheduleType="artifact_fetch"
+                times={fetchScheduleTimes}
+                enabled={fetchScheduleEnabled}
+              />
             </CardContent>
           </Card>
 
