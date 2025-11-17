@@ -6,11 +6,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -23,6 +23,8 @@ import { CalendarIcon, Loader2, Sparkles, CheckCircle, XCircle, X } from "lucide
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { QueueProcessor } from "@/components/ai-journalist/QueueProcessor";
+import { ScheduleTimeSelector } from "@/components/scheduling/ScheduleTimeSelector";
+import { useSchedule, useSaveSchedule } from "@/hooks/useSchedules";
 
 const AIJournalist = () => {
   const { toast } = useToast();
@@ -37,10 +39,32 @@ const AIJournalist = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
-  const [fetchSchedule, setFetchSchedule] = useState("0 6 * * *");
-  const [journalismSchedule, setJournalismSchedule] = useState("0 7 * * *");
   const [selectionMode, setSelectionMode] = useState<"dateRange" | "specific">("dateRange");
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
+  
+  // Scheduling state
+  const [fetchScheduleTimes, setFetchScheduleTimes] = useState<string[]>([]);
+  const [fetchScheduleEnabled, setFetchScheduleEnabled] = useState(false);
+  const [journalismScheduleTimes, setJournalismScheduleTimes] = useState<string[]>([]);
+  const [journalismScheduleEnabled, setJournalismScheduleEnabled] = useState(false);
+  
+  // Load existing schedules
+  const { data: fetchSchedule } = useSchedule("artifact_fetch");
+  const { data: journalismSchedule } = useSchedule("ai_journalism");
+  
+  useEffect(() => {
+    if (fetchSchedule) {
+      setFetchScheduleTimes(fetchSchedule.scheduled_times || []);
+      setFetchScheduleEnabled(fetchSchedule.is_enabled);
+    }
+  }, [fetchSchedule]);
+  
+  useEffect(() => {
+    if (journalismSchedule) {
+      setJournalismScheduleTimes(journalismSchedule.scheduled_times || []);
+      setJournalismScheduleEnabled(journalismSchedule.is_enabled);
+    }
+  }, [journalismSchedule]);
 
   // Check for most recent query on page load (running or completed)
   useEffect(() => {
@@ -710,73 +734,73 @@ const AIJournalist = () => {
         </TabsContent>
 
         <TabsContent value="schedule" className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Scheduled Tasks</CardTitle>
-            <CardDescription>Configure when artifacts are fetched and when AI journalism runs automatically</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="fetch-schedule" className="text-base font-semibold">Artifact Fetching Schedule</Label>
-                <p className="text-sm text-muted-foreground mb-2">
-                  When to fetch new artifacts from all active sources
-                </p>
-                <div className="flex gap-2">
-                  <Input
-                    id="fetch-schedule"
-                    value={fetchSchedule}
-                    onChange={(e) => setFetchSchedule(e.target.value)}
-                    placeholder="0 6 * * *"
-                    className="font-mono"
-                  />
-                  <Button variant="outline" size="sm" onClick={() => setFetchSchedule("0 6 * * *")}>
-                    Daily 6 AM
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Current: Daily at 6:00 AM UTC
-                </p>
+          <Card>
+            <CardHeader>
+              <CardTitle>Artifact Fetching Schedule</CardTitle>
+              <CardDescription>
+                Configure when to automatically fetch new artifacts from all active sources
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="fetch-enabled">Enable Scheduled Fetching</Label>
+                <Switch
+                  id="fetch-enabled"
+                  checked={fetchScheduleEnabled}
+                  onCheckedChange={setFetchScheduleEnabled}
+                />
+              </div>
+              
+              <ScheduleTimeSelector
+                scheduledTimes={fetchScheduleTimes}
+                onChange={setFetchScheduleTimes}
+                label="Fetch Times"
+                description="Choose specific times each day to fetch new artifacts"
+                presets={[
+                  { label: "6 AM", time: "06:00" },
+                  { label: "12 PM", time: "12:00" },
+                  { label: "6 PM", time: "18:00" },
+                ]}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>AI Journalism Schedule</CardTitle>
+              <CardDescription>
+                Configure when to automatically generate stories from fetched artifacts
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="journalism-enabled">Enable Scheduled Journalism</Label>
+                <Switch
+                  id="journalism-enabled"
+                  checked={journalismScheduleEnabled}
+                  onCheckedChange={setJournalismScheduleEnabled}
+                />
               </div>
 
-              <Separator />
+              <ScheduleTimeSelector
+                scheduledTimes={journalismScheduleTimes}
+                onChange={setJournalismScheduleTimes}
+                label="Story Generation Times"
+                description="Choose specific times each day to generate stories"
+                presets={[
+                  { label: "7 AM", time: "07:00" },
+                  { label: "1 PM", time: "13:00" },
+                  { label: "7 PM", time: "19:00" },
+                ]}
+              />
+            </CardContent>
+          </Card>
 
-              <div>
-                <Label htmlFor="journalism-schedule" className="text-base font-semibold">AI Journalism Schedule</Label>
-                <p className="text-sm text-muted-foreground mb-2">
-                  When to run the AI journalist to generate stories
-                </p>
-                <div className="flex gap-2">
-                  <Input
-                    id="journalism-schedule"
-                    value={journalismSchedule}
-                    onChange={(e) => setJournalismSchedule(e.target.value)}
-                    placeholder="0 7 * * *"
-                    className="font-mono"
-                  />
-                  <Button variant="outline" size="sm" onClick={() => setJournalismSchedule("0 7 * * *")}>
-                    Daily 7 AM
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Current: Daily at 7:00 AM UTC
-                </p>
-              </div>
-            </div>
-
-            <Alert>
-              <AlertDescription>
-                <strong>Cron Expression Format:</strong> minute hour day month weekday
-                <br />
-                Examples: "0 6 * * *" = 6 AM daily, "0 */2 * * *" = Every 2 hours, "0 0 * * 0" = Midnight every Sunday
-              </AlertDescription>
-            </Alert>
-
-            <Button disabled className="w-full">
-              Save Schedules (Coming Soon)
-            </Button>
-          </CardContent>
-        </Card>
+          <Alert>
+            <AlertDescription>
+              <strong>Tip:</strong> Schedule AI journalism runs at least 30 minutes after artifact fetching to ensure new content is available for processing.
+            </AlertDescription>
+          </Alert>
         </TabsContent>
       </Tabs>
     </div>
