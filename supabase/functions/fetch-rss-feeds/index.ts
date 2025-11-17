@@ -1,8 +1,4 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { getContentWithBrowserless } from '../_shared/browserless-service.ts';
-
-const BROWSERLESS_URL = Deno.env.get('BROWSERLESS_URL') || 'https://production-sfo.browserless.io';
-const BROWSERLESS_API_KEY = Deno.env.get('BROWSERLESS_API_KEY');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -174,29 +170,16 @@ Deno.serve(async (req) => {
               try {
                 console.log(`   📄 Fetching full article from ${link}`);
                 
-                let extractedContent = '';
-                
-                // Try selector-based extraction first if we have selectors
-                if (selectors.length > 0) {
-                  console.log(`   🎯 Using ${selectors.length} configured selectors`);
-                  extractedContent = await extractContentWithSelectors(link, selectors);
-                  console.log(`   ✅ Selector extraction: ${extractedContent.length} characters`);
-                }
-                
-                // Fallback to generic extraction if no selectors or extraction failed
-                if (!extractedContent || extractedContent.length < 200) {
-                  console.log(`   🔄 Falling back to generic extraction`);
-                  const articleHtml = await fetchArticleHTML(link);
-                  if (articleHtml) {
-                    extractedContent = extractContentFromHTML(articleHtml);
-                    console.log(`   ✅ Generic extraction: ${extractedContent.length} characters`);
+                const articleHtml = await fetchArticleHTML(link);
+                if (articleHtml) {
+                  const extractedContent = extractContentFromHTML(articleHtml);
+                  console.log(`   ✅ Extraction: ${extractedContent.length} characters`);
+                  
+                  // Replace content if extracted version is better
+                  if (extractedContent && extractedContent.length > content.length) {
+                    console.log(`   ✅ Replaced ${content.length} chars with ${extractedContent.length} chars`);
+                    content = extractedContent;
                   }
-                }
-                
-                // Replace content if extracted version is better
-                if (extractedContent && extractedContent.length > content.length) {
-                  console.log(`   ✅ Replaced ${content.length} chars with ${extractedContent.length} chars`);
-                  content = extractedContent;
                 }
               } catch (fetchError) {
                 const errorMsg = fetchError instanceof Error ? fetchError.message : 'Unknown error';
@@ -463,163 +446,123 @@ function cleanText(text: string): string {
 }
 
 /**
- * Fetch HTML content from a URL using Browserless for better rendering
+ * Fetch HTML content from a URL with retry logic
  */
-async function fetchArticleHTML(url: string): Promise<string> {
-  try {
-    // Use Browserless to properly render JavaScript-heavy sites
-    console.log(`   🌐 Fetching with Browserless: ${url}`);
-    return await getContentWithBrowserless(url);
-  } catch (error) {
-    console.log(`   ⚠️ Browserless fetch failed, falling back to basic fetch: ${error}`);
-    
-    // Fallback to basic fetch if Browserless fails
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; RSSBot/1.0)',
-      },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+async function fetchArticleHTML(url: string, retries = 2): Promise<string> {
+  console.log(`📄 Fetching content: ${url}`);
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+      
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const html = await response.text();
+      console.log(`✅ Fetched ${html.length} characters`);
+      return html;
+    } catch (error) {
+      if (attempt < retries) {
+        console.log(`   ⚠️ Attempt ${attempt + 1} failed, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Exponential backoff
+      } else {
+        throw error;
+      }
     }
-    
-    return await response.text();
   }
+  
+  throw new Error('Max retries reached');
 }
 
 /**
- * Extract readable content from HTML, focusing on main article content
+ * Extract readable content from HTML using multiple strategies
  */
 function extractContentFromHTML(html: string): string {
-  // Remove script and style tags with their content
-  let content = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-  content = content.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+  console.log(`   🔍 Attempting content extraction...`);
   
-  // Remove HTML comments
-  content = content.replace(/<!--[\s\S]*?-->/g, '');
+  // Remove scripts, styles, comments
+  let cleaned = html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '');
   
-  // Try to extract main content area (article, main, or common content containers)
-  const articleMatch = content.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
-  const mainMatch = content.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
-  const contentMatch = content.match(/<div[^>]*class="[^"]*(?:content|article|post|entry)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+  // Strategy 1: Try semantic HTML5 tags and common content selectors
+  const strategies = [
+    { name: 'article tag', regex: /<article[^>]*>([\s\S]*?)<\/article>/i },
+    { name: 'main tag', regex: /<main[^>]*>([\s\S]*?)<\/main>/i },
+    { name: 'role=main', regex: /<div[^>]*role=["']main["'][^>]*>([\s\S]*?)<\/div>/i },
+    { name: 'id=content', regex: /<div[^>]*id=["'][^"']*(?:content|article|main|post-content|entry-content)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i },
+    { name: 'class=content', regex: /<div[^>]*class=["'][^"']*(?:post-content|article-body|entry-content|content-body|article-content|main-content)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i },
+  ];
   
-  // Use the first match found, or fall back to full HTML
-  if (articleMatch) {
-    content = articleMatch[1];
-  } else if (mainMatch) {
-    content = mainMatch[1];
-  } else if (contentMatch) {
-    content = contentMatch[1];
+  for (const strategy of strategies) {
+    const match = cleaned.match(strategy.regex);
+    if (match && match[1]) {
+      const extracted = processContent(match[1]);
+      if (extracted.length > 200) {
+        console.log(`   ✅ Strategy "${strategy.name}": ${extracted.length} chars`);
+        return extracted;
+      }
+    }
   }
   
-  // Remove common non-content sections
-  content = content.replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, '');
-  content = content.replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, '');
-  content = content.replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, '');
-  content = content.replace(/<aside\b[^>]*>[\s\S]*?<\/aside>/gi, '');
+  // Strategy 2: Extract all paragraphs as fallback
+  console.log(`   🔄 Using paragraph extraction fallback`);
+  const paragraphs = cleaned.match(/<p[^>]*>([\s\S]*?)<\/p>/gi) || [];
+  const allText = paragraphs
+    .map(p => p.replace(/<[^>]+>/g, '').trim())
+    .filter(text => text.length > 20)
+    .join('\n\n');
   
-  // Convert headers to markdown-style
-  content = content.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '\n\n# $1\n\n');
-  content = content.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n\n## $1\n\n');
-  content = content.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n\n### $1\n\n');
+  if (allText.length > 200) {
+    console.log(`   ✅ Paragraph extraction: ${allText.length} chars`);
+    return cleanText(allText);
+  }
   
-  // Convert paragraphs to double newlines
-  content = content.replace(/<\/p>/gi, '\n\n');
-  content = content.replace(/<p[^>]*>/gi, '');
+  console.log(`   ⚠️ All extraction strategies failed`);
+  return '';
+}
+
+/**
+ * Process HTML content into readable text
+ */
+function processContent(html: string): string {
+  // Remove navigation, headers, footers, asides
+  let content = html
+    .replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, '')
+    .replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, '')
+    .replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, '')
+    .replace(/<aside\b[^>]*>[\s\S]*?<\/aside>/gi, '');
   
-  // Convert line breaks
-  content = content.replace(/<br\s*\/?>/gi, '\n');
-  
-  // Convert lists
-  content = content.replace(/<li[^>]*>/gi, '\n• ');
-  content = content.replace(/<\/li>/gi, '');
+  // Convert to markdown-style text
+  content = content
+    .replace(/<h1[^>]*>(.*?)<\/h1>/gi, '\n\n# $1\n\n')
+    .replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n\n## $1\n\n')
+    .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n\n### $1\n\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<p[^>]*>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '\n• ')
+    .replace(/<\/li>/gi, '');
   
   // Remove all remaining HTML tags
   content = content.replace(/<[^>]+>/g, '');
   
   // Decode HTML entities
-  content = content.replace(/&nbsp;/g, ' ');
-  content = content.replace(/&amp;/g, '&');
-  content = content.replace(/&lt;/g, '<');
-  content = content.replace(/&gt;/g, '>');
-  content = content.replace(/&quot;/g, '"');
-  content = content.replace(/&#39;/g, "'");
-  content = content.replace(/&apos;/g, "'");
-  content = content.replace(/&rsquo;/g, "'");
-  content = content.replace(/&ldquo;/g, '"');
-  content = content.replace(/&rdquo;/g, '"');
-  content = content.replace(/&mdash;/g, '—');
-  content = content.replace(/&ndash;/g, '–');
-  
-  // Clean up excessive whitespace but preserve paragraph breaks
-  content = content.replace(/[ \t]+/g, ' ');
-  content = content.replace(/\n\s*\n\s*\n/g, '\n\n');
-  content = content.trim();
-  
-  // Limit to reasonable length (15000 characters - increased for longer articles)
-  if (content.length > 15000) {
-    content = content.substring(0, 15000) + '...';
-  }
-  
-  return content;
-}
-
-/**
- * Extract content using configured selectors from Source Analysis
- */
-async function extractContentWithSelectors(url: string, selectors: string[]): Promise<string> {
-  if (!BROWSERLESS_API_KEY) {
-    throw new Error('BROWSERLESS_API_KEY not configured');
-  }
-
-  console.log(`   🌐 Scraping with selectors: ${url}`);
-  
-  const elements = selectors.map(selector => ({ selector }));
-  
-  const response = await fetch(
-    `${BROWSERLESS_URL}/scrape?token=${BROWSERLESS_API_KEY}`,
-    {
-      method: 'POST',
-      headers: {
-        'Cache-Control': 'no-cache',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url,
-        elements,
-        gotoOptions: {
-          waitUntil: 'networkidle2',
-          timeout: 30000,
-        },
-        waitForTimeout: 5000,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Browserless scrape error (${response.status}): ${errorText}`);
-  }
-
-  const result = await response.json();
-  const data = result.data || [];
-  
-  // Find the longest text block from all selectors
-  let longestText = '';
-  for (const selectorResult of data) {
-    if (selectorResult.results && Array.isArray(selectorResult.results)) {
-      for (const item of selectorResult.results) {
-        const text = item.text || '';
-        if (text.length > longestText.length) {
-          longestText = text;
-        }
-      }
-    }
-  }
-  
-  // Clean and normalize the text
-  let content = longestText
+  content = content
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
@@ -638,5 +581,11 @@ async function extractContentWithSelectors(url: string, selectors: string[]): Pr
   content = content.replace(/\n\s*\n\s*\n/g, '\n\n');
   content = content.trim();
   
+  // Limit to reasonable length
+  if (content.length > 15000) {
+    content = content.substring(0, 15000) + '...';
+  }
+  
   return content;
 }
+
