@@ -10,6 +10,21 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Security: Check for internal secret to prevent unauthorized access
+  const INTERNAL_SECRET = Deno.env.get('QUEUE_PROCESSOR_SECRET');
+  const providedSecret = req.headers.get('x-internal-secret');
+  
+  if (!INTERNAL_SECRET || providedSecret !== INTERNAL_SECRET) {
+    console.error("❌ Unauthorized access attempt - invalid or missing secret");
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized' }), 
+      { 
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      }
+    );
+  }
+
   try {
     const { queueItemId } = await req.json();
 
@@ -198,9 +213,11 @@ ${artifactData}`;
 
     if (nextItem) {
       console.log("📋 Processing next item in queue...");
-      // Trigger next item processing
+      const INTERNAL_SECRET = Deno.env.get('QUEUE_PROCESSOR_SECRET')!;
+      // Trigger next item processing with internal secret
       await supabase.functions.invoke("process-journalism-queue-item", {
         body: { queueItemId: nextItem.id },
+        headers: { 'x-internal-secret': INTERNAL_SECRET }
       });
     }
 

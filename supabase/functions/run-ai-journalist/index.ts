@@ -155,8 +155,10 @@ Deno.serve(async (req) => {
 
     // Trigger processing of first item (which will chain to the rest)
     console.log("🚀 Starting queue processing...");
+    const QUEUE_SECRET = Deno.env.get('QUEUE_PROCESSOR_SECRET')!;
     await supabase.functions.invoke("process-journalism-queue-item", {
       body: { queueItemId: firstItem.id },
+      headers: { 'x-internal-secret': QUEUE_SECRET }
     });
 
     // Return immediately with 202 Accepted
