@@ -341,85 +341,6 @@ const ManualQuery = () => {
         </p>
       </div>
 
-      {/* Progress Display - Always show last query */}
-      {displayQuery && (
-        <Card className={cn(
-          displayQuery.status === 'running' && "border-primary",
-          displayQuery.status === 'completed' && "border-green-500",
-          displayQuery.status === 'failed' && "border-destructive"
-        )}>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              {displayQuery.status === 'running' && <Loader2 className="h-5 w-5 animate-spin" />}
-              {displayQuery.status === 'completed' && <CheckCircle className="h-5 w-5 text-green-500" />}
-              {displayQuery.status === 'failed' && <XCircle className="h-5 w-5 text-destructive" />}
-              {displayQuery.status === 'running' ? 'Processing Query' : displayQuery.status === 'completed' ? 'Last Query Completed' : 'Last Query Failed'}
-            </CardTitle>
-            <CardDescription>
-              {displayQuery.status === 'running' && displayQuery.current_source_name 
-                ? `Currently processing: ${displayQuery.current_source_name}`
-                : displayQuery.status === 'completed'
-                ? `Completed on ${format(new Date(displayQuery.completed_at || displayQuery.created_at), 'PPp')}`
-                : displayQuery.error_message || 'Query failed'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {isStaleQuery && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Query may be stuck</AlertTitle>
-                <AlertDescription>
-                  This query has been running for over 5 minutes. It may have encountered an error.
-                </AlertDescription>
-              </Alert>
-            )}
-            
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Sources Progress</span>
-                <span className="text-muted-foreground">
-                  {displayQuery.sources_processed || 0} / {displayQuery.sources_total || 0}
-                </span>
-              </div>
-              <Progress 
-                value={displayQuery.sources_total 
-                  ? ((displayQuery.sources_processed || 0) / displayQuery.sources_total) * 100 
-                  : 0
-                } 
-              />
-            </div>
-            
-            {displayQuery.sources_failed > 0 && (
-              <div className="text-sm text-yellow-600 dark:text-yellow-500">
-                ⚠️ {displayQuery.sources_failed} source(s) failed to process
-              </div>
-            )}
-            
-                <div className="text-sm">
-                  <div className="text-muted-foreground">Artifacts Found</div>
-                  <div className="text-2xl font-bold">{displayQuery.artifacts_count || 0}</div>
-                </div>
-            
-            {displayQuery.status === 'running' && (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => {
-                  setIsRunning(false);
-                  setCurrentHistoryId(null);
-                  toast({
-                    title: "Stopped Monitoring",
-                    description: "Query will continue running in the background",
-                  });
-                }}
-              >
-                Stop Monitoring
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
       <Tabs defaultValue="run" className="w-full">
         <TabsList className="grid w-full max-w-md grid-cols-2 mb-6">
           <TabsTrigger value="run">Run Fetch</TabsTrigger>
@@ -427,6 +348,86 @@ const ManualQuery = () => {
         </TabsList>
 
         <TabsContent value="run">
+          {/* Progress Display - Shows when fetch is running */}
+          {displayQuery && (
+            <Card className={cn(
+              "mb-6",
+              displayQuery.status === 'running' && "border-primary",
+              displayQuery.status === 'completed' && "border-green-500",
+              displayQuery.status === 'failed' && "border-destructive"
+            )}>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  {displayQuery.status === 'running' && <Loader2 className="h-5 w-5 animate-spin" />}
+                  {displayQuery.status === 'completed' && <CheckCircle className="h-5 w-5 text-green-500" />}
+                  {displayQuery.status === 'failed' && <XCircle className="h-5 w-5 text-destructive" />}
+                  {displayQuery.status === 'running' ? 'Processing Query' : displayQuery.status === 'completed' ? 'Last Query Completed' : 'Last Query Failed'}
+                </CardTitle>
+                <CardDescription>
+                  {displayQuery.status === 'running' && displayQuery.current_source_name 
+                    ? `Currently processing: ${displayQuery.current_source_name}`
+                    : displayQuery.status === 'completed'
+                    ? `Completed on ${format(new Date(displayQuery.completed_at || displayQuery.created_at), 'PPp')}`
+                    : displayQuery.error_message || 'Query failed'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {isStaleQuery && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Query may be stuck</AlertTitle>
+                    <AlertDescription>
+                      This query has been running for over 5 minutes. It may have encountered an error.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Sources Progress</span>
+                    <span className="text-muted-foreground">
+                      {displayQuery.sources_processed || 0} / {displayQuery.sources_total || 0}
+                    </span>
+                  </div>
+                  <Progress 
+                    value={displayQuery.sources_total 
+                      ? ((displayQuery.sources_processed || 0) / displayQuery.sources_total) * 100 
+                      : 0
+                    } 
+                  />
+                </div>
+                
+                {displayQuery.sources_failed > 0 && (
+                  <div className="text-sm text-yellow-600 dark:text-yellow-500">
+                    ⚠️ {displayQuery.sources_failed} source(s) failed to process
+                  </div>
+                )}
+                
+                    <div className="text-sm">
+                      <div className="text-muted-foreground">Artifacts Found</div>
+                      <div className="text-2xl font-bold">{displayQuery.artifacts_count || 0}</div>
+                    </div>
+                
+                {displayQuery.status === 'running' && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      setIsRunning(false);
+                      setCurrentHistoryId(null);
+                      toast({
+                        title: "Stopped Monitoring",
+                        description: "Query will continue running in the background",
+                      });
+                    }}
+                  >
+                    Stop Monitoring
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-6">
               {/* Date Range Section */}
