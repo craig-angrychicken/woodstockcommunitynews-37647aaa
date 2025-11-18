@@ -84,6 +84,87 @@ function decodeHtmlEntities(url: string | null | undefined): string | null {
     .replace(/&#39;/g, "'");
 }
 
+// Helper function to fetch and upload hero image to Ghost
+async function fetchAndUploadHeroImageToGhost(
+  imageUrl: string,
+  ghostAdminUrl: string,
+  token: string
+): Promise<string | null> {
+  try {
+    console.log(`📸 Fetching image from: ${imageUrl}`);
+    
+    // Fetch the image with a timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    
+    const imageResponse = await fetch(imageUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; GhostPublisher/1.0)'
+      }
+    });
+    clearTimeout(timeoutId);
+    
+    if (!imageResponse.ok) {
+      console.error(`❌ Failed to fetch image: ${imageResponse.status}`);
+      return null;
+    }
+    
+    // Get the image data
+    const imageBuffer = await imageResponse.arrayBuffer();
+    const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
+    
+    // Determine filename from URL or content type
+    let filename = 'hero-image';
+    const urlParts = imageUrl.split('/');
+    const lastPart = urlParts[urlParts.length - 1];
+    if (lastPart && lastPart.includes('.')) {
+      filename = lastPart.split('?')[0]; // Remove query params
+    } else {
+      // Infer extension from content type
+      const ext = contentType.split('/')[1]?.split(';')[0] || 'jpg';
+      filename = `hero-image.${ext}`;
+    }
+    
+    // Create FormData for Ghost upload
+    const formData = new FormData();
+    const blob = new Blob([imageBuffer], { type: contentType });
+    formData.append('file', blob, filename);
+    
+    console.log(`⬆️ Uploading image to Ghost: ${filename}`);
+    
+    // Upload to Ghost
+    const uploadUrl = `${ghostAdminUrl}/ghost/api/admin/images/upload/`;
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Ghost ${token}`,
+      },
+      body: formData,
+    });
+    
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      console.error(`❌ Ghost upload failed: ${uploadResponse.status}`, errorText);
+      return null;
+    }
+    
+    const uploadResult = await uploadResponse.json();
+    const ghostImageUrl = uploadResult.images?.[0]?.url;
+    
+    if (ghostImageUrl) {
+      console.log(`✅ Image uploaded successfully: ${ghostImageUrl}`);
+      return ghostImageUrl;
+    }
+    
+    console.error('❌ No image URL in upload response');
+    return null;
+  } catch (error) {
+    console.error('❌ Error uploading image to Ghost:', error);
+    return null;
+  }
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -193,6 +274,22 @@ serve(async (req) => {
     // Decode HTML entities in hero image URL before sending to Ghost
     const cleanHeroImageUrl = decodeHtmlEntities(heroImageUrl);
     
+    // Upload hero image to Ghost if present
+    let featureImageUrl = cleanHeroImageUrl;
+    if (cleanHeroImageUrl) {
+      const uploadedUrl = await fetchAndUploadHeroImageToGhost(
+        cleanHeroImageUrl,
+        ghostApiUrl,
+        token
+      );
+      if (uploadedUrl) {
+        featureImageUrl = uploadedUrl;
+        console.log(`🖼️ Using Ghost-hosted image: ${uploadedUrl}`);
+      } else {
+        console.log(`⚠️ Falling back to original URL: ${cleanHeroImageUrl}`);
+      }
+    }
+    
     // Prepare post data
     const postData = {
       posts: [{
@@ -203,7 +300,7 @@ serve(async (req) => {
         featured: featured || false,
         custom_excerpt: excerpt || subhead || null,
         published_at: publishedAt,
-        feature_image: cleanHeroImageUrl,
+        feature_image: featureImageUrl,
         // Include updated_at for PUT requests (required by Ghost API)
         ...(method === 'PUT' && updatedAt ? { updated_at: updatedAt } : {})
       }]

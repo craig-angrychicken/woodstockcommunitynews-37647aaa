@@ -75,6 +75,7 @@ export const StoryCard = ({ story, sourceCount, onView, onEdit, onPublish, onDel
             <img 
               src={sanitizeImageUrl(story.hero_image_url) || ''} 
               alt={story.title}
+              referrerPolicy="no-referrer"
               className="w-full h-32 object-cover rounded-md"
             />
           </div>
