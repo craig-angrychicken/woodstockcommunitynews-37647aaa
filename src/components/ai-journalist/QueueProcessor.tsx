@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle, XCircle, Clock, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { format } from "date-fns";
 
 interface QueueItem {
   id: string;
@@ -28,17 +29,35 @@ interface QueueProcessorProps {
 export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcessorProps) => {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [historyDetails, setHistoryDetails] = useState<{
+    created_at: string;
+    completed_at: string | null;
+    status: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!historyId) {
       setQueueItems([]);
+      setHistoryDetails(null);
       return;
     }
 
     setLoading(true);
 
-    // Initial fetch
-    const fetchQueue = async () => {
+    // Fetch history details and queue
+    const fetchData = async () => {
+      // Fetch history details
+      const { data: historyData } = await supabase
+        .from("query_history")
+        .select("created_at, completed_at, status")
+        .eq("id", historyId)
+        .single();
+
+      if (historyData) {
+        setHistoryDetails(historyData);
+      }
+
+      // Fetch queue
       const { data, error } = await supabase
         .from("journalism_queue")
         .select(`
@@ -58,7 +77,7 @@ export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcess
       setLoading(false);
     };
 
-    fetchQueue();
+    fetchData();
 
     // Subscribe to realtime updates
     const channel = supabase
@@ -90,7 +109,7 @@ export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcess
     };
   }, [historyId]);
 
-  if (!historyId || queueItems.length === 0) {
+  if (!historyId) {
     return null;
   }
 
@@ -119,9 +138,11 @@ export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcess
           <Badge variant={statusConfig.variant} className="ml-auto">
             {statusConfig.text}
           </Badge>
-          <Badge variant="outline" className="ml-2">
-            {completed + failed} / {total}
-          </Badge>
+          {total > 0 && (
+            <Badge variant="outline" className="ml-2">
+              {completed + failed} / {total}
+            </Badge>
+          )}
           {onDismiss && (
             <Button
               variant="ghost"
@@ -133,15 +154,27 @@ export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcess
             </Button>
           )}
         </CardTitle>
+        {historyDetails && (
+          <CardDescription className="text-xs">
+            Started: {format(new Date(historyDetails.created_at), "PPp")}
+            {historyDetails.completed_at && ` • Completed: ${format(new Date(historyDetails.completed_at), "PPp")}`}
+          </CardDescription>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <div className="flex justify-between text-sm text-muted-foreground">
-            <span>Progress</span>
-            <span>{Math.round(progress)}%</span>
-          </div>
-          <Progress value={progress} className="h-2" />
-        </div>
+        {total === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No items were queued for this run
+          </p>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Progress</span>
+                <span>{Math.round(progress)}%</span>
+              </div>
+              <Progress value={progress} className="h-2" />
+            </div>
 
         {processing && (
           <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
@@ -179,20 +212,22 @@ export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcess
           </div>
         </div>
 
-        {failed > 0 && (
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-destructive">Failed Items:</p>
-            <div className="space-y-1 max-h-32 overflow-y-auto">
-              {queueItems
-                .filter((i) => i.status === "failed")
-                .map((item) => (
-                  <div key={item.id} className="text-xs text-muted-foreground pl-2 border-l-2 border-destructive/30">
-                    {item.artifact?.title || item.artifact?.name || "Untitled"}
-                    {item.error_message && <span className="block text-destructive/80">{item.error_message}</span>}
-                  </div>
-                ))}
-            </div>
-          </div>
+            {failed > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-destructive">Failed Items:</p>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {queueItems
+                    .filter((i) => i.status === "failed")
+                    .map((item) => (
+                      <div key={item.id} className="text-xs text-muted-foreground pl-2 border-l-2 border-destructive/30">
+                        {item.artifact?.title || item.artifact?.name || "Untitled"}
+                        {item.error_message && <span className="block text-destructive/80">{item.error_message}</span>}
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>
