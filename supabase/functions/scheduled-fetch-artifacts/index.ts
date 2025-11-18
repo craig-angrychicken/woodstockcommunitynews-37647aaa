@@ -5,19 +5,28 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+async function logCronJob(supabase: any, log: any) {
+  await supabase.from("cron_job_logs").insert(log).catch((error: any) => {
+    console.error("Failed to log cron job:", error);
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const now = new Date();
-    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    console.log("🕐 Scheduled artifact fetch triggered at", now.toISOString(), `(${currentTime})`);
+  const startTime = Date.now();
+  const now = new Date();
+  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  
+  console.log("🕐 Scheduled artifact fetch triggered at", now.toISOString(), `(${currentTime} UTC)`);
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  try {
 
     // Check if artifact fetching scheduling is enabled and matches current time
     const { data: schedule, error: scheduleError } = await supabase
@@ -28,11 +37,28 @@ Deno.serve(async (req) => {
 
     if (scheduleError) {
       console.error("❌ Error fetching schedule:", scheduleError);
+      const duration = Date.now() - startTime;
+      await logCronJob(supabase, {
+        job_name: "scheduled-fetch-artifacts",
+        schedule_check_passed: false,
+        time_checked: currentTime,
+        reason: "Failed to fetch schedule from database",
+        error_message: scheduleError.message,
+        execution_duration_ms: duration,
+      });
       throw new Error(`Failed to fetch schedule: ${scheduleError.message}`);
     }
 
     if (!schedule) {
       console.log("⚠️ No schedule configured for artifact fetching");
+      const duration = Date.now() - startTime;
+      await logCronJob(supabase, {
+        job_name: "scheduled-fetch-artifacts",
+        schedule_check_passed: false,
+        time_checked: currentTime,
+        reason: "No schedule configured",
+        execution_duration_ms: duration,
+      });
       return new Response(
         JSON.stringify({ 
           success: false, 
@@ -44,6 +70,16 @@ Deno.serve(async (req) => {
 
     if (!schedule.is_enabled) {
       console.log("⏸️ Artifact fetching scheduling is disabled");
+      const duration = Date.now() - startTime;
+      await logCronJob(supabase, {
+        job_name: "scheduled-fetch-artifacts",
+        schedule_check_passed: false,
+        schedule_enabled: false,
+        scheduled_times: schedule.scheduled_times,
+        time_checked: currentTime,
+        reason: "Schedule is disabled",
+        execution_duration_ms: duration,
+      });
       return new Response(
         JSON.stringify({ 
           success: false, 
@@ -63,6 +99,16 @@ Deno.serve(async (req) => {
 
     if (!isScheduledNow) {
       console.log(`⏰ Not scheduled to run at ${currentTime}. Scheduled times: ${scheduledTimes.join(', ')}`);
+      const duration = Date.now() - startTime;
+      await logCronJob(supabase, {
+        job_name: "scheduled-fetch-artifacts",
+        schedule_check_passed: false,
+        schedule_enabled: true,
+        scheduled_times: scheduledTimes,
+        time_checked: currentTime,
+        reason: `Not scheduled for this time (scheduled: ${scheduledTimes.join(', ')})`,
+        execution_duration_ms: duration,
+      });
       return new Response(
         JSON.stringify({ 
           success: false, 
@@ -86,6 +132,18 @@ Deno.serve(async (req) => {
 
     if (!sources || sources.length === 0) {
       console.log("⚠️ No active sources found");
+      const duration = Date.now() - startTime;
+      await logCronJob(supabase, {
+        job_name: "scheduled-fetch-artifacts",
+        schedule_check_passed: true,
+        schedule_enabled: true,
+        scheduled_times: scheduledTimes,
+        time_checked: currentTime,
+        sources_count: 0,
+        artifacts_count: 0,
+        reason: "No active sources found",
+        execution_duration_ms: duration,
+      });
       return new Response(
         JSON.stringify({ success: true, message: "No active sources to fetch", artifactsCount: 0 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
