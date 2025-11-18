@@ -99,10 +99,52 @@ Deno.serve(async (req) => {
         const parserConfig = source.parser_config;
         console.log(`🔧 Using parser config:`, parserConfig ? 'Custom' : 'Default');
 
-        // Fetch the RSS feed
-        const response = await fetch(source.url);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Fetch the RSS feed with retry logic
+        let response;
+        let lastError;
+        const maxRetries = 3;
+        const retryDelays = [2000, 4000, 8000]; // Exponential backoff
+        
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            console.log(`   Attempt ${attempt + 1}/${maxRetries}...`);
+            response = await fetch(source.url);
+            
+            if (response.ok) {
+              break; // Success!
+            }
+            
+            // Log HTTP error details
+            const statusText = response.statusText;
+            const responseBody = await response.text().catch(() => 'Unable to read response body');
+            lastError = new Error(`HTTP ${response.status}: ${statusText}\nResponse: ${responseBody.substring(0, 500)}`);
+            console.error(`   ❌ Attempt ${attempt + 1} failed:`, lastError.message);
+            
+            // Don't retry on client errors (400-499), only server errors (500+) and network issues
+            if (response.status < 500) {
+              console.log(`   🚫 Not retrying client error ${response.status}`);
+              throw lastError;
+            }
+            
+            if (attempt < maxRetries - 1) {
+              const delay = retryDelays[attempt];
+              console.log(`   ⏳ Waiting ${delay}ms before retry...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+          } catch (fetchError: any) {
+            lastError = fetchError;
+            console.error(`   ❌ Attempt ${attempt + 1} failed:`, fetchError.message);
+            
+            if (attempt < maxRetries - 1) {
+              const delay = retryDelays[attempt];
+              console.log(`   ⏳ Waiting ${delay}ms before retry...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+          }
+        }
+        
+        if (!response || !response.ok) {
+          throw lastError || new Error('Failed to fetch RSS feed after retries');
         }
 
         const xmlText = await response.text();

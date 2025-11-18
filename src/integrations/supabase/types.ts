@@ -73,6 +73,60 @@ export type Database = {
           },
         ]
       }
+      cron_job_logs: {
+        Row: {
+          artifacts_count: number | null
+          created_at: string
+          error_message: string | null
+          execution_duration_ms: number | null
+          id: string
+          job_name: string
+          query_history_id: string | null
+          reason: string | null
+          schedule_check_passed: boolean
+          schedule_enabled: boolean | null
+          scheduled_times: Json | null
+          sources_count: number | null
+          stories_count: number | null
+          time_checked: string | null
+          triggered_at: string
+        }
+        Insert: {
+          artifacts_count?: number | null
+          created_at?: string
+          error_message?: string | null
+          execution_duration_ms?: number | null
+          id?: string
+          job_name: string
+          query_history_id?: string | null
+          reason?: string | null
+          schedule_check_passed: boolean
+          schedule_enabled?: boolean | null
+          scheduled_times?: Json | null
+          sources_count?: number | null
+          stories_count?: number | null
+          time_checked?: string | null
+          triggered_at?: string
+        }
+        Update: {
+          artifacts_count?: number | null
+          created_at?: string
+          error_message?: string | null
+          execution_duration_ms?: number | null
+          id?: string
+          job_name?: string
+          query_history_id?: string | null
+          reason?: string | null
+          schedule_check_passed?: boolean
+          schedule_enabled?: boolean | null
+          scheduled_times?: Json | null
+          sources_count?: number | null
+          stories_count?: number | null
+          time_checked?: string | null
+          triggered_at?: string
+        }
+        Relationships: []
+      }
       journalism_queue: {
         Row: {
           artifact_id: string
@@ -460,6 +514,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cleanup_old_cron_logs: { Args: never; Returns: undefined }
       get_artifact_story_count: {
         Args: { artifact_guid: string }
         Returns: number
