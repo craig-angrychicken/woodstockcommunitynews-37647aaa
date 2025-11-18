@@ -109,7 +109,7 @@ export const CronJobMonitor = () => {
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Clock className="h-3 w-3" />
                         {formatDistanceToNow(new Date(log.triggered_at), { addSuffix: true })}
-                        {log.time_checked && ` • Checked at ${log.time_checked} UTC`}
+                        {log.time_checked && ` • Checked at ${log.time_checked} EST`}
                         {log.execution_duration_ms && ` • ${log.execution_duration_ms}ms`}
                       </div>
 
@@ -130,7 +130,7 @@ export const CronJobMonitor = () => {
 
                       {log.scheduled_times && log.scheduled_times.length > 0 && (
                         <div className="text-xs text-muted-foreground mt-1">
-                          Scheduled for: {log.scheduled_times.join(", ")} UTC
+                          Scheduled for: {log.scheduled_times.join(", ")} EST
                         </div>
                       )}
                     </div>

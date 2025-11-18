@@ -64,6 +64,7 @@ export function ScheduleTimeSelector({
         {description && (
           <p className="text-sm text-muted-foreground mt-1">{description}</p>
         )}
+        <p className="text-xs text-muted-foreground mt-1 italic">All times are in Eastern Standard Time (EST)</p>
       </div>
 
       {scheduledTimes.length > 0 ? (

@@ -18,9 +18,18 @@ Deno.serve(async (req) => {
 
   const startTime = Date.now();
   const now = new Date();
-  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   
-  console.log("🕐 Scheduled artifact fetch triggered at", now.toISOString(), `(${currentTime} UTC)`);
+  // Get current time in UTC and convert to EST
+  // NOTE: All scheduled times in database are stored in EST
+  const utcHour = now.getUTCHours();
+  const utcMinute = now.getUTCMinutes();
+  const utcTime = `${String(utcHour).padStart(2, '0')}:${String(utcMinute).padStart(2, '0')}`;
+  
+  // Convert UTC to EST (UTC - 5 hours)
+  const estHour = (utcHour - 5 + 24) % 24;
+  const currentTimeEST = `${String(estHour).padStart(2, '0')}:${String(utcMinute).padStart(2, '0')}`;
+  
+  console.log(`🕐 Scheduled artifact fetch triggered at ${now.toISOString()} (${utcTime} UTC / ${currentTimeEST} EST)`);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -41,7 +50,7 @@ Deno.serve(async (req) => {
       await logCronJob(supabase, {
         job_name: "scheduled-fetch-artifacts",
         schedule_check_passed: false,
-        time_checked: currentTime,
+        time_checked: currentTimeEST,
         reason: "Failed to fetch schedule from database",
         error_message: scheduleError.message,
         execution_duration_ms: duration,
@@ -55,7 +64,7 @@ Deno.serve(async (req) => {
       await logCronJob(supabase, {
         job_name: "scheduled-fetch-artifacts",
         schedule_check_passed: false,
-        time_checked: currentTime,
+        time_checked: currentTimeEST,
         reason: "No schedule configured",
         execution_duration_ms: duration,
       });
@@ -76,7 +85,7 @@ Deno.serve(async (req) => {
         schedule_check_passed: false,
         schedule_enabled: false,
         scheduled_times: schedule.scheduled_times,
-        time_checked: currentTime,
+        time_checked: currentTimeEST,
         reason: "Schedule is disabled",
         execution_duration_ms: duration,
       });
@@ -98,27 +107,27 @@ Deno.serve(async (req) => {
     });
 
     if (!isScheduledNow) {
-      console.log(`⏰ Not scheduled to run at ${currentTime}. Scheduled times: ${scheduledTimes.join(', ')}`);
+      console.log(`⏰ Not scheduled to run at ${currentTimeEST}. Scheduled times: ${scheduledTimes.join(', ')}`);
       const duration = Date.now() - startTime;
       await logCronJob(supabase, {
         job_name: "scheduled-fetch-artifacts",
         schedule_check_passed: false,
         schedule_enabled: true,
         scheduled_times: scheduledTimes,
-        time_checked: currentTime,
+        time_checked: currentTimeEST,
         reason: `Not scheduled for this time (scheduled: ${scheduledTimes.join(', ')})`,
         execution_duration_ms: duration,
       });
       return new Response(
         JSON.stringify({ 
           success: false, 
-          message: `Not scheduled to run at ${currentTime}. Scheduled times: ${scheduledTimes.join(', ')}` 
+          message: `Not scheduled to run at ${currentTimeEST}. Scheduled times: ${scheduledTimes.join(', ')}` 
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
       );
     }
 
-    console.log(`✅ Schedule verified - running artifact fetch at ${currentTime}`);
+    console.log(`✅ Schedule verified - running artifact fetch at ${currentTimeEST}`);
 
     // Fetch all active sources
     const { data: sources, error: sourcesError } = await supabase
@@ -138,7 +147,7 @@ Deno.serve(async (req) => {
         schedule_check_passed: true,
         schedule_enabled: true,
         scheduled_times: scheduledTimes,
-        time_checked: currentTime,
+        time_checked: currentTimeEST,
         sources_count: 0,
         artifacts_count: 0,
         reason: "No active sources found",

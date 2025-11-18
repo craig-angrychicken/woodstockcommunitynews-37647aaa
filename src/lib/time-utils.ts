@@ -1,18 +1,55 @@
 /**
  * Utility functions for time formatting and validation
+ * 
+ * NOTE: All times in the database are stored in EST (Eastern Standard Time, UTC-5).
+ * Edge functions run on UTC but convert to EST before comparing with scheduled times.
  */
 
 /**
- * Convert 24-hour time format to 12-hour display with AM/PM
+ * Convert 24-hour time format to 12-hour display with AM/PM and EST label
  * @param time24 - Time in 24-hour format (e.g., "06:00", "13:30")
- * @returns Time in 12-hour format (e.g., "6:00 AM", "1:30 PM")
+ * @returns Time in 12-hour format with EST label (e.g., "6:00 AM EST", "1:30 PM EST")
  */
 export function formatTime24To12Hour(time24: string): string {
   const [hours, minutes] = time24.split(':');
   const hour = parseInt(hours);
   const ampm = hour >= 12 ? 'PM' : 'AM';
   const displayHour = hour % 12 || 12;
-  return `${displayHour}:${minutes} ${ampm}`;
+  return `${displayHour}:${minutes} ${ampm} EST`;
+}
+
+/**
+ * Convert UTC time to EST (UTC - 5 hours)
+ * @param utcTime - Time in 24-hour UTC format (e.g., "11:00")
+ * @returns Time in 24-hour EST format (e.g., "06:00")
+ */
+export function convertUTCtoEST(utcTime: string): string {
+  const [hours, minutes] = utcTime.split(':').map(Number);
+  const estHours = (hours - 5 + 24) % 24;
+  return `${String(estHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+/**
+ * Convert EST time to UTC (EST + 5 hours)
+ * @param estTime - Time in 24-hour EST format (e.g., "06:00")
+ * @returns Time in 24-hour UTC format (e.g., "11:00")
+ */
+export function convertESTtoUTC(estTime: string): string {
+  const [hours, minutes] = estTime.split(':').map(Number);
+  const utcHours = (hours + 5) % 24;
+  return `${String(utcHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+/**
+ * Get current time in EST format (HH:MM)
+ * @returns Current time in EST as HH:MM string
+ */
+export function getCurrentEST(): string {
+  const now = new Date();
+  const utcHours = now.getUTCHours();
+  const utcMinutes = now.getUTCMinutes();
+  const estHours = (utcHours - 5 + 24) % 24;
+  return `${String(estHours).padStart(2, '0')}:${String(utcMinutes).padStart(2, '0')}`;
 }
 
 /**
