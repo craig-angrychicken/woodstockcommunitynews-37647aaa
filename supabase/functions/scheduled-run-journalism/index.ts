@@ -100,8 +100,9 @@ Deno.serve(async (req) => {
     const scheduledTimes = schedule.scheduled_times as string[];
     const isScheduledNow = scheduledTimes.some(time => {
       // Match hour and minute (allow ±1 minute tolerance for cron timing)
+      // NOTE: Compare against EST time since scheduled times are stored in EST
       const [schedHour, schedMin] = time.split(':').map(Number);
-      const [currHour, currMin] = [now.getHours(), now.getMinutes()];
+      const [currHour, currMin] = [estHour, utcMinute];
       return schedHour === currHour && Math.abs(schedMin - currMin) <= 1;
     });
 
