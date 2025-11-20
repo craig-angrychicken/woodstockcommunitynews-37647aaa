@@ -68,19 +68,6 @@ Deno.serve(async (req) => {
       artifactsQuery = artifactsQuery.eq("is_test", false);
     }
 
-    // Get all artifact IDs that are already used in stories
-    const { data: usedArtifacts, error: usedError } = await supabase
-      .from('story_artifacts')
-      .select('artifact_id');
-
-    if (usedError) {
-      console.error('⚠️ Error fetching used artifacts:', usedError);
-      // Continue anyway - better to process duplicates than fail completely
-    }
-
-    const usedArtifactIds = new Set(usedArtifacts?.map(sa => sa.artifact_id) || []);
-    console.log(`📊 Found ${usedArtifactIds.size} artifacts already used in stories`);
-
     // Fetch artifacts without applying maxArtifacts limit yet (we'll apply it after filtering)
     const { data: allArtifacts, error: artifactsError } = await artifactsQuery;
 
@@ -88,8 +75,28 @@ Deno.serve(async (req) => {
       throw new Error(`Failed to fetch artifacts: ${artifactsError.message}`);
     }
 
-    // Filter out artifacts that are already used in stories
-    let artifacts = allArtifacts?.filter(a => !usedArtifactIds.has(a.id)) || [];
+    let artifacts = allArtifacts || [];
+
+    // Only check for duplicates if NOT in test environment
+    if (environment !== "test") {
+      // Get all artifact IDs that are already used in stories
+      const { data: usedArtifacts, error: usedError } = await supabase
+        .from('story_artifacts')
+        .select('artifact_id');
+
+      if (usedError) {
+        console.error('⚠️ Error fetching used artifacts:', usedError);
+        // Continue anyway - better to process duplicates than fail completely
+      }
+
+      const usedArtifactIds = new Set(usedArtifacts?.map(sa => sa.artifact_id) || []);
+      console.log(`📊 Found ${usedArtifactIds.size} artifacts already used in stories`);
+      
+      // Filter out artifacts that are already used in stories
+      artifacts = artifacts.filter(a => !usedArtifactIds.has(a.id));
+    } else {
+      console.log(`🧪 Test mode: Skipping duplicate check to allow multiple runs`);
+    }
 
     console.log(`📊 Queue setup:`);
     console.log(`  - Total artifacts found: ${allArtifacts?.length || 0}`);
