@@ -34,13 +34,14 @@ Deno.serve(async (req) => {
 
     const data = await response.json();
     
-    // Filter to only show Google, Anthropic, and OpenAI models
+    // Filter to only show Google, Anthropic, OpenAI, and xAI (Grok) models
     const filteredModels = data.data.filter((model: any) => {
       const id = model.id.toLowerCase();
       return (
         id.includes('google/') || 
         id.includes('anthropic/') || 
-        id.includes('openai/')
+        id.includes('openai/') ||
+        id.includes('x-ai/')
       );
     });
 
@@ -54,7 +55,7 @@ Deno.serve(async (req) => {
       return a.id.localeCompare(b.id);
     });
 
-    console.log(`✅ Found ${sortedModels.length} models from Google, Anthropic, and OpenAI`);
+    console.log(`✅ Found ${sortedModels.length} models from Google, Anthropic, OpenAI, and xAI`);
 
     return new Response(
       JSON.stringify({

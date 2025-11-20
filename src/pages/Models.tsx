@@ -105,6 +105,7 @@ const Models = () => {
       'google': 'Google',
       'anthropic': 'Anthropic',
       'openai': 'OpenAI',
+      'x-ai': 'xAI (Grok)',
     };
     return names[provider] || provider;
   };
