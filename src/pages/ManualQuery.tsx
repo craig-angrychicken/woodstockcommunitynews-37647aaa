@@ -367,7 +367,11 @@ const ManualQuery = () => {
                   {displayQuery.status === 'running' && displayQuery.current_source_name 
                     ? `Currently processing: ${displayQuery.current_source_name}`
                     : displayQuery.status === 'completed'
-                    ? `Completed on ${format(new Date(displayQuery.completed_at || displayQuery.created_at), 'PPp')}`
+                    ? (() => {
+                        const utcDate = new Date(displayQuery.completed_at || displayQuery.created_at);
+                        const estDate = new Date(utcDate.getTime() - 5 * 60 * 60 * 1000);
+                        return `Completed on ${format(estDate, 'MMM d, yyyy h:mm a')} EST`;
+                      })()
                     : displayQuery.error_message || 'Query failed'}
                 </CardDescription>
               </CardHeader>
@@ -667,7 +671,11 @@ const ManualQuery = () => {
                         >
                           <div className="flex items-start justify-between">
                             <span className="text-sm font-medium">
-                              {format(new Date(query.created_at), "MMM d, HH:mm")}
+                              {(() => {
+                                const utcDate = new Date(query.created_at);
+                                const estDate = new Date(utcDate.getTime() - 5 * 60 * 60 * 1000);
+                                return format(estDate, "MMM d, h:mm a");
+                              })()} EST
                             </span>
                             {query.status === 'completed' && (
                               <CheckCircle className="h-4 w-4 text-green-500" />
