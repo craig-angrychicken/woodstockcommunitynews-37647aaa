@@ -195,15 +195,16 @@ serve(async (req) => {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
-      if (line.startsWith('SUBHEAD:')) {
-        subhead = line.replace('SUBHEAD:', '').trim();
+      // Handle both plain and markdown-formatted markers
+      if (line.startsWith('SUBHEAD:') || line.startsWith('**SUBHEAD:**')) {
+        subhead = line.replace(/\*\*SUBHEAD:\*\*|SUBHEAD:/, '').trim();
         console.log('✅ Found subhead:', subhead);
-      } else if (line.startsWith('BYLINE:')) {
-        byline = line.replace('BYLINE:', '').trim();
+      } else if (line.startsWith('BYLINE:') || line.startsWith('**BYLINE:**')) {
+        byline = line.replace(/\*\*BYLINE:\*\*|BYLINE:/, '').trim();
         inMainContent = true;
         console.log('✅ Found byline:', byline);
         continue;
-      } else if (line.startsWith('SOURCE:')) {
+      } else if (line.startsWith('SOURCE:') || line.startsWith('**SOURCE:**')) {
         console.log('🛑 Hit SOURCE marker, stopping content extraction');
         break;
       } else if (inMainContent && line.trim()) {
