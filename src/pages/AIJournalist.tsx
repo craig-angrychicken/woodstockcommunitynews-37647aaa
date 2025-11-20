@@ -697,7 +697,11 @@ const AIJournalist = () => {
                     >
                       <div className="flex items-start justify-between">
                         <span className="text-sm font-medium">
-                          {format(new Date(query.created_at), "MMM d, HH:mm")}
+                          {(() => {
+                            const utcDate = new Date(query.created_at);
+                            const estDate = new Date(utcDate.getTime() - 5 * 60 * 60 * 1000);
+                            return format(estDate, "MMM d, h:mm a");
+                          })()} EST
                         </span>
                         {query.status === 'completed' && (
                           <CheckCircle className="h-4 w-4 text-green-500" />
