@@ -212,6 +212,23 @@ serve(async (req) => {
       }
     }
 
+    // Fallback: if no main content was extracted using markers, use full content minus marker lines
+    if (!mainContent.trim()) {
+      console.log('ℹ️ No main content extracted via markers, falling back to full content');
+      mainContent = content
+        .split('\n')
+        .filter((line: string) =>
+          !line.startsWith('SUBHEAD:') &&
+          !line.startsWith('**SUBHEAD:**') &&
+          !line.startsWith('BYLINE:') &&
+          !line.startsWith('**BYLINE:**') &&
+          !line.startsWith('SOURCE:') &&
+          !line.startsWith('**SOURCE:**')
+        )
+        .join('\n')
+        .trim();
+    }
+
     console.log('📝 Extracted content:', { 
       subheadLength: subhead.length, 
       bylineLength: byline.length, 
@@ -320,21 +337,49 @@ serve(async (req) => {
     // Always send source=html so Ghost treats the payload as HTML (both POST and PUT)
     const urlWithSource = `${endpoint}?source=html`;
 
-    // Make request to Ghost API (POST for create, PUT for update)
-    const response = await fetch(urlWithSource, {
-      method,
-      headers: {
-        'Authorization': `Ghost ${token}`,
-        'Content-Type': 'application/json',
-        'Accept-Version': 'v5.0',
-      },
-      body: JSON.stringify(postData),
-    });
+    // Make request to Ghost API (POST for create, PUT for update) with basic retry logic
+    const maxRetries = 3;
+    let response: Response | null = null;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ Ghost API error:', errorText);
-      throw new Error(`Ghost API error: ${response.status} - ${errorText}`);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        response = await fetch(urlWithSource, {
+          method,
+          headers: {
+            'Authorization': `Ghost ${token}`,
+            'Content-Type': 'application/json',
+            'Accept-Version': 'v5.0',
+          },
+          body: JSON.stringify(postData),
+        });
+
+        if (response.ok) {
+          break;
+        }
+
+        const errorText = await response.text();
+        console.error(`❌ Ghost API error (attempt ${attempt}/${maxRetries}):`, errorText);
+
+        // Only retry on 503s; for other errors, fail fast
+        if (response.status !== 503 || attempt === maxRetries) {
+          throw new Error(`Ghost API error: ${response.status} - ${errorText}`);
+        }
+
+        const delayMs = 500 * attempt;
+        console.log(`⏳ Retrying Ghost API request in ${delayMs}ms due to 503...`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      } catch (err) {
+        if (attempt === maxRetries) {
+          throw err;
+        }
+        const delayMs = 500 * attempt;
+        console.warn(`⚠️ Ghost API request failed on attempt ${attempt}, retrying in ${delayMs}ms...`, err);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    if (!response) {
+      throw new Error('Ghost API error: No response received from Ghost after retries');
     }
 
     const result = await response.json();
