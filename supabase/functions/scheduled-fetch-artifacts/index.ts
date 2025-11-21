@@ -192,13 +192,18 @@ Deno.serve(async (req) => {
             environment: "production",
             status: "running",
             date_from: dateFrom,
-            date_to: dateTo
+            date_to: dateTo,
+            source_ids: [source.id],
+            run_stages: "fetch"
           })
           .select()
           .single();
 
         if (historyError) {
-          console.error(`❌ Error creating history entry for ${source.name}:`, historyError);
+          console.error(`❌ Error creating history entry for ${source.name}:`, {
+            error: historyError,
+            source: { id: source.id, name: source.name }
+          });
           errorCount++;
           continue;
         }
