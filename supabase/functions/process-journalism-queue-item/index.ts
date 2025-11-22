@@ -153,7 +153,11 @@ ${artifactData}`;
       headers["X-Title"] = "Woodstock Wire AI Journalist";
     }
 
-    const model = promptVersion.model_name || "openai/gpt-4o-mini";
+    if (!promptVersion.model_name) {
+      throw new Error("No model configured for this prompt. Please select a model in the Models tab.");
+    }
+    
+    const model = promptVersion.model_name;
 
     // Call AI API
     const aiResponse = await fetch(apiUrl, {
