@@ -6,9 +6,14 @@ const corsHeaders = {
 };
 
 async function logCronJob(supabase: any, log: any) {
-  await supabase.from("cron_job_logs").insert(log).catch((error: any) => {
-    console.error("Failed to log cron job:", error);
-  });
+  try {
+    const { error } = await supabase.from("cron_job_logs").insert(log);
+    if (error) {
+      console.error("Failed to log cron job:", error);
+    }
+  } catch (err) {
+    console.error("Failed to log cron job (exception):", err);
+  }
 }
 
 Deno.serve(async (req) => {

@@ -63,7 +63,7 @@ const AIJournalist = () => {
       const { data: latestRun } = await supabase
         .from('query_history')
         .select('id, status')
-        .eq('run_stages', 'ai_journalism')
+        .in('run_stages', ['manual', 'automated'])
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -166,7 +166,7 @@ const AIJournalist = () => {
           *,
           prompt_versions!inner (version_name, prompt_type)
         `)
-        .eq('run_stages', 'manual')
+        .in('run_stages', ['manual', 'automated'])
         .eq('prompt_versions.prompt_type', 'journalism')
         .order('created_at', { ascending: false })
         .limit(10);
@@ -192,7 +192,7 @@ const AIJournalist = () => {
       const { error } = await supabase
         .from('query_history')
         .update({
-          status: 'failed',
+          status: 'cancelled',
           error_message: 'Cancelled by user',
           completed_at: new Date().toISOString()
         })
@@ -271,9 +271,10 @@ const AIJournalist = () => {
     },
     onSuccess: (data) => {
       // Show immediate success message
+      const count = data.queueSize ?? data.artifactsCount ?? 0;
       toast({
         title: "AI Journalist Started",
-        description: `Processing ${data.artifactsCount} artifacts in the background. Check history for progress.`,
+        description: `Processing ${count} artifacts in the background. Check history for progress.`,
       });
       
       // Invalidate queries to refresh history list

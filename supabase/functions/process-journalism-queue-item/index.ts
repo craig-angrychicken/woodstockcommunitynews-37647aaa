@@ -5,6 +5,34 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+async function updateHistoryProgress(supabase: any, historyId: string) {
+  const { data: queueStats } = await supabase
+    .from("journalism_queue")
+    .select("status")
+    .eq("query_history_id", historyId);
+
+  const completed = queueStats?.filter((q: any) => q.status === "completed").length || 0;
+  const failed = queueStats?.filter((q: any) => q.status === "failed").length || 0;
+  const total = queueStats?.length || 0;
+
+  const status =
+    completed + failed === total && total > 0
+      ? failed > 0
+        ? "failed"
+        : "completed"
+      : "running";
+
+  await supabase
+    .from("query_history")
+    .update({
+      stories_count: completed,
+      artifacts_count: total,
+      status,
+      completed_at: status === "running" ? null : new Date().toISOString(),
+    })
+    .eq("id", historyId);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -25,14 +53,18 @@ Deno.serve(async (req) => {
     );
   }
 
+  let queueItemId: string | null = null;
+
   try {
-    const { queueItemId } = await req.json();
+    const body = await req.json();
+    queueItemId = body.queueItemId as string;
 
     console.log("🔄 Processing queue item:", queueItemId);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const openRouterApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const openRouterApiKey = Deno.env.get("OPENROUTER_API_KEY");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -96,23 +128,37 @@ ${queueItem.artifact.image_url ? `Image: ${queueItem.artifact.image_url}` : ""}
 ## Artifact:
 ${artifactData}`;
 
-    // Call AI API
-    const apiUrl = promptVersion.model_provider === "openrouter" 
+    // Determine API URL and authentication based on provider
+    const isOpenRouter = promptVersion.model_provider === "openrouter";
+    const apiUrl = isOpenRouter
       ? "https://openrouter.ai/api/v1/chat/completions"
       : "https://ai.gateway.lovable.dev/v1/chat/completions";
-    
-    const model = promptVersion.model_name || "google/gemini-2.0-flash-exp:free";
 
+    const authToken = isOpenRouter ? openRouterApiKey : LOVABLE_API_KEY;
+    if (!authToken) {
+      throw new Error(
+        isOpenRouter
+          ? "OPENROUTER_API_KEY not configured"
+          : "LOVABLE_API_KEY not configured"
+      );
+    }
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${authToken}`,
+      "Content-Type": "application/json",
+    };
+
+    if (isOpenRouter) {
+      headers["HTTP-Referer"] = supabaseUrl;
+      headers["X-Title"] = "Woodstock Wire AI Journalist";
+    }
+
+    const model = promptVersion.model_name || "openai/gpt-4o-mini";
+
+    // Call AI API
     const aiResponse = await fetch(apiUrl, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${openRouterApiKey}`,
-        "Content-Type": "application/json",
-        ...(promptVersion.model_provider === "openrouter" && {
-          "HTTP-Referer": supabaseUrl,
-          "X-Title": "Woodstock Wire AI Journalist",
-        }),
-      },
+      headers,
       body: JSON.stringify({
         model: model,
         messages: [
@@ -128,7 +174,20 @@ ${artifactData}`;
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
-      throw new Error(`AI API error ${aiResponse.status}: ${errorText}`);
+      console.error("AI API error:", aiResponse.status, errorText);
+
+      let message = `AI API error ${aiResponse.status}`;
+      try {
+        const parsed = JSON.parse(errorText);
+        const providerMsg = parsed?.error?.message || parsed?.message;
+        if (providerMsg) {
+          message = providerMsg;
+        }
+      } catch {
+        // ignore JSON parse errors
+      }
+
+      throw new Error(message);
     }
 
     const aiData = await aiResponse.json();
@@ -181,23 +240,7 @@ ${artifactData}`;
       .eq("id", queueItemId);
 
     // Update query history with progress
-    const { data: queueStats } = await supabase
-      .from("journalism_queue")
-      .select("status")
-      .eq("query_history_id", queueItem.query_history_id);
-
-    const completed = queueStats?.filter(q => q.status === "completed").length || 0;
-    const failed = queueStats?.filter(q => q.status === "failed").length || 0;
-    const total = queueStats?.length || 0;
-
-    await supabase
-      .from("query_history")
-      .update({
-        stories_count: completed,
-        artifacts_count: total,
-        status: completed + failed === total ? "completed" : "running",
-      })
-      .eq("id", queueItem.query_history_id);
+    await updateHistoryProgress(supabase, queueItem.query_history_id);
 
     console.log(`✅ Story created: ${title}`);
 
@@ -233,22 +276,34 @@ ${artifactData}`;
     console.error("❌ Error processing queue item:", error);
 
     // Try to mark queue item as failed
-    try {
-      const { queueItemId } = await req.json();
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const supabase = createClient(supabaseUrl, supabaseKey);
+    if (queueItemId) {
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
 
-      await supabase
-        .from("journalism_queue")
-        .update({
-          status: "failed",
-          completed_at: new Date().toISOString(),
-          error_message: error instanceof Error ? error.message : "Unknown error",
-        })
-        .eq("id", queueItemId);
-    } catch (updateError) {
-      console.error("Failed to update queue item status:", updateError);
+        await supabase
+          .from("journalism_queue")
+          .update({
+            status: "failed",
+            completed_at: new Date().toISOString(),
+            error_message: error instanceof Error ? error.message : "Unknown error",
+          })
+          .eq("id", queueItemId);
+
+        // Get the query_history_id to update progress
+        const { data: queueItem } = await supabase
+          .from("journalism_queue")
+          .select("query_history_id")
+          .eq("id", queueItemId)
+          .single();
+
+        if (queueItem) {
+          await updateHistoryProgress(supabase, queueItem.query_history_id);
+        }
+      } catch (updateError) {
+        console.error("Failed to update queue item status:", updateError);
+      }
     }
 
     return new Response(
