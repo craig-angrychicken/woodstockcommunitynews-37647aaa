@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_settings: {
+        Row: {
+          created_at: string
+          id: string
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          key: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       artifacts: {
         Row: {
           content: string | null
@@ -197,8 +221,6 @@ export type Database = {
           id: string
           is_active: boolean | null
           is_test_draft: boolean
-          model_name: string | null
-          model_provider: string | null
           prompt_type: string
           test_results: Json | null
           test_status: string | null
@@ -214,8 +236,6 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           is_test_draft?: boolean
-          model_name?: string | null
-          model_provider?: string | null
           prompt_type?: string
           test_results?: Json | null
           test_status?: string | null
@@ -231,8 +251,6 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           is_test_draft?: boolean
-          model_name?: string | null
-          model_provider?: string | null
           prompt_type?: string
           test_results?: Json | null
           test_status?: string | null
