@@ -34,46 +34,65 @@ const Models = () => {
     },
   });
 
-  // Fetch active prompt to get current model
-  const { data: activePrompt, isLoading: promptLoading } = useQuery({
-    queryKey: ["active-prompt"],
+  // Fetch current model config from app_settings
+  const { data: modelConfig, isLoading: configLoading } = useQuery({
+    queryKey: ["ai-model-config"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("prompt_versions")
-        .select("*")
-        .eq("prompt_type", "journalism")
-        .eq("is_active", true)
+        .from("app_settings")
+        .select("value")
+        .eq("key", "ai_model_config")
         .single();
       
       if (error) throw error;
-      return data;
+      return data?.value as { model_name: string; model_provider: string };
     },
   });
 
-  // Set selected model when active prompt loads
+  // Set selected model when config loads
   useEffect(() => {
-    if (activePrompt?.model_name) {
-      setSelectedModel(activePrompt.model_name);
+    if (modelConfig?.model_name) {
+      setSelectedModel(modelConfig.model_name);
     }
-  }, [activePrompt]);
+  }, [modelConfig]);
 
   // Update model mutation
   const updateModelMutation = useMutation({
     mutationFn: async (modelName: string) => {
-      if (!activePrompt?.id) throw new Error("No active prompt found");
+      // Check if setting exists
+      const { data: existing } = await supabase
+        .from("app_settings")
+        .select("id")
+        .eq("key", "ai_model_config")
+        .single();
 
-      const { error } = await supabase
-        .from("prompt_versions")
-        .update({
-          model_provider: "openrouter",
-          model_name: modelName,
-        })
-        .eq("id", activePrompt.id);
+      const newValue = {
+        model_name: modelName,
+        model_provider: "openrouter",
+      };
 
-      if (error) throw error;
+      if (existing) {
+        // Update existing setting
+        const { error } = await supabase
+          .from("app_settings")
+          .update({ value: newValue })
+          .eq("key", "ai_model_config");
+
+        if (error) throw error;
+      } else {
+        // Insert new setting
+        const { error } = await supabase
+          .from("app_settings")
+          .insert({
+            key: "ai_model_config",
+            value: newValue,
+          });
+
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["active-prompt"] });
+      queryClient.invalidateQueries({ queryKey: ["ai-model-config"] });
       toast.success("Model updated successfully");
     },
     onError: (error: any) => {
@@ -137,7 +156,7 @@ const Models = () => {
         </Button>
       </div>
 
-      {promptLoading || modelsLoading ? (
+      {configLoading || modelsLoading ? (
         <Card>
           <CardContent className="p-12 text-center">
             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
@@ -164,13 +183,13 @@ const Models = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-mono text-sm">
-                    {activePrompt?.model_name || "No model selected"}
+                    {modelConfig?.model_name || "No model selected"}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Provider: {activePrompt?.model_provider || "N/A"}
+                    Provider: {modelConfig?.model_provider || "N/A"}
                   </p>
                 </div>
-                {selectedModel !== activePrompt?.model_name && (
+                {selectedModel !== modelConfig?.model_name && (
                   <Button 
                     onClick={handleSaveModel}
                     disabled={updateModelMutation.isPending}

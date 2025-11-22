@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
 
     console.log(`📝 Processing artifact: ${queueItem.artifact.title || queueItem.artifact.name}`);
 
-    // Fetch prompt version
+    // Fetch prompt version (for content only)
     const { data: promptVersion, error: promptError } = await supabase
       .from("prompt_versions")
       .select("*")
@@ -103,6 +103,23 @@ Deno.serve(async (req) => {
 
     if (promptError || !promptVersion) {
       throw new Error("Failed to fetch prompt version");
+    }
+
+    // Fetch model configuration from app_settings
+    const { data: modelSettings, error: settingsError } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "ai_model_config")
+      .single();
+
+    if (settingsError || !modelSettings) {
+      throw new Error("Failed to fetch model configuration. Please configure a model in the Models tab.");
+    }
+
+    const modelConfig = modelSettings.value as { model_name: string; model_provider: string };
+    
+    if (!modelConfig.model_name) {
+      throw new Error("No model configured. Please select a model in the Models tab.");
     }
 
     // Determine environment
@@ -128,8 +145,8 @@ ${queueItem.artifact.image_url ? `Image: ${queueItem.artifact.image_url}` : ""}
 ## Artifact:
 ${artifactData}`;
 
-    // Determine API URL and authentication based on provider
-    const isOpenRouter = promptVersion.model_provider === "openrouter";
+    // Determine API URL and authentication based on provider from settings
+    const isOpenRouter = modelConfig.model_provider === "openrouter";
     const apiUrl = isOpenRouter
       ? "https://openrouter.ai/api/v1/chat/completions"
       : "https://ai.gateway.lovable.dev/v1/chat/completions";
@@ -153,11 +170,7 @@ ${artifactData}`;
       headers["X-Title"] = "Woodstock Wire AI Journalist";
     }
 
-    if (!promptVersion.model_name) {
-      throw new Error("No model configured for this prompt. Please select a model in the Models tab.");
-    }
-    
-    const model = promptVersion.model_name;
+    const model = modelConfig.model_name;
 
     // Call AI API
     const aiResponse = await fetch(apiUrl, {
