@@ -84,3 +84,34 @@ export function timeToMinutes(time24: string): number {
   const [hours, minutes] = time24.split(':').map(Number);
   return hours * 60 + minutes;
 }
+
+/**
+ * Format a UTC timestamp to EST display format
+ * @param utcTimestamp - ISO timestamp string from database (UTC)
+ * @param formatStr - Format string for date-fns (default: "MMM d, h:mm a")
+ * @returns Formatted time string in EST with " EST" suffix
+ */
+export function formatUTCtoEST(utcTimestamp: string, formatStr: string = "MMM d, h:mm a"): string {
+  const date = new Date(utcTimestamp);
+  const estDate = new Date(date.getTime() - 5 * 60 * 60 * 1000);
+  
+  // Get EST components
+  const year = estDate.getUTCFullYear();
+  const month = estDate.getUTCMonth();
+  const day = estDate.getUTCDate();
+  const hours = estDate.getUTCHours();
+  const minutes = estDate.getUTCMinutes();
+  const seconds = estDate.getUTCSeconds();
+  
+  // Create a new date using UTC methods to avoid timezone issues
+  const displayDate = new Date(Date.UTC(year, month, day, hours, minutes, seconds));
+  
+  // Format using date-fns (we'll need to import format from date-fns)
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthName = monthNames[month];
+  const hour12 = hours % 12 || 12;
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const minuteStr = String(minutes).padStart(2, '0');
+  
+  return `${monthName} ${day}, ${hour12}:${minuteStr} ${ampm} EST`;
+}

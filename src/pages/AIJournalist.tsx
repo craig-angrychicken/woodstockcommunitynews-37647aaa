@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { CalendarIcon, Loader2, Sparkles, CheckCircle, XCircle, X } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatUTCtoEST } from "@/lib/time-utils";
 import { QueueProcessor } from "@/components/ai-journalist/QueueProcessor";
 import { ScheduleTimeSelector } from "@/components/scheduling/ScheduleTimeSelector";
 import { SaveScheduleButton } from "@/components/scheduling/SaveScheduleButton";
@@ -698,11 +699,7 @@ const AIJournalist = () => {
                     >
                       <div className="flex items-start justify-between">
                         <span className="text-sm font-medium">
-                          {(() => {
-                            const utcDate = new Date(query.created_at);
-                            const estDate = new Date(utcDate.getTime() - 5 * 60 * 60 * 1000);
-                            return format(estDate, "MMM d, h:mm a");
-                          })()} EST
+                          {formatUTCtoEST(query.created_at)}
                         </span>
                         {query.status === 'completed' && (
                           <CheckCircle className="h-4 w-4 text-green-500" />

@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { CalendarIcon, Loader2, Play, CheckCircle, XCircle, X, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatUTCtoEST } from "@/lib/time-utils";
 import { TestBadge } from "@/components/ui/status-badge";
 import { Progress } from "@/components/ui/progress";
 import { PreviewRenderedPageModal } from "@/components/sources/PreviewRenderedPageModal";
@@ -367,11 +368,7 @@ const ManualQuery = () => {
                   {displayQuery.status === 'running' && displayQuery.current_source_name 
                     ? `Currently processing: ${displayQuery.current_source_name}`
                     : displayQuery.status === 'completed'
-                    ? (() => {
-                        const utcDate = new Date(displayQuery.completed_at || displayQuery.created_at);
-                        const estDate = new Date(utcDate.getTime() - 5 * 60 * 60 * 1000);
-                        return `Completed on ${format(estDate, 'MMM d, yyyy h:mm a')} EST`;
-                      })()
+                    ? `Completed on ${formatUTCtoEST(displayQuery.completed_at || displayQuery.created_at, 'MMM d, yyyy h:mm a')}`
                     : displayQuery.error_message || 'Query failed'}
                 </CardDescription>
               </CardHeader>
@@ -671,11 +668,7 @@ const ManualQuery = () => {
                         >
                           <div className="flex items-start justify-between">
                             <span className="text-sm font-medium">
-                              {(() => {
-                                const utcDate = new Date(query.created_at);
-                                const estDate = new Date(utcDate.getTime() - 5 * 60 * 60 * 1000);
-                                return format(estDate, "MMM d, h:mm a");
-                              })()} EST
+                              {formatUTCtoEST(query.created_at)}
                             </span>
                             {query.status === 'completed' && (
                               <CheckCircle className="h-4 w-4 text-green-500" />
