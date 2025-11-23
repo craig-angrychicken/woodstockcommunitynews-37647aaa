@@ -72,9 +72,61 @@ const Dashboard = () => {
     }
   });
 
-  const nextAutoRun = new Date();
-  nextAutoRun.setDate(nextAutoRun.getDate() + 1);
-  nextAutoRun.setHours(6, 0, 0, 0);
+  // Fetch artifact fetch schedule
+  const { data: schedule } = useQuery({
+    queryKey: ['artifact-fetch-schedule'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('schedules')
+        .select('*')
+        .eq('schedule_type', 'artifact_fetch')
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    }
+  });
+
+  // Calculate next auto-run in EST
+  const calculateNextRun = () => {
+    if (!schedule?.scheduled_times || !Array.isArray(schedule.scheduled_times) || !schedule.is_enabled) {
+      return null;
+    }
+
+    const EST_OFFSET_HOURS = -5;
+    const now = new Date();
+    const estNow = new Date(now.getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
+    
+    const currentHour = estNow.getHours();
+    const currentMinute = estNow.getMinutes();
+    const currentTimeMinutes = currentHour * 60 + currentMinute;
+
+    // Parse scheduled times (e.g., ["06:00", "12:00", "18:00"])
+    const scheduledTimesMinutes = (schedule.scheduled_times as string[])
+      .map(time => {
+        const [hours, minutes] = time.split(':').map(Number);
+        return hours * 60 + minutes;
+      })
+      .sort((a, b) => a - b);
+
+    // Find next run today
+    const nextTodayTime = scheduledTimesMinutes.find(t => t > currentTimeMinutes);
+    
+    if (nextTodayTime) {
+      // Next run is today
+      const nextRun = new Date(estNow);
+      nextRun.setHours(Math.floor(nextTodayTime / 60), nextTodayTime % 60, 0, 0);
+      return { date: nextRun, isToday: true };
+    } else {
+      // Next run is tomorrow at first scheduled time
+      const nextRun = new Date(estNow);
+      nextRun.setDate(nextRun.getDate() + 1);
+      nextRun.setHours(Math.floor(scheduledTimesMinutes[0] / 60), scheduledTimesMinutes[0] % 60, 0, 0);
+      return { date: nextRun, isToday: false };
+    }
+  };
+
+  const nextRun = calculateNextRun();
 
   const quickActions = [
     {
@@ -165,12 +217,21 @@ const Dashboard = () => {
               <Clock className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {nextAutoRun.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {nextAutoRun.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-              </p>
+              {nextRun ? (
+                <>
+                  <div className="text-2xl font-bold">
+                    {nextRun.isToday ? 'Today' : nextRun.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {nextRun.date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} EST
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="text-2xl font-bold">Not Scheduled</div>
+                  <p className="text-xs text-muted-foreground">Schedule disabled</p>
+                </>
+              )}
             </CardContent>
           </Card>
 
