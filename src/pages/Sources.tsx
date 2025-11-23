@@ -82,6 +82,15 @@ const Sources = () => {
   // Delete source mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      // First, nullify source_id in related stories to avoid constraint violation
+      const { error: storiesError } = await supabase
+        .from("stories")
+        .update({ source_id: null })
+        .eq("source_id", id);
+      
+      if (storiesError) throw storiesError;
+
+      // Then delete the source
       const { error } = await supabase.from("sources").delete().eq("id", id);
       if (error) throw error;
     },
@@ -89,8 +98,9 @@ const Sources = () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       toast.success("Source removed successfully");
     },
-    onError: () => {
-      toast.error("Failed to remove source");
+    onError: (error: any) => {
+      console.error("Delete error:", error);
+      toast.error("Failed to remove source. Please try again.");
     },
   });
 
