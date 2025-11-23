@@ -198,7 +198,70 @@ Deno.serve(async (req) => {
 
             // Extract ALL images using configured fields
             const allImages = extractAllImages(item, parserConfig);
-            const heroImage = allImages[0] || null;
+            
+            // Generate artifact GUID for storage path
+            const artifactGuid = crypto.randomUUID();
+            
+            // Download and upload images to Supabase Storage
+            const storageImages: string[] = [];
+            for (let i = 0; i < allImages.length; i++) {
+              const imageUrl = allImages[i];
+              try {
+                console.log(`📥 Downloading image ${i + 1}/${allImages.length}: ${imageUrl}`);
+                
+                // Fetch the image
+                const imgController = new AbortController();
+                const imgTimeoutId = setTimeout(() => imgController.abort(), 10000);
+                const imgResponse = await fetch(imageUrl, {
+                  signal: imgController.signal,
+                  headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; ArtifactFetcher/1.0)'
+                  }
+                });
+                clearTimeout(imgTimeoutId);
+                
+                if (!imgResponse.ok) {
+                  console.error(`❌ Failed to fetch image (${imgResponse.status}): ${imageUrl}`);
+                  continue;
+                }
+                
+                // Get image data and content type
+                const imageBuffer = await imgResponse.arrayBuffer();
+                const contentType = imgResponse.headers.get('content-type') || 'image/jpeg';
+                const ext = contentType.split('/')[1]?.split(';')[0] || 'jpg';
+                
+                // Upload to Storage
+                const storagePath = `${artifactGuid}/image-${i}.${ext}`;
+                console.log(`⬆️ Uploading to Storage: ${storagePath}`);
+                
+                const { error: uploadError } = await supabase.storage
+                  .from('artifact-images')
+                  .upload(storagePath, imageBuffer, {
+                    contentType,
+                    upsert: false
+                  });
+                
+                if (uploadError) {
+                  console.error(`❌ Storage upload error:`, uploadError);
+                  continue;
+                }
+                
+                // Get public URL
+                const { data: urlData } = supabase.storage
+                  .from('artifact-images')
+                  .getPublicUrl(storagePath);
+                
+                if (urlData?.publicUrl) {
+                  storageImages.push(urlData.publicUrl);
+                  console.log(`✅ Stored image ${i + 1}: ${urlData.publicUrl}`);
+                }
+              } catch (error) {
+                console.error(`❌ Error processing image ${i + 1}:`, error);
+              }
+            }
+            
+            const heroImage = storageImages[0] || null;
+            console.log(`📸 Successfully stored ${storageImages.length}/${allImages.length} images`);
 
             // Get content using configured field
             let content = item[contentField] || item['content:encoded'] || item.content || item.description || item.summary || '';
@@ -231,16 +294,18 @@ Deno.serve(async (req) => {
 
             content = cleanText(content);
 
-            // Insert into artifacts table with ALL images
+            // Insert into artifacts table with Storage-hosted images
             const { error: insertError } = await supabase
               .from('artifacts')
               .insert({
+                id: artifactGuid,
                 name: title,
                 title: title,
                 url: link,
+                guid: guid,
                 content: content,
                 hero_image_url: heroImage,
-                images: allImages,
+                images: storageImages,
                 date: pubDate.toISOString(),
                 type: 'RSS Article',
                 source_id: source.id,
