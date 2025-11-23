@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
 
     console.log(`📊 Found ${sources.length} active sources to process`);
 
-    // Set date range to yesterday
+    // Set date range to yesterday through end of today
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(0, 0, 0, 0);
@@ -130,8 +130,8 @@ Deno.serve(async (req) => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
     
-    const dateFrom = yesterday.toISOString().split('T')[0]; // YYYY-MM-DD
-    const dateTo = today.toISOString().split('T')[0]; // YYYY-MM-DD
+    const dateFrom = yesterday.toISOString(); // Full ISO timestamp
+    const dateTo = today.toISOString(); // Full ISO timestamp
     
     console.log(`📅 Fetching articles from ${dateFrom} to ${dateTo}`);
 
@@ -168,18 +168,31 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Invoke run-manual-query to fetch and save artifacts
-        const { data, error } = await supabase.functions.invoke("run-manual-query", {
-          body: {
-            dateFrom,
-            dateTo,
-            sourceIds: [source.id],
-            environment: "production",
-            promptVersionId: null,
-            runStages: { fetchArtifacts: true, generateStories: false },
-            historyId: historyEntry.id,
-            maxArticles: 10
-          },
+        // Call the appropriate function based on source type
+        const isRSSFeed = source.type === "RSS Feed";
+        const functionName = isRSSFeed ? "fetch-rss-feeds" : "run-manual-query";
+        
+        const requestBody = isRSSFeed 
+          ? {
+              dateFrom,
+              dateTo,
+              sourceIds: [source.id],
+              environment: "production",
+              queryHistoryId: historyEntry.id
+            }
+          : {
+              dateFrom,
+              dateTo,
+              sourceIds: [source.id],
+              environment: "production",
+              promptVersionId: null,
+              runStages: { fetchArtifacts: true, generateStories: false },
+              historyId: historyEntry.id,
+              maxArticles: 10
+            };
+
+        const { data, error } = await supabase.functions.invoke(functionName, {
+          body: requestBody,
         });
 
         if (error) {
@@ -195,10 +208,13 @@ Deno.serve(async (req) => {
             })
             .eq("id", historyEntry.id);
         } else {
-          const artifactsCount = data?.artifactsCount || 0;
+          // RSS feeds return artifactsCreated, scrapers return artifactsCount
+          const artifactsCount = isRSSFeed 
+            ? (data?.artifactsCreated || 0)
+            : (data?.artifactsCount || 0);
           totalArtifactsCount += artifactsCount;
           successCount++;
-          console.log(`✅ Successfully fetched ${artifactsCount} artifacts from ${source.name}`);
+          console.log(`✅ Successfully fetched ${artifactsCount} artifacts from ${source.name} using ${functionName}`);
         }
       } catch (error) {
         console.error(`❌ Exception processing source ${source.name}:`, error);
