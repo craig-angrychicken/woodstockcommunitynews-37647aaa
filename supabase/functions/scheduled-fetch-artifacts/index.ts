@@ -89,7 +89,43 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`✅ Schedule is enabled - running artifact fetch`);
+    // Calculate current time in EST
+    const utcHours = now.getUTCHours();
+    const utcMinutes = now.getUTCMinutes();
+    let estHours = utcHours - 5; // EST is UTC-5
+    if (estHours < 0) estHours += 24;
+    if (estHours >= 24) estHours -= 24;
+
+    const currentTimeEST = `${estHours.toString().padStart(2, '0')}:${utcMinutes.toString().padStart(2, '0')}`;
+
+    // Check if current time matches any scheduled time (within 5 minutes tolerance)
+    const isScheduledTime = schedule.scheduled_times.some((scheduledTime: string) => {
+      const [schedHour, schedMin] = scheduledTime.split(':').map(Number);
+      const schedMinutes = schedHour * 60 + schedMin;
+      const currentMinutes = estHours * 60 + utcMinutes;
+      const diff = Math.abs(currentMinutes - schedMinutes);
+      return diff <= 5; // 5 minute tolerance
+    });
+
+    if (!isScheduledTime) {
+      console.log(`⏭️ Skipping run - current time ${currentTimeEST} EST is not a scheduled time`);
+      const duration = Date.now() - startTime;
+      await logCronJob(supabase, {
+        job_name: "scheduled-fetch-artifacts",
+        schedule_check_passed: false,
+        schedule_enabled: true,
+        scheduled_times: schedule.scheduled_times,
+        time_checked: currentTimeEST,
+        reason: `Not scheduled for this time (scheduled: ${schedule.scheduled_times.join(', ')})`,
+        execution_duration_ms: duration,
+      });
+      return new Response(
+        JSON.stringify({ success: false, message: "Not a scheduled run time" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+      );
+    }
+
+    console.log(`✅ Schedule is enabled and time matches (${currentTimeEST} EST) - running artifact fetch`);
 
     // Fetch all active sources
     const { data: sources, error: sourcesError } = await supabase
@@ -124,7 +160,6 @@ Deno.serve(async (req) => {
 
     // Calculate dates in EST (UTC - 5 hours)
     const EST_OFFSET_HOURS = -5;
-    const now = new Date();
     const estNow = new Date(now.getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
     
     // Set date range to yesterday through end of today (EST)

@@ -244,16 +244,21 @@ const Dashboard = () => {
               <Clock className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              {nextRun ? (
-                <>
-                  <div className="text-2xl font-bold">
-                    {nextRun.isToday ? 'Today' : nextRun.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {nextRun.date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} EST
-                  </p>
-                </>
-              ) : (
+                {nextRun ? (
+                  <>
+                    <div className="text-2xl font-bold">
+                      {nextRun.isToday ? 'Today' : nextRun.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {nextRun.date.toLocaleTimeString('en-US', { 
+                        hour: 'numeric', 
+                        minute: '2-digit', 
+                        hour12: true,
+                        timeZone: 'America/New_York'
+                      })} EST
+                    </p>
+                  </>
+                ) : (
                 <>
                   <div className="text-2xl font-bold">Not Scheduled</div>
                   <p className="text-xs text-muted-foreground">Schedule disabled</p>
