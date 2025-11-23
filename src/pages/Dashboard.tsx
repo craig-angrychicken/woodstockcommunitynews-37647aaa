@@ -95,11 +95,25 @@ const Dashboard = () => {
 
     const EST_OFFSET_HOURS = -5;
     const now = new Date();
-    const estNow = new Date(now.getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
     
-    const currentHour = estNow.getHours();
-    const currentMinute = estNow.getMinutes();
-    const currentTimeMinutes = currentHour * 60 + currentMinute;
+    // Get current UTC time
+    const utcHours = now.getUTCHours();
+    const utcMinutes = now.getUTCMinutes();
+    
+    // Convert to EST (UTC - 5)
+    let estHours = utcHours + EST_OFFSET_HOURS;
+    let dayOffset = 0;
+    
+    // Handle day boundary
+    if (estHours < 0) {
+      estHours += 24;
+      dayOffset = -1;
+    } else if (estHours >= 24) {
+      estHours -= 24;
+      dayOffset = 1;
+    }
+    
+    const currentTimeMinutes = estHours * 60 + utcMinutes;
 
     // Parse scheduled times (e.g., ["06:00", "12:00", "18:00"])
     const scheduledTimesMinutes = (schedule.scheduled_times as string[])
@@ -109,20 +123,33 @@ const Dashboard = () => {
       })
       .sort((a, b) => a - b);
 
-    // Find next run today
+    // Find next run today (in EST)
     const nextTodayTime = scheduledTimesMinutes.find(t => t > currentTimeMinutes);
     
     if (nextTodayTime) {
-      // Next run is today
-      const nextRun = new Date(estNow);
-      nextRun.setHours(Math.floor(nextTodayTime / 60), nextTodayTime % 60, 0, 0);
-      return { date: nextRun, isToday: true };
+      // Next run is today in EST
+      const nextRunUTC = new Date(now);
+      const nextRunHourEST = Math.floor(nextTodayTime / 60);
+      const nextRunMinuteEST = nextTodayTime % 60;
+      
+      // Convert EST time back to UTC for the Date object
+      nextRunUTC.setUTCHours(nextRunHourEST - EST_OFFSET_HOURS, nextRunMinuteEST, 0, 0);
+      if (dayOffset !== 0) {
+        nextRunUTC.setUTCDate(nextRunUTC.getUTCDate() + dayOffset);
+      }
+      
+      return { date: nextRunUTC, isToday: true };
     } else {
-      // Next run is tomorrow at first scheduled time
-      const nextRun = new Date(estNow);
-      nextRun.setDate(nextRun.getDate() + 1);
-      nextRun.setHours(Math.floor(scheduledTimesMinutes[0] / 60), scheduledTimesMinutes[0] % 60, 0, 0);
-      return { date: nextRun, isToday: false };
+      // Next run is tomorrow in EST
+      const nextRunUTC = new Date(now);
+      const firstTimeEST = Math.floor(scheduledTimesMinutes[0] / 60);
+      const firstMinuteEST = scheduledTimesMinutes[0] % 60;
+      
+      // Convert EST time back to UTC for the Date object (tomorrow in EST)
+      nextRunUTC.setUTCHours(firstTimeEST - EST_OFFSET_HOURS, firstMinuteEST, 0, 0);
+      nextRunUTC.setUTCDate(nextRunUTC.getUTCDate() + 1 + dayOffset);
+      
+      return { date: nextRunUTC, isToday: false };
     }
   };
 
