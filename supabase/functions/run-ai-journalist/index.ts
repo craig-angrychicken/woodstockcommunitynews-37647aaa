@@ -79,21 +79,25 @@ Deno.serve(async (req) => {
 
     // Only check for duplicates if NOT in test environment
     if (environment !== "test") {
-      // Get all artifact IDs that are already used in stories
+      // Get all artifact GUIDs that are already used in stories
       const { data: usedArtifacts, error: usedError } = await supabase
         .from('story_artifacts')
-        .select('artifact_id');
+        .select('artifact:artifacts(guid)');
 
       if (usedError) {
         console.error('⚠️ Error fetching used artifacts:', usedError);
         // Continue anyway - better to process duplicates than fail completely
       }
 
-      const usedArtifactIds = new Set(usedArtifacts?.map(sa => sa.artifact_id) || []);
-      console.log(`📊 Found ${usedArtifactIds.size} artifacts already used in stories`);
+      const usedGUIDs = new Set(
+        (usedArtifacts || [])
+          .map((sa: any) => sa.artifact?.guid)
+          .filter((guid: any) => guid != null)
+      );
+      console.log(`📊 Found ${usedGUIDs.size} unique GUIDs already used in stories`);
       
-      // Filter out artifacts that are already used in stories
-      artifacts = artifacts.filter(a => !usedArtifactIds.has(a.id));
+      // Filter out artifacts whose GUID matches any used GUID
+      artifacts = artifacts.filter(a => !usedGUIDs.has(a.guid));
     } else {
       console.log(`🧪 Test mode: Skipping duplicate check to allow multiple runs`);
     }
