@@ -14,10 +14,7 @@ export const useQueryHistory = (filters?: QueryHistoryFilters) => {
     queryFn: async () => {
       let query = supabase
         .from("query_history")
-        .select(`
-          *,
-          prompt_version:prompt_versions(version_name, prompt_type)
-        `)
+        .select("*")
         .order("created_at", { ascending: false });
 
       // Apply filters
@@ -51,10 +48,7 @@ export const useQueryRun = (queryId: string) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("query_history")
-        .select(`
-          *,
-          prompt_version:prompt_versions(version_name, prompt_type, content)
-        `)
+        .select("*")
         .eq("id", queryId)
         .single();
 
@@ -71,10 +65,7 @@ export const useRecentQueryHistory = (limit: number = 10) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("query_history")
-        .select(`
-          *,
-          prompt_version:prompt_versions(version_name, prompt_type)
-        `)
+        .select("*")
         .order("created_at", { ascending: false })
         .limit(limit);
 
