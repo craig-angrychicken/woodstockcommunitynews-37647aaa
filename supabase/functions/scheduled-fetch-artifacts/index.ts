@@ -122,18 +122,33 @@ Deno.serve(async (req) => {
 
     console.log(`📊 Found ${sources.length} active sources to process`);
 
-    // Set date range to yesterday through end of today
-    const yesterday = new Date();
+    // Calculate dates in EST (UTC - 5 hours)
+    const EST_OFFSET_HOURS = -5;
+    const now = new Date();
+    const estNow = new Date(now.getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
+    
+    // Set date range to yesterday through end of today (EST)
+    const yesterday = new Date(estNow);
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(0, 0, 0, 0);
     
-    const today = new Date();
+    const today = new Date(estNow);
     today.setHours(23, 59, 59, 999);
     
-    const dateFrom = yesterday.toISOString(); // Full ISO timestamp
-    const dateTo = today.toISOString(); // Full ISO timestamp
+    const dateFrom = yesterday.toISOString();
+    const dateTo = today.toISOString();
     
-    console.log(`📅 Fetching articles from ${dateFrom} to ${dateTo}`);
+    // Format EST times for logging
+    const formatEST = (date: Date) => {
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const day = date.getDate().toString().padStart(2, '0');
+      return `${date.getFullYear()}-${month}-${day} ${hours}:${minutes} EST`;
+    };
+    
+    console.log(`🕐 Current time: ${formatEST(estNow)}`);
+    console.log(`📅 Fetching articles from ${formatEST(yesterday)} to ${formatEST(today)}`);
 
     // Call run-manual-query for each source to actually fetch and save artifacts
     let totalArtifactsCount = 0;
