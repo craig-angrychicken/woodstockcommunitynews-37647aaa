@@ -154,7 +154,7 @@ Deno.serve(async (req) => {
             date_from: dateFrom,
             date_to: dateTo,
             source_ids: [source.id],
-            run_stages: "fetch"
+            run_stages: "automated",
           })
           .select()
           .single();
