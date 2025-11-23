@@ -172,9 +172,9 @@ serve(async (req) => {
   }
 
   try {
-    const { title, content, status, tags, featured, excerpt, ghostUrl, publishedAt, heroImageUrl } = await req.json();
+    const { title, content, status, tags, featured, excerpt, ghostUrl, publishedAt, heroImageUrl, artifactId } = await req.json();
 
-    console.log('📝 Publishing to Ghost:', { title, status: status || 'draft', isUpdate: !!ghostUrl, hasHeroImage: !!heroImageUrl });
+    console.log('📝 Publishing to Ghost:', { title, status: status || 'draft', isUpdate: !!ghostUrl, hasHeroImage: !!heroImageUrl, artifactId });
 
     const ghostApiKey = Deno.env.get('GHOST_ADMIN_API_KEY');
     const ghostApiUrl = Deno.env.get('GHOST_API_URL');
@@ -386,6 +386,48 @@ serve(async (req) => {
     const post = result.posts[0];
 
     console.log(method === 'PUT' ? '✅ Post updated successfully:' : '✅ Post published successfully:', post.id);
+
+    // Clean up temporary Storage images after successful publish
+    if (artifactId) {
+      try {
+        console.log(`🧹 Cleaning up Storage images for artifact: ${artifactId}`);
+        
+        // Initialize Supabase client for Storage operations
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        
+        if (supabaseUrl && supabaseKey) {
+          const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+          const supabase = createClient(supabaseUrl, supabaseKey);
+          
+          // List all files in the artifact's folder
+          const { data: fileList, error: listError } = await supabase.storage
+            .from('artifact-images')
+            .list(artifactId);
+          
+          if (listError) {
+            console.error('❌ Error listing files for cleanup:', listError);
+          } else if (fileList && fileList.length > 0) {
+            // Delete all files in the folder
+            const filePaths = fileList.map(f => `${artifactId}/${f.name}`);
+            const { error: deleteError } = await supabase.storage
+              .from('artifact-images')
+              .remove(filePaths);
+            
+            if (deleteError) {
+              console.error('❌ Error deleting files:', deleteError);
+            } else {
+              console.log(`✅ Deleted ${fileList.length} image(s) from Storage`);
+            }
+          } else {
+            console.log('ℹ️ No files found to clean up');
+          }
+        }
+      } catch (cleanupError) {
+        // Don't fail the whole operation if cleanup fails
+        console.error('❌ Storage cleanup error:', cleanupError);
+      }
+    }
 
     return new Response(
       JSON.stringify({

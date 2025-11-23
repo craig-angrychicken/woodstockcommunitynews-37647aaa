@@ -201,8 +201,10 @@ const Stories = () => {
       if (artifactsError) throw artifactsError;
       
       let artifactDate = null;
+      let firstArtifactId = null;
       if (storyArtifacts && storyArtifacts.length > 0) {
         const artifactIds = storyArtifacts.map(sa => sa.artifact_id);
+        firstArtifactId = artifactIds[0]; // Store first artifact ID for cleanup
         const { data: artifacts, error: dateError } = await supabase
           .from('artifacts')
           .select('date')
@@ -224,7 +226,8 @@ const Stories = () => {
           featured: false,
           ghostUrl: storyToPublish.ghost_url || undefined,
           publishedAt: artifactDate || storyToPublish.created_at,
-          heroImageUrl: storyToPublish.hero_image_url
+          heroImageUrl: storyToPublish.hero_image_url,
+          artifactId: firstArtifactId || undefined
         }
       );
       
