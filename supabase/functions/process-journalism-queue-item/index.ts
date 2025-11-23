@@ -137,13 +137,31 @@ Title: ${queueItem.artifact.title || queueItem.artifact.name}
 Date: ${queueItem.artifact.date}
 Source: ${queueItem.artifact.source_id}
 Content: ${contentToUse}
-${queueItem.artifact.image_url ? `Image: ${queueItem.artifact.image_url}` : ""}
 `;
 
     const fullPrompt = `${promptVersion.content}
 
 ## Artifact:
 ${artifactData}`;
+
+    // Collect images for vision analysis
+    const imageUrls: string[] = [];
+    
+    // Add hero image if available
+    if (queueItem.artifact.hero_image_url) {
+      imageUrls.push(queueItem.artifact.hero_image_url);
+    }
+    
+    // Add additional images from images array if available
+    if (queueItem.artifact.images && Array.isArray(queueItem.artifact.images)) {
+      for (const img of queueItem.artifact.images) {
+        if (typeof img === 'string') {
+          imageUrls.push(img);
+        } else if (img && typeof img === 'object' && img.stored_url) {
+          imageUrls.push(img.stored_url);
+        }
+      }
+    }
 
     // Determine API URL and authentication based on provider from settings
     const isOpenRouter = modelConfig.model_provider === "openrouter";
@@ -172,7 +190,23 @@ ${artifactData}`;
 
     const model = modelConfig.model_name;
 
-    // Call AI API
+    // Build message content with vision support
+    const messageContent: any[] = [
+      { type: "text", text: fullPrompt }
+    ];
+    
+    // Add images for vision analysis
+    if (imageUrls.length > 0) {
+      console.log(`📷 Including ${imageUrls.length} image(s) for analysis`);
+      for (const imageUrl of imageUrls) {
+        messageContent.push({
+          type: "image_url",
+          image_url: { url: imageUrl }
+        });
+      }
+    }
+
+    // Call AI API with vision support
     const aiResponse = await fetch(apiUrl, {
       method: "POST",
       headers,
@@ -181,7 +215,7 @@ ${artifactData}`;
         messages: [
           {
             role: "user",
-            content: fullPrompt,
+            content: messageContent,
           },
         ],
         max_tokens: 5000,
