@@ -105,12 +105,20 @@ Deno.serve(async (req) => {
 
     console.log(`📝 Using active prompt: ${activePrompt.version_name} (${activePrompt.id})`);
 
-    // Set date range to yesterday
-    const dateTo = new Date();
-    dateTo.setHours(0, 0, 0, 0); // Start of today
-    
-    const dateFrom = new Date(dateTo);
-    dateFrom.setDate(dateFrom.getDate() - 1); // Start of yesterday
+    // Set date range to yesterday through end of today in EST
+    const EST_OFFSET_HOURS = -5;
+    const estNow = new Date(now.getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
+
+    // Set date range to yesterday through end of today (EST)
+    const yesterday = new Date(estNow);
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(0, 0, 0, 0);
+
+    const today = new Date(estNow);
+    today.setHours(23, 59, 59, 999);
+
+    const dateFrom = yesterday;
+    const dateTo = today;
 
     console.log(`📅 Date range: ${dateFrom.toISOString()} to ${dateTo.toISOString()}`);
 
