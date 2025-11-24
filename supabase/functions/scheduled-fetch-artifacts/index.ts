@@ -185,6 +185,32 @@ Deno.serve(async (req) => {
     console.log(`🕐 Current time: ${formatEST(estNow)}`);
     console.log(`📅 Fetching articles from ${formatEST(yesterday)} to ${formatEST(today)}`);
 
+    // Create a single query history entry for the entire batch
+    const sourceIds = sources.map(s => s.id);
+    const { data: historyEntry, error: historyError } = await supabase
+      .from("query_history")
+      .insert({
+        prompt_version_id: null,
+        environment: "production",
+        status: "running",
+        date_from: dateFrom,
+        date_to: dateTo,
+        source_ids: sourceIds,
+        sources_total: sources.length,
+        sources_processed: 0,
+        sources_failed: 0,
+        run_stages: "automated",
+      })
+      .select()
+      .single();
+
+    if (historyError) {
+      console.error(`❌ Error creating history entry:`, historyError);
+      throw new Error(`Failed to create history entry: ${historyError.message}`);
+    }
+
+    console.log(`📊 Created history record: ${historyEntry.id}`);
+
     // Call run-manual-query for each source to actually fetch and save artifacts
     let totalArtifactsCount = 0;
     let successCount = 0;
@@ -194,29 +220,14 @@ Deno.serve(async (req) => {
       try {
         console.log(`🔄 Fetching artifacts from: ${source.name} (${source.id})`);
         
-        // Create a query history entry for tracking
-        const { data: historyEntry, error: historyError } = await supabase
+        // Update current source being processed
+        await supabase
           .from("query_history")
-          .insert({
-            prompt_version_id: null,
-            environment: "production",
-            status: "running",
-            date_from: dateFrom,
-            date_to: dateTo,
-            source_ids: [source.id],
-            run_stages: "automated",
+          .update({
+            current_source_id: source.id,
+            current_source_name: source.name,
           })
-          .select()
-          .single();
-
-        if (historyError) {
-          console.error(`❌ Error creating history entry for ${source.name}:`, {
-            error: historyError,
-            source: { id: source.id, name: source.name }
-          });
-          errorCount++;
-          continue;
-        }
+          .eq("id", historyEntry.id);
 
         // Call the appropriate function based on source type
         const isRSSFeed = source.type === "RSS Feed";
@@ -249,12 +260,12 @@ Deno.serve(async (req) => {
           console.error(`❌ Error fetching from ${source.name}:`, error);
           errorCount++;
           
-          // Update history to failed
+          // Update progress
           await supabase
             .from("query_history")
             .update({ 
-              status: "failed",
-              error_message: error.message || "Unknown error"
+              sources_processed: successCount + errorCount,
+              sources_failed: errorCount,
             })
             .eq("id", historyEntry.id);
         } else {
@@ -265,13 +276,47 @@ Deno.serve(async (req) => {
           totalArtifactsCount += artifactsCount;
           successCount++;
           console.log(`✅ Successfully fetched ${artifactsCount} artifacts from ${source.name} using ${functionName}`);
+          
+          // Update progress
+          await supabase
+            .from("query_history")
+            .update({ 
+              sources_processed: successCount + errorCount,
+              sources_failed: errorCount,
+              artifacts_count: totalArtifactsCount,
+            })
+            .eq("id", historyEntry.id);
         }
       } catch (error) {
         console.error(`❌ Exception processing source ${source.name}:`, error);
         errorCount++;
+        
+        // Update progress
+        await supabase
+          .from("query_history")
+          .update({ 
+            sources_processed: successCount + errorCount,
+            sources_failed: errorCount,
+          })
+          .eq("id", historyEntry.id);
       }
     }
 
+    // Mark history as completed
+    await supabase
+      .from("query_history")
+      .update({
+        status: errorCount === sources.length ? "failed" : "completed",
+        completed_at: new Date().toISOString(),
+        sources_processed: sources.length,
+        sources_failed: errorCount,
+        artifacts_count: totalArtifactsCount,
+        current_source_id: null,
+        current_source_name: null,
+      })
+      .eq("id", historyEntry.id);
+
+    const duration = Date.now() - startTime;
     const summary = {
       success: true,
       timestamp: new Date().toISOString(),
@@ -280,8 +325,22 @@ Deno.serve(async (req) => {
       successCount,
       errorCount,
       artifactsCount: totalArtifactsCount,
+      historyId: historyEntry.id,
       message: `Processed ${sources.length} sources: ${successCount} succeeded, ${errorCount} failed. Created ${totalArtifactsCount} artifacts.`,
     };
+
+    // Log the cron job execution
+    await logCronJob(supabase, {
+      job_name: "scheduled-fetch-artifacts",
+      schedule_check_passed: true,
+      schedule_enabled: true,
+      scheduled_times: schedule.scheduled_times,
+      time_checked: currentTimeEST,
+      sources_count: sources.length,
+      artifacts_count: totalArtifactsCount,
+      query_history_id: historyEntry.id,
+      execution_duration_ms: duration,
+    });
 
     console.log("✨ Scheduled fetch completed:", summary);
 
