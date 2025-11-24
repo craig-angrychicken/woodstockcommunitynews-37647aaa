@@ -245,32 +245,96 @@ Deno.serve(async (req) => {
             // Generate artifact GUID for storage path
             const artifactGuid = crypto.randomUUID();
             
-            // Download and upload images to Supabase Storage
+            // Download and upload images to Supabase Storage with robust error handling
             const storageImages: string[] = [];
+            const problematicDomains = ['facebook.com', 'instagram.com', 'twitter.com', 'x.com'];
+            
             for (let i = 0; i < allImages.length; i++) {
               const imageUrl = allImages[i];
+              
+              // Validate URL format
+              try {
+                new URL(imageUrl);
+              } catch {
+                console.warn(`⚠️ Invalid image URL format, skipping: ${imageUrl}`);
+                continue;
+              }
+              
+              // Check for known problematic domains
+              const isProblematic = problematicDomains.some(domain => imageUrl.includes(domain));
+              if (isProblematic) {
+                console.warn(`⚠️ Protected social media URL detected, may fail: ${imageUrl}`);
+              }
+              
               try {
                 console.log(`📥 Downloading image ${i + 1}/${allImages.length}: ${imageUrl}`);
                 
-                // Fetch the image
-                const imgController = new AbortController();
-                const imgTimeoutId = setTimeout(() => imgController.abort(), 10000);
-                const imgResponse = await fetch(imageUrl, {
-                  signal: imgController.signal,
-                  headers: {
-                    'User-Agent': 'Mozilla/5.0 (compatible; ArtifactFetcher/1.0)'
-                  }
-                });
-                clearTimeout(imgTimeoutId);
+                // Retry logic with exponential backoff (max 3 attempts)
+                let imgResponse: Response | null = null;
+                let lastError: Error | null = null;
                 
-                if (!imgResponse.ok) {
-                  console.error(`❌ Failed to fetch image (${imgResponse.status}): ${imageUrl}`);
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                  try {
+                    const imgController = new AbortController();
+                    const imgTimeoutId = setTimeout(() => imgController.abort(), 30000); // 30s timeout
+                    
+                    imgResponse = await fetch(imageUrl, {
+                      signal: imgController.signal,
+                      headers: {
+                        'User-Agent': 'Mozilla/5.0 (compatible; ArtifactFetcher/1.0)',
+                        'Accept': 'image/*'
+                      }
+                    });
+                    clearTimeout(imgTimeoutId);
+                    
+                    if (imgResponse.ok) {
+                      break; // Success
+                    }
+                    
+                    // Handle 403 Forbidden (protected URLs)
+                    if (imgResponse.status === 403) {
+                      console.error(`🔒 Image is protected (403 Forbidden): ${imageUrl}`);
+                      lastError = new Error(`Protected URL: ${imgResponse.status}`);
+                      break; // Don't retry 403s
+                    }
+                    
+                    // Log non-OK responses
+                    console.warn(`⚠️ Image fetch returned ${imgResponse.status} on attempt ${attempt}/3`);
+                    lastError = new Error(`HTTP ${imgResponse.status}: ${imgResponse.statusText}`);
+                    
+                  } catch (err) {
+                    lastError = err instanceof Error ? err : new Error('Unknown error');
+                    console.warn(`⚠️ Image fetch failed on attempt ${attempt}/3:`, lastError.message);
+                  }
+                  
+                  // Exponential backoff before retry (1s, 2s)
+                  if (attempt < 3) {
+                    const delayMs = 1000 * attempt;
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                  }
+                }
+                
+                // Check if we got a successful response
+                if (!imgResponse || !imgResponse.ok) {
+                  console.error(`❌ Failed to download image after 3 attempts:`, {
+                    url: imageUrl,
+                    status: imgResponse?.status,
+                    statusText: imgResponse?.statusText,
+                    error: lastError?.message
+                  });
                   continue;
                 }
                 
                 // Get image data and content type
                 const imageBuffer = await imgResponse.arrayBuffer();
                 const contentType = imgResponse.headers.get('content-type') || 'image/jpeg';
+                
+                // Validate content type
+                if (!contentType.startsWith('image/')) {
+                  console.error(`❌ Invalid content type (${contentType}), expected image: ${imageUrl}`);
+                  continue;
+                }
+                
                 const ext = contentType.split('/')[1]?.split(';')[0] || 'jpg';
                 
                 // Upload to Storage
@@ -299,7 +363,10 @@ Deno.serve(async (req) => {
                   console.log(`✅ Stored image ${i + 1}: ${urlData.publicUrl}`);
                 }
               } catch (error) {
-                console.error(`❌ Error processing image ${i + 1}:`, error);
+                console.error(`❌ Error processing image ${i + 1}:`, {
+                  url: imageUrl,
+                  error: error instanceof Error ? error.message : String(error)
+                });
               }
             }
             
