@@ -337,9 +337,10 @@ serve(async (req) => {
     // Always send source=html so Ghost treats the payload as HTML (both POST and PUT)
     const urlWithSource = `${endpoint}?source=html`;
 
-    // Make request to Ghost API (POST for create, PUT for update) with basic retry logic
-    const maxRetries = 3;
+    // Make request to Ghost API (POST for create, PUT for update) with exponential backoff retry
+    const maxRetries = 5;
     let response: Response | null = null;
+    let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -360,22 +361,33 @@ serve(async (req) => {
         const errorText = await response.text();
         console.error(`❌ Ghost API error (attempt ${attempt}/${maxRetries}):`, errorText);
 
-        // Only retry on 503s; for other errors, fail fast
-        if (response.status !== 503 || attempt === maxRetries) {
+        // Only retry on 503s (service unavailable); for other errors, fail fast
+        if (response.status !== 503) {
           throw new Error(`Ghost API error: ${response.status} - ${errorText}`);
         }
 
-        const delayMs = 500 * attempt;
-        console.log(`⏳ Retrying Ghost API request in ${delayMs}ms due to 503...`);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        // On 503, retry with exponential backoff unless this is the last attempt
+        if (attempt < maxRetries) {
+          const delayMs = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s, 8s
+          console.log(`⏳ Retrying Ghost API request in ${delayMs}ms due to 503 (attempt ${attempt}/${maxRetries})...`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        } else {
+          // Last attempt failed with 503
+          lastError = new Error('Ghost CMS is temporarily unavailable. Please try publishing again in a few minutes.');
+        }
       } catch (err) {
         if (attempt === maxRetries) {
-          throw err;
+          lastError = err instanceof Error ? err : new Error('Unknown error');
+          break;
         }
-        const delayMs = 500 * attempt;
+        const delayMs = Math.pow(2, attempt - 1) * 1000;
         console.warn(`⚠️ Ghost API request failed on attempt ${attempt}, retrying in ${delayMs}ms...`, err);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
+    }
+
+    if (lastError) {
+      throw lastError;
     }
 
     if (!response) {
