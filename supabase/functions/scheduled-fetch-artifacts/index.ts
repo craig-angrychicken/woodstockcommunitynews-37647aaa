@@ -127,18 +127,19 @@ Deno.serve(async (req) => {
 
     console.log(`✅ Schedule is enabled and time matches (${currentTimeEST} EST) - running artifact fetch`);
 
-    // Fetch all active sources
+    // Fetch all active RSS Feed sources
     const { data: sources, error: sourcesError } = await supabase
       .from("sources")
       .select("*")
-      .eq("status", "active");
+      .eq("status", "active")
+      .eq("type", "RSS Feed");
 
     if (sourcesError) {
       throw new Error(`Failed to fetch sources: ${sourcesError.message}`);
     }
 
     if (!sources || sources.length === 0) {
-      console.log("⚠️ No active sources found");
+      console.log("⚠️ No active RSS feed sources found");
       const duration = Date.now() - startTime;
       await logCronJob(supabase, {
         job_name: "scheduled-fetch-artifacts",
@@ -147,31 +148,24 @@ Deno.serve(async (req) => {
         scheduled_times: schedule.scheduled_times,
         sources_count: 0,
         artifacts_count: 0,
-        reason: "No active sources found",
+        reason: "No active RSS feed sources found",
         execution_duration_ms: duration,
       });
       return new Response(
-        JSON.stringify({ success: true, message: "No active sources to fetch", artifactsCount: 0 }),
+        JSON.stringify({ success: true, message: "No active RSS feed sources to fetch", artifactsCount: 0 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`📊 Found ${sources.length} active sources to process`);
+    console.log(`📊 Found ${sources.length} active RSS feed sources to process`);
 
-    // Calculate dates in EST (UTC - 5 hours)
+    // Calculate TRUE 24-hour window in EST (UTC - 5 hours)
     const EST_OFFSET_HOURS = -5;
     const estNow = new Date(now.getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
     
-    // Set date range to yesterday through end of today (EST)
-    const yesterday = new Date(estNow);
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(0, 0, 0, 0);
-    
-    const today = new Date(estNow);
-    today.setHours(23, 59, 59, 999);
-    
-    const dateFrom = yesterday.toISOString();
-    const dateTo = today.toISOString();
+    // True 24 hours back from now
+    const dateTo = estNow.toISOString();
+    const dateFrom = new Date(estNow.getTime() - 24 * 60 * 60 * 1000).toISOString();
     
     // Format EST times for logging
     const formatEST = (date: Date) => {
@@ -182,8 +176,11 @@ Deno.serve(async (req) => {
       return `${date.getFullYear()}-${month}-${day} ${hours}:${minutes} EST`;
     };
     
+    const estDateFrom = new Date(new Date(dateFrom).getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
+    const estDateTo = new Date(new Date(dateTo).getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
+    
     console.log(`🕐 Current time: ${formatEST(estNow)}`);
-    console.log(`📅 Fetching articles from ${formatEST(yesterday)} to ${formatEST(today)}`);
+    console.log(`📅 Fetching articles from ${formatEST(estDateFrom)} to ${formatEST(estDateTo)}`);
 
     // Create a single query history entry for the entire batch
     const sourceIds = sources.map(s => s.id);
@@ -211,122 +208,60 @@ Deno.serve(async (req) => {
 
     console.log(`📊 Created history record: ${historyEntry.id}`);
 
-    // Call run-manual-query for each source to actually fetch and save artifacts
-    let totalArtifactsCount = 0;
-    let successCount = 0;
-    let errorCount = 0;
-
-    for (const source of sources) {
-      try {
-        console.log(`🔄 Fetching artifacts from: ${source.name} (${source.id})`);
-        
-        // Update current source being processed
-        await supabase
-          .from("query_history")
-          .update({
-            current_source_id: source.id,
-            current_source_name: source.name,
-          })
-          .eq("id", historyEntry.id);
-
-        // Call the appropriate function based on source type
-        const isRSSFeed = source.type === "RSS Feed";
-        const functionName = isRSSFeed ? "fetch-rss-feeds" : "run-manual-query";
-        
-        const requestBody = isRSSFeed 
-          ? {
-              dateFrom,
-              dateTo,
-              sourceIds: [source.id],
-              environment: "production",
-              queryHistoryId: historyEntry.id
-            }
-          : {
-              dateFrom,
-              dateTo,
-              sourceIds: [source.id],
-              environment: "production",
-              promptVersionId: null,
-              runStages: { fetchArtifacts: true, generateStories: false },
-              historyId: historyEntry.id,
-              maxArticles: 10
-            };
-
-        const { data, error } = await supabase.functions.invoke(functionName, {
-          body: requestBody,
-        });
-
-        if (error) {
-          console.error(`❌ Error fetching from ${source.name}:`, error);
-          errorCount++;
-          
-          // Update progress
-          await supabase
-            .from("query_history")
-            .update({ 
-              sources_processed: successCount + errorCount,
-              sources_failed: errorCount,
-            })
-            .eq("id", historyEntry.id);
-        } else {
-          // RSS feeds return artifactsCreated, scrapers return artifactsCount
-          const artifactsCount = isRSSFeed 
-            ? (data?.artifactsCreated || 0)
-            : (data?.artifactsCount || 0);
-          totalArtifactsCount += artifactsCount;
-          successCount++;
-          console.log(`✅ Successfully fetched ${artifactsCount} artifacts from ${source.name} using ${functionName}`);
-          
-          // Update progress
-          await supabase
-            .from("query_history")
-            .update({ 
-              sources_processed: successCount + errorCount,
-              sources_failed: errorCount,
-              artifacts_count: totalArtifactsCount,
-            })
-            .eq("id", historyEntry.id);
-        }
-      } catch (error) {
-        console.error(`❌ Exception processing source ${source.name}:`, error);
-        errorCount++;
-        
-        // Update progress
-        await supabase
-          .from("query_history")
-          .update({ 
-            sources_processed: successCount + errorCount,
-            sources_failed: errorCount,
-          })
-          .eq("id", historyEntry.id);
+    // Make ONE batch call to fetch-rss-feeds with ALL RSS sources
+    console.log(`🔄 Batch fetching ${sources.length} RSS sources...`);
+    
+    const { data: fetchResult, error: fetchError } = await supabase.functions.invoke('fetch-rss-feeds', {
+      body: {
+        dateFrom,
+        dateTo,
+        sourceIds: sourceIds,
+        environment: "production",
+        queryHistoryId: historyEntry.id
       }
+    });
+
+    let totalArtifactsCount = 0;
+    let finalStatus = "completed";
+    let errorMessage = null;
+
+    if (fetchError) {
+      console.error(`❌ Error fetching RSS feeds:`, fetchError);
+      errorMessage = fetchError.message;
+      finalStatus = "failed";
+    } else {
+      totalArtifactsCount = fetchResult?.artifactsCreated || 0;
+      console.log(`✅ Successfully fetched ${totalArtifactsCount} artifacts`);
     }
 
-    // Mark history as completed
-    await supabase
+    // Finalize query_history entry
+    const { error: updateError } = await supabase
       .from("query_history")
       .update({
-        status: errorCount === sources.length ? "failed" : "completed",
+        status: finalStatus,
         completed_at: new Date().toISOString(),
-        sources_processed: sources.length,
-        sources_failed: errorCount,
         artifacts_count: totalArtifactsCount,
         current_source_id: null,
         current_source_name: null,
+        error_message: errorMessage
       })
       .eq("id", historyEntry.id);
 
+    if (updateError) {
+      console.error(`⚠️ Failed to update history entry:`, updateError);
+    }
+
     const duration = Date.now() - startTime;
     const summary = {
-      success: true,
+      success: !fetchError,
       timestamp: new Date().toISOString(),
       dateRange: { from: dateFrom, to: dateTo },
       sourcesProcessed: sources.length,
-      successCount,
-      errorCount,
       artifactsCount: totalArtifactsCount,
       historyId: historyEntry.id,
-      message: `Processed ${sources.length} sources: ${successCount} succeeded, ${errorCount} failed. Created ${totalArtifactsCount} artifacts.`,
+      message: fetchError 
+        ? `Failed to fetch RSS feeds: ${errorMessage}`
+        : `Processed ${sources.length} RSS sources in batch. Created ${totalArtifactsCount} artifacts.`,
     };
 
     // Log the cron job execution
@@ -340,6 +275,7 @@ Deno.serve(async (req) => {
       artifacts_count: totalArtifactsCount,
       query_history_id: historyEntry.id,
       execution_duration_ms: duration,
+      error_message: errorMessage
     });
 
     console.log("✨ Scheduled fetch completed:", summary);
