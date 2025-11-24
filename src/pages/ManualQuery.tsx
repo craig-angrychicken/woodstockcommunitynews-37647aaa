@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { formatUTCtoEST } from "@/lib/time-utils";
 import { TestBadge } from "@/components/ui/status-badge";
 import { Progress } from "@/components/ui/progress";
-import { PreviewRenderedPageModal } from "@/components/sources/PreviewRenderedPageModal";
+
 import { ScheduleTimeSelector } from "@/components/scheduling/ScheduleTimeSelector";
 import { SaveScheduleButton } from "@/components/scheduling/SaveScheduleButton";
 import { useSchedule } from "@/hooks/useSchedules";
@@ -37,8 +37,6 @@ const ManualQuery = () => {
   
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
-  const [previewModalOpen, setPreviewModalOpen] = useState(false);
-  const [previewSource, setPreviewSource] = useState<{ url: string; selector: string } | null>(null);
   
   // Scheduling state
   const [fetchScheduleTimes, setFetchScheduleTimes] = useState<string[]>([]);
@@ -215,57 +213,24 @@ const ManualQuery = () => {
       // Store the history ID for potential cancellation
       setCurrentHistoryId(historyRecord.id);
 
-      // Determine which sources are RSS feeds vs web scraping
-      const allSources = sources || [];
-      const selectedSourceData = allSources.filter(s => selectedSources.includes(s.id));
-      const rssSources = selectedSourceData.filter(s => s.type === 'RSS Feed').map(s => s.id);
-      const scrapeSources = selectedSourceData.filter(s => s.type !== 'RSS Feed').map(s => s.id);
-
-      let totalArtifacts = 0;
-
-      // Fetch RSS feeds first (if any)
-      if (rssSources.length > 0) {
-        console.log('📡 Fetching RSS feeds:', rssSources.length);
-        const { data: rssData, error: rssError } = await supabase.functions.invoke('fetch-rss-feeds', {
-          body: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            sourceIds: rssSources,
-            environment,
-            queryHistoryId: historyRecord.id
-          }
-        });
-
-        if (rssError) {
-          console.error('RSS fetch error:', rssError);
-        } else {
-          totalArtifacts += rssData?.artifactsCreated || 0;
-          console.log('✅ RSS feeds fetched:', rssData?.artifactsCreated || 0, 'artifacts');
+      // All sources are RSS feeds - make single batch call
+      console.log('📡 Fetching RSS feeds:', selectedSources.length);
+      const { data, error } = await supabase.functions.invoke('fetch-rss-feeds', {
+        body: {
+          dateFrom: dateFrom.toISOString(),
+          dateTo: dateTo.toISOString(),
+          sourceIds: selectedSources,
+          environment,
+          queryHistoryId: historyRecord.id
         }
+      });
+
+      if (error) {
+        console.error('RSS fetch error:', error);
+        throw error;
       }
 
-      // Scrape web sources (if any)
-      let scrapeData = null;
-      if (scrapeSources.length > 0) {
-        console.log('🕷️ Scraping web sources:', scrapeSources.length);
-        const { data, error } = await supabase.functions.invoke('scrape-articles', {
-          body: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            sourceIds: scrapeSources,
-            environment,
-            promptVersionId,
-            runStages: 'manual',
-            queryHistoryId: historyRecord.id
-          }
-        });
-
-        if (error) throw error;
-        scrapeData = data;
-        totalArtifacts += data?.artifactsCreated || 0;
-      }
-
-      const { data, error } = { data: { ...scrapeData, totalArtifacts }, error: null };
+      console.log('✅ RSS feeds fetched:', data?.artifactsCreated || 0, 'artifacts');
 
       if (error) throw error;
       return data;
@@ -542,25 +507,6 @@ const ManualQuery = () => {
                 <Button variant="outline" size="sm" onClick={handleSelectTestSources}>
                   Select Test
                 </Button>
-                {selectedSources.length === 1 && sources && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const source = sources.find(s => s.id === selectedSources[0]);
-                      if (source) {
-                        const config = source.parser_config as any;
-                        setPreviewSource({
-                          url: source.url,
-                          selector: config?.scrapeConfig?.containerSelector || '',
-                        });
-                        setPreviewModalOpen(true);
-                      }
-                    }}
-                  >
-                    Preview Rendered Page
-                  </Button>
-                )}
               </div>
 
               <div className="grid md:grid-cols-2 gap-3">
@@ -756,15 +702,6 @@ const ManualQuery = () => {
           </Card>
         </TabsContent>
       </Tabs>
-
-      {previewSource && (
-        <PreviewRenderedPageModal
-          open={previewModalOpen}
-          onOpenChange={setPreviewModalOpen}
-          url={previewSource.url}
-          containerSelector={previewSource.selector}
-        />
-      )}
     </div>
   );
 };

@@ -313,8 +313,13 @@ Deno.serve(async (req) => {
               });
 
             if (insertError) {
-              console.error('❌ Insert error:', insertError);
-              totalErrors++;
+              // Check if it's a duplicate GUID error
+              if (insertError.code === '23505' && insertError.message.includes('artifacts_guid_key')) {
+                console.log(`   ⚠️ Skipping duplicate artifact (GUID already exists): ${title}`);
+              } else {
+                console.error('❌ Insert error:', insertError);
+                totalErrors++;
+              }
             } else {
               console.log(`✅ Inserted: ${title}`);
               totalArtifacts++;
@@ -324,6 +329,13 @@ Deno.serve(async (req) => {
             console.error(`❌ Error processing item:`, itemError);
             totalErrors++;
           }
+        }
+
+        // Log summary for this source
+        if (itemsProcessed === 0 && filteredItems.length > 0) {
+          console.log(`   ⚠️ No new artifacts created - all ${filteredItems.length} items already exist (duplicate GUIDs)`);
+        } else {
+          console.log(`   ✅ Created ${itemsProcessed} new artifacts from ${filteredItems.length} items in range`);
         }
 
         // Update source last_fetch_at
