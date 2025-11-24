@@ -5,6 +5,48 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// UUID v5 namespace for generating deterministic UUIDs
+const NAMESPACE_UUID = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+
+/**
+ * Normalizes any GUID format to a valid UUID string
+ * - If already UUID format: returns as-is
+ * - If 32-char hex string: formats as UUID (8-4-4-4-12)
+ * - Otherwise (URLs, etc.): generates deterministic UUID v5
+ */
+async function normalizeToUUID(guid: string): Promise<string> {
+  // Check if already valid UUID format (8-4-4-4-12 with hyphens)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(guid)) {
+    return guid.toLowerCase();
+  }
+
+  // Check if 32-character hex string (no hyphens)
+  const hexRegex = /^[0-9a-f]{32}$/i;
+  if (hexRegex.test(guid)) {
+    // Format as UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    return `${guid.slice(0, 8)}-${guid.slice(8, 12)}-${guid.slice(12, 16)}-${guid.slice(16, 20)}-${guid.slice(20)}`.toLowerCase();
+  }
+
+  // For anything else (URLs, etc.), generate deterministic UUID v5
+  const encoder = new TextEncoder();
+  const data = encoder.encode(NAMESPACE_UUID + guid);
+  const hashBuffer = await crypto.subtle.digest('SHA-1', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  // Format as UUID v5: set version (5) and variant bits
+  const uuid = [
+    hashHex.slice(0, 8),
+    hashHex.slice(8, 12),
+    '5' + hashHex.slice(13, 16), // Version 5
+    ((parseInt(hashHex.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, '0') + hashHex.slice(18, 20), // Variant bits
+    hashHex.slice(20, 32)
+  ].join('-');
+  
+  return uuid;
+}
+
 interface RSSItem {
   title: string;
   link: string;
@@ -192,7 +234,8 @@ Deno.serve(async (req) => {
             
             const title = item[titleField] || 'Untitled';
             const link = item[linkField] || '';
-            const guid = item.id || item.guid || link;
+            const rawGuid = item.id || item.guid || link;
+            const guid = await normalizeToUUID(rawGuid);
             const dateStr = item[dateField] || item.pubDate || item.published;
             const pubDate = parseDate(dateStr) || new Date();
 
