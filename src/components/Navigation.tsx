@@ -9,7 +9,7 @@ export const Navigation = () => {
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-8">
             <Link to="/" className="text-xl font-semibold text-foreground">
-              Woodstock Wire Admin
+              Woodstock Community News Admin
             </Link>
             
             <div className="hidden md:flex items-center gap-1">

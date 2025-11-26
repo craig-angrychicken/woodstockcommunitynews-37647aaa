@@ -197,7 +197,7 @@ const Dashboard = () => {
     <div className="container mx-auto py-8 px-4 space-y-8">
       <div>
         <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
-        <p className="text-muted-foreground">Welcome to Woodstock Wire Admin</p>
+        <p className="text-muted-foreground">Welcome to Woodstock Community News Admin</p>
       </div>
 
       {/* Stats Overview */}
