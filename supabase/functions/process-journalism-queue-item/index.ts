@@ -185,7 +185,7 @@ ${artifactData}`;
 
     if (isOpenRouter) {
       headers["HTTP-Referer"] = supabaseUrl;
-      headers["X-Title"] = "Woodstock Wire AI Journalist";
+      headers["X-Title"] = "Woodstock Community News AI Journalist";
     }
 
     const model = modelConfig.model_name;
