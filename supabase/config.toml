@@ -12,6 +12,9 @@ verify_jwt = false
 [functions.backfill-artifact-images]
 verify_jwt = true
 
+[functions.backfill-missing-images]
+verify_jwt = false
+
 [functions.analyze-source]
 verify_jwt = true
 
