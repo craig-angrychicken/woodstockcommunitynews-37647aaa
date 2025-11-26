@@ -645,6 +645,27 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
     images.push(...item['media:group'].urls);
   }
   
+  // IMPORTANT: Also extract images from description/content fields
+  // FetchRSS and other feed generators often embed images as markdown or HTML in description
+  const descriptionText = item.description || item.content || item.summary || '';
+  
+  if (descriptionText) {
+    // Extract markdown images: ![alt](url) or ![](url)
+    const markdownImageRegex = /!\[(?:[^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
+    let match;
+    while ((match = markdownImageRegex.exec(descriptionText)) !== null) {
+      images.push(match[1]);
+      console.log(`  🖼️ Found markdown image in description: ${match[1].substring(0, 100)}...`);
+    }
+    
+    // Extract HTML images: <img src="url" ... >
+    const htmlImageRegex = /<img[^>]+src=["']([^"']+)["']/gi;
+    while ((match = htmlImageRegex.exec(descriptionText)) !== null) {
+      images.push(match[1]);
+      console.log(`  🖼️ Found HTML image in description: ${match[1].substring(0, 100)}...`);
+    }
+  }
+  
   // Encode and validate all URLs
   const validImages: string[] = [];
   for (const rawUrl of images) {
