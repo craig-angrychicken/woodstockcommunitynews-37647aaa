@@ -33,10 +33,10 @@ const App = () => (
                 <Navigation />
                 <Routes>
                   <Route path="/" element={<ProtectedRoute requireAdmin><Dashboard /></ProtectedRoute>} />
-                  <Route path="/stories" element={<Stories />} />
+                  <Route path="/stories" element={<ProtectedRoute requireAdmin><Stories /></ProtectedRoute>} />
                   <Route path="/manual-query" element={<ProtectedRoute requireAdmin><ManualQuery /></ProtectedRoute>} />
                   <Route path="/ai-journalist" element={<ProtectedRoute requireAdmin><AIJournalist /></ProtectedRoute>} />
-                  <Route path="/artifacts" element={<Artifacts />} />
+                  <Route path="/artifacts" element={<ProtectedRoute requireAdmin><Artifacts /></ProtectedRoute>} />
                   <Route path="/prompts" element={<ProtectedRoute requireAdmin><Prompts /></ProtectedRoute>} />
                   <Route path="/sources" element={<ProtectedRoute requireAdmin><Sources /></ProtectedRoute>} />
                   <Route path="/models" element={<ProtectedRoute requireAdmin><Models /></ProtectedRoute>} />
