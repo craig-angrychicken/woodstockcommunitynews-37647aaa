@@ -11,7 +11,24 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  console.log("🚀 run-ai-journalist started");
+
   try {
+    // Step 0: Environment variable validation
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const queueSecret = Deno.env.get("QUEUE_PROCESSOR_SECRET");
+    
+    console.log("✅ Environment check:", {
+      SUPABASE_URL: supabaseUrl ? "present" : "MISSING",
+      SERVICE_ROLE_KEY: supabaseKey ? "present" : "MISSING",
+      QUEUE_PROCESSOR_SECRET: queueSecret ? "present" : "MISSING"
+    });
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error("Missing required environment variables");
+    }
+
     const {
       dateFrom,
       dateTo,
@@ -21,32 +38,49 @@ Deno.serve(async (req) => {
       artifactIds,
     } = await req.json();
 
-    console.log("AI Journalist run started:", {
+    console.log("📋 Request params:", {
       dateFrom,
       dateTo,
       environment,
       promptVersionId,
       historyId,
-      artifactIds,
+      artifactIds: artifactIds ? `${artifactIds.length} IDs` : "null",
     });
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch the prompt version
+    // Step 1: Fetch the prompt version
+    console.log(`🔍 Step 1: Fetching prompt version ${promptVersionId}...`);
     const { data: promptVersion, error: promptError } = await supabase
       .from("prompt_versions")
       .select("*")
       .eq("id", promptVersionId)
       .single();
 
-    if (promptError || !promptVersion) {
-      throw new Error("Failed to fetch prompt version");
+    if (promptError) {
+      console.error("❌ Step 1 failed - Prompt fetch error:", promptError);
+      throw new Error(`Failed to fetch prompt version: ${promptError.message}`);
+    }
+    
+    if (!promptVersion) {
+      console.error("❌ Step 1 failed - Prompt not found");
+      throw new Error("Prompt version not found");
     }
 
-    // Fetch artifacts by IDs or date range
+    console.log(`✅ Step 1 complete: Prompt "${promptVersion.version_name}" loaded`);
+
+    // Step 2: Fetch artifacts by IDs or date range
+    const queryMode = artifactIds && artifactIds.length > 0 ? "by IDs" : "by date range";
+    console.log(`🔍 Step 2: Querying artifacts (${queryMode})...`);
+    
+    if (queryMode === "by date range") {
+      console.log(`   - dateFrom: ${dateFrom}`);
+      console.log(`   - dateTo: ${dateTo}`);
+    } else {
+      console.log(`   - artifact IDs: ${artifactIds.length} provided`);
+    }
+    console.log(`   - environment filter: ${environment} (is_test=${environment === "test"})`);
+
     let artifactsQuery = supabase
       .from("artifacts")
       .select("*");
@@ -72,21 +106,25 @@ Deno.serve(async (req) => {
     const { data: allArtifacts, error: artifactsError } = await artifactsQuery;
 
     if (artifactsError) {
+      console.error("❌ Step 2 failed - Artifacts query error:", artifactsError);
       throw new Error(`Failed to fetch artifacts: ${artifactsError.message}`);
     }
 
+    console.log(`✅ Step 2 complete: Found ${allArtifacts?.length || 0} artifacts`);
+
     let artifacts = allArtifacts || [];
 
-    // Only check for duplicates if NOT in test environment
+    // Step 3: Check for duplicates
     if (environment !== "test") {
-      // Get all artifact GUIDs that are already used in stories
+      console.log("🔍 Step 3: Checking for duplicates...");
+      
       const { data: usedArtifacts, error: usedError } = await supabase
         .from('story_artifacts')
         .select('artifact:artifacts(guid)');
 
       if (usedError) {
-        console.error('⚠️ Error fetching used artifacts:', usedError);
-        // Continue anyway - better to process duplicates than fail completely
+        console.error('⚠️ Step 3 warning - Error fetching used artifacts:', usedError);
+        console.log("   Continuing anyway - better to process duplicates than fail completely");
       }
 
       const usedGUIDs = new Set(
@@ -94,18 +132,15 @@ Deno.serve(async (req) => {
           .map((sa: any) => sa.artifact?.guid)
           .filter((guid: any) => guid != null)
       );
-      console.log(`📊 Found ${usedGUIDs.size} unique GUIDs already used in stories`);
       
-      // Filter out artifacts whose GUID matches any used GUID
+      const beforeCount = artifacts.length;
       artifacts = artifacts.filter(a => !usedGUIDs.has(a.guid));
+      const afterCount = artifacts.length;
+      
+      console.log(`✅ Step 3 complete: ${usedGUIDs.size} already used, ${afterCount} remaining (filtered out ${beforeCount - afterCount})`);
     } else {
-      console.log(`🧪 Test mode: Skipping duplicate check to allow multiple runs`);
+      console.log(`🧪 Step 3: Test mode - Skipping duplicate check to allow multiple runs`);
     }
-
-    console.log(`📊 Queue setup:`);
-    console.log(`  - Total artifacts found: ${allArtifacts?.length || 0}`);
-    console.log(`  - Already used (filtered out): ${(allArtifacts?.length || 0) - artifacts.length}`);
-    console.log(`  - Queue size: ${artifacts.length}`);
 
     if (!artifacts || artifacts.length === 0) {
       await supabase
@@ -130,8 +165,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Create queue entries for all artifacts
-    console.log(`📋 Creating queue with ${artifacts.length} items...`);
+    // Step 4: Create queue entries for all artifacts
+    console.log(`🔍 Step 4: Creating queue with ${artifacts.length} items...`);
     
     const queueEntries = artifacts.map((artifact, index) => ({
       query_history_id: historyId,
@@ -145,12 +180,14 @@ Deno.serve(async (req) => {
       .insert(queueEntries);
 
     if (queueError) {
+      console.error("❌ Step 4 failed - Queue creation error:", queueError);
       throw new Error(`Failed to create queue: ${queueError.message}`);
     }
 
-    console.log(`✅ Queue created with ${artifacts.length} items`);
+    console.log(`✅ Step 4 complete: ${artifacts.length} queue items created`);
 
-    // Get the first item to process
+    // Step 5: Get the first item to process
+    console.log("🔍 Step 5: Fetching first queue item...");
     const { data: firstItem, error: firstItemError } = await supabase
       .from("journalism_queue")
       .select("id")
@@ -160,17 +197,37 @@ Deno.serve(async (req) => {
       .limit(1)
       .single();
 
-    if (firstItemError || !firstItem) {
-      throw new Error("Failed to fetch first queue item");
+    if (firstItemError) {
+      console.error("❌ Step 5 failed - First item fetch error:", firstItemError);
+      throw new Error(`Failed to fetch first queue item: ${firstItemError.message}`);
+    }
+    
+    if (!firstItem) {
+      console.error("❌ Step 5 failed - No first item found");
+      throw new Error("No first queue item found");
     }
 
-    // Trigger processing of first item (which will chain to the rest)
-    console.log("🚀 Starting queue processing...");
-    const QUEUE_SECRET = Deno.env.get('QUEUE_PROCESSOR_SECRET')!;
-    await supabase.functions.invoke("process-journalism-queue-item", {
+    console.log(`✅ Step 5 complete: First item ID ${firstItem.id}`);
+
+    // Step 6: Trigger processing of first item (which will chain to the rest)
+    console.log("🔍 Step 6: Starting queue processing...");
+    
+    if (!queueSecret) {
+      console.error("❌ Step 6 failed - QUEUE_PROCESSOR_SECRET not set");
+      throw new Error("QUEUE_PROCESSOR_SECRET environment variable not set");
+    }
+
+    const { data: invokeData, error: invokeError } = await supabase.functions.invoke("process-journalism-queue-item", {
       body: { queueItemId: firstItem.id },
-      headers: { 'x-internal-secret': QUEUE_SECRET }
+      headers: { 'x-internal-secret': queueSecret }
     });
+
+    if (invokeError) {
+      console.error("❌ Step 6 failed - Queue processing invoke error:", invokeError);
+      throw new Error(`Failed to invoke queue processor: ${invokeError.message}`);
+    }
+
+    console.log("✅ Step 6 complete: Queue processing invoked successfully");
 
     // Return immediately with 202 Accepted
     return new Response(
@@ -186,7 +243,12 @@ Deno.serve(async (req) => {
       }
     );
   } catch (error) {
-    console.error("Error in run-ai-journalist:", error);
+    console.error("💥 Fatal error in run-ai-journalist:", error);
+    console.error("   Error details:", {
+      message: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    
     return new Response(
       JSON.stringify({
         success: false,
