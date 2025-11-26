@@ -234,8 +234,12 @@ Deno.serve(async (req) => {
             
             const title = item[titleField] || 'Untitled';
             const link = item[linkField] || '';
-            const rawGuid = item.id || item.guid || link;
-            const guid = await normalizeToUUID(rawGuid);
+            
+            // Generate deterministic GUID from source + normalized title (content-based fingerprint)
+            const normalizedTitle = title.toLowerCase().trim().replace(/\s+/g, ' ');
+            const fingerprint = `${source.id}:${normalizedTitle}`;
+            const guid = await normalizeToUUID(fingerprint);
+            
             const dateStr = item[dateField] || item.pubDate || item.published;
             const pubDate = parseDate(dateStr) || new Date();
 
@@ -404,10 +408,10 @@ Deno.serve(async (req) => {
 
             content = cleanText(content);
 
-            // Insert into artifacts table with Storage-hosted images
-            const { error: insertError } = await supabase
+            // Upsert into artifacts table with Storage-hosted images (updates if GUID exists)
+            const { error: upsertError } = await supabase
               .from('artifacts')
-              .insert({
+              .upsert({
                 id: artifactGuid,
                 name: title,
                 title: title,
@@ -420,18 +424,16 @@ Deno.serve(async (req) => {
                 type: 'RSS Article',
                 source_id: source.id,
                 is_test: environment === 'test',
+              }, {
+                onConflict: 'guid',
+                ignoreDuplicates: false
               });
 
-            if (insertError) {
-              // Check if it's a duplicate GUID error
-              if (insertError.code === '23505' && insertError.message.includes('artifacts_guid_key')) {
-                console.log(`   ⚠️ Skipping duplicate artifact (GUID already exists): ${title}`);
-              } else {
-                console.error('❌ Insert error:', insertError);
-                totalErrors++;
-              }
+            if (upsertError) {
+              console.error('❌ Upsert error:', upsertError);
+              totalErrors++;
             } else {
-              console.log(`✅ Inserted: ${title}`);
+              console.log(`✅ Upserted: ${title}`);
               totalArtifacts++;
               itemsProcessed++;
             }
