@@ -177,11 +177,21 @@ serve(async (req) => {
     console.log('📝 Publishing to Ghost:', { title, status: status || 'draft', isUpdate: !!ghostUrl, hasHeroImage: !!heroImageUrl, artifactId });
 
     const ghostApiKey = Deno.env.get('GHOST_ADMIN_API_KEY');
-    const ghostApiUrl = Deno.env.get('GHOST_API_URL');
+    let ghostApiUrl = Deno.env.get('GHOST_API_URL');
 
     if (!ghostApiKey || !ghostApiUrl) {
       throw new Error('Ghost credentials not configured');
     }
+
+    // Ensure the URL has the correct protocol
+    ghostApiUrl = ghostApiUrl.trim();
+    if (!ghostApiUrl.startsWith('http://') && !ghostApiUrl.startsWith('https://')) {
+      ghostApiUrl = `https://${ghostApiUrl}`;
+    }
+    // Remove trailing slash
+    ghostApiUrl = ghostApiUrl.replace(/\/$/, '');
+    
+    console.log('🔗 Using Ghost API URL:', ghostApiUrl);
 
     // Parse story content to extract subhead and main content
     console.log('📄 Raw content received:', content);
