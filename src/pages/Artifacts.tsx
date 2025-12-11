@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, Search, FileText, Trash2, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Search, FileText, Trash2 } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -39,7 +39,6 @@ const Artifacts = () => {
   // Filters
   const [dateRangeFilter, setDateRangeFilter] = useState("30");
   const [sourceFilter, setSourceFilter] = useState("all");
-  const [environmentFilter, setEnvironmentFilter] = useState("all");
   const [usageFilter, setUsageFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -47,7 +46,6 @@ const Artifacts = () => {
   const [selectedArtifact, setSelectedArtifact] = useState<any>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
   const [artifactToDelete, setArtifactToDelete] = useState<string | null>(null);
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
@@ -141,40 +139,6 @@ const Artifacts = () => {
     }
   };
 
-  // Bulk delete for test artifacts
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async () => {
-      const testArtifactIds = filteredArtifacts
-        .filter(a => environmentFilter === "test" || a.is_test)
-        .map(a => a.id);
-      
-      if (testArtifactIds.length === 0) {
-        throw new Error("No test artifacts to delete");
-      }
-
-      const { error } = await supabase
-        .from('artifacts')
-        .delete()
-        .in('id', testArtifactIds);
-
-      if (error) throw error;
-      return testArtifactIds.length;
-    },
-    onSuccess: (count) => {
-      queryClient.invalidateQueries({ queryKey: ['artifacts'] });
-      queryClient.invalidateQueries({ queryKey: ['all-story-artifacts'] });
-      toast.success(`Successfully deleted ${count} test artifacts`);
-      setBulkDeleteDialogOpen(false);
-    },
-    onError: (error: any) => {
-      toast.error(`Failed to bulk delete: ${error.message}`);
-    }
-  });
-
-  const handleBulkDelete = () => {
-    setBulkDeleteDialogOpen(true);
-  };
-
   // Delete all artifacts mutation
   const deleteAllArtifactsMutation = useMutation({
     mutationFn: async () => {
@@ -200,25 +164,6 @@ const Artifacts = () => {
     },
     onError: (error: any) => {
       toast.error(`Failed to delete all artifacts: ${error.message}`);
-    }
-  });
-
-  // Backfill images mutation
-  const backfillImagesMutation = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('backfill-artifact-images', {
-        body: {}
-      });
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['artifacts'] });
-      toast.success(data.message || `Updated ${data.updatedCount} artifacts`);
-    },
-    onError: (error: any) => {
-      toast.error(`Failed to backfill images: ${error.message}`);
     }
   });
 
@@ -250,14 +195,6 @@ const Artifacts = () => {
       filtered = filtered.filter(a => a.source_id === sourceFilter);
     }
 
-    // Environment filter (based on is_test in related stories)
-    if (environmentFilter !== "all") {
-      const isTestFilter = environmentFilter === "test";
-      // For now, we'll need to check if any story using this artifact is test
-      // This is a simplified version - you might want to add is_test to artifacts table
-      filtered = filtered;
-    }
-
     // Usage filter
     if (usageFilter !== "all") {
       if (usageFilter === "unused") {
@@ -278,12 +215,7 @@ const Artifacts = () => {
     }
 
     return filtered;
-  }, [artifacts, dateRangeFilter, sourceFilter, environmentFilter, usageFilter, searchQuery, artifactUsage]);
-
-  // Calculate test artifacts count after filteredArtifacts is defined
-  const testArtifactsCount = filteredArtifacts.filter(a => 
-    environmentFilter === "test" || a.is_test
-  ).length;
+  }, [artifacts, dateRangeFilter, sourceFilter, usageFilter, searchQuery, artifactUsage]);
 
   // Group artifacts by source
   const groupedArtifacts = useMemo(() => {
@@ -338,24 +270,6 @@ const Artifacts = () => {
         </div>
         <div className="flex gap-2">
           <Button
-            variant="outline"
-            onClick={() => backfillImagesMutation.mutate()}
-            disabled={backfillImagesMutation.isPending}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${backfillImagesMutation.isPending ? 'animate-spin' : ''}`} />
-            {backfillImagesMutation.isPending ? 'Processing...' : 'Backfill Images'}
-          </Button>
-          {environmentFilter === "test" && testArtifactsCount > 0 && (
-            <Button
-              variant="destructive"
-              onClick={handleBulkDelete}
-              disabled={bulkDeleteMutation.isPending}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete All Test Data ({testArtifactsCount})
-            </Button>
-          )}
-          <Button
             variant="destructive"
             onClick={() => setDeleteAllDialogOpen(true)}
             disabled={!artifacts || artifacts.length === 0 || deleteAllArtifactsMutation.isPending}
@@ -368,7 +282,7 @@ const Artifacts = () => {
 
       {/* Filter Bar */}
       <div className="bg-card border rounded-lg p-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="text-sm font-medium mb-2 block">Date Range</label>
             <Select value={dateRangeFilter} onValueChange={setDateRangeFilter}>
@@ -397,20 +311,6 @@ const Artifacts = () => {
                     {source.name}
                   </SelectItem>
                 ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium mb-2 block">Environment</label>
-            <Select value={environmentFilter} onValueChange={setEnvironmentFilter}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="production">Production</SelectItem>
-                <SelectItem value="test">Test</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -535,18 +435,6 @@ const Artifacts = () => {
         confirmLabel="Delete"
         variant="destructive"
         onConfirm={confirmDelete}
-      />
-
-      {/* Bulk Delete Dialog */}
-      <BulkDeleteDialog
-        open={bulkDeleteDialogOpen}
-        onOpenChange={setBulkDeleteDialogOpen}
-        title="Delete All Test Artifacts?"
-        description="This will permanently delete all test artifacts currently shown in your filtered view."
-        itemCount={testArtifactsCount}
-        onConfirm={async () => {
-          await bulkDeleteMutation.mutateAsync();
-        }}
       />
 
       {/* Delete All Artifacts Dialog */}
