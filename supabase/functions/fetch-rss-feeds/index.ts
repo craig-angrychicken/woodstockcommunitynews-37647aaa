@@ -586,15 +586,25 @@ function parseRSSFeed(xmlText: string): RSSFeed {
 }
 
 function extractTag(xml: string, tagName: string): string {
+  // Try to match the tag with CDATA content first (most reliable for RSS)
+  const cdataRegex = new RegExp(`<${tagName}[^>]*>\\s*<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>\\s*<\\/${tagName}>`, 'i');
+  const cdataMatch = xml.match(cdataRegex);
+  if (cdataMatch) {
+    return cdataMatch[1].trim();
+  }
+  
+  // Fallback to regular tag content
   const regex = new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i');
   const match = xml.match(regex);
   if (!match) return '';
   
   let content = match[1].trim();
   
-  // Remove CDATA wrapper if present
-  if (content.startsWith('<![CDATA[') && content.endsWith(']]>')) {
-    content = content.slice(9, -3); // Remove <![CDATA[ and ]]>
+  // Handle case where CDATA might be present but with extra whitespace
+  const cdataInnerRegex = /^<!\[CDATA\[([\s\S]*)\]\]>$/;
+  const cdataInner = content.match(cdataInnerRegex);
+  if (cdataInner) {
+    content = cdataInner[1].trim();
   }
   
   return content;
@@ -636,6 +646,7 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
     }
     
     if (typeof value === 'string' && value) {
+      console.log(`  🖼️ Found image in ${field}: ${value.substring(0, 80)}...`);
       images.push(value);
     } else if (Array.isArray(value)) {
       images.push(...value.filter(v => typeof v === 'string'));
@@ -647,24 +658,45 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
     images.push(...item['media:group'].urls);
   }
   
-  // IMPORTANT: Also extract images from description/content fields
-  // FetchRSS and other feed generators often embed images as markdown or HTML in description
-  const descriptionText = item.description || item.content || item.summary || '';
+  // CRITICAL: Extract images from description/content/summary fields
+  // FetchRSS and rss.app embed images as markdown or HTML in these fields
+  const textFields = [
+    item.description,
+    item.content,
+    item.summary,
+    item['content:encoded']
+  ].filter(Boolean).join('\n');
   
-  if (descriptionText) {
+  if (textFields) {
+    console.log(`  📝 Scanning ${textFields.length} chars of text content for images...`);
+    
     // Extract markdown images: ![alt](url) or ![](url)
-    const markdownImageRegex = /!\[(?:[^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
+    const markdownImageRegex = /!\[(?:[^\]]*)\]\((https?:\/\/[^\s\)]+)\)/g;
     let match;
-    while ((match = markdownImageRegex.exec(descriptionText)) !== null) {
+    while ((match = markdownImageRegex.exec(textFields)) !== null) {
+      console.log(`  🖼️ Found markdown image: ${match[1].substring(0, 80)}...`);
       images.push(match[1]);
-      console.log(`  🖼️ Found markdown image in description: ${match[1].substring(0, 100)}...`);
     }
     
-    // Extract HTML images: <img src="url" ... >
+    // Extract HTML images: <img src="url" ... > or <img src='url' ...>
     const htmlImageRegex = /<img[^>]+src=["']([^"']+)["']/gi;
-    while ((match = htmlImageRegex.exec(descriptionText)) !== null) {
+    while ((match = htmlImageRegex.exec(textFields)) !== null) {
+      console.log(`  🖼️ Found HTML img tag: ${match[1].substring(0, 80)}...`);
       images.push(match[1]);
-      console.log(`  🖼️ Found HTML image in description: ${match[1].substring(0, 100)}...`);
+    }
+    
+    // Extract media:content URLs embedded in text (some feeds do this)
+    const mediaContentRegex = /<media:content[^>]+url=["']([^"']+)["']/gi;
+    while ((match = mediaContentRegex.exec(textFields)) !== null) {
+      console.log(`  🖼️ Found media:content: ${match[1].substring(0, 80)}...`);
+      images.push(match[1]);
+    }
+    
+    // Extract enclosure URLs embedded in text
+    const enclosureRegex = /<enclosure[^>]+url=["']([^"']+)["']/gi;
+    while ((match = enclosureRegex.exec(textFields)) !== null) {
+      console.log(`  🖼️ Found enclosure: ${match[1].substring(0, 80)}...`);
+      images.push(match[1]);
     }
   }
   
@@ -672,17 +704,33 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
   const validImages: string[] = [];
   for (const rawUrl of images) {
     try {
+      // Skip tiny/tracking pixels and non-image URLs
+      if (rawUrl.includes('pixel') || rawUrl.includes('tracking') || rawUrl.includes('spacer')) {
+        console.log(`  ⏭️ Skipping tracking pixel: ${rawUrl.substring(0, 50)}...`);
+        continue;
+      }
+      
       const url = new URL(rawUrl);
-      const encodedUrl = `${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
-      validImages.push(encodedUrl);
+      // Ensure the URL looks like an image
+      const path = url.pathname.toLowerCase();
+      const hasImageExt = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(path);
+      const hasImageInUrl = rawUrl.includes('image') || rawUrl.includes('photo') || rawUrl.includes('media') || rawUrl.includes('cdn') || rawUrl.includes('fbcdn');
+      
+      // Allow URLs that either have image extension or contain image-related keywords
+      if (hasImageExt || hasImageInUrl || rawUrl.includes('scontent')) {
+        const encodedUrl = `${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
+        validImages.push(encodedUrl);
+      } else {
+        console.log(`  ⏭️ Skipping non-image URL: ${rawUrl.substring(0, 80)}...`);
+      }
     } catch (error) {
-      console.error(`❌ Invalid image URL: ${rawUrl}`, error);
+      console.error(`  ❌ Invalid image URL: ${rawUrl}`, error);
     }
   }
   
   // Remove duplicates and return
   const uniqueImages = [...new Set(validImages)];
-  console.log(`📸 Extracted ${uniqueImages.length} image(s)`);
+  console.log(`  📸 Total extracted: ${uniqueImages.length} unique image(s)`);
   return uniqueImages;
 }
 
