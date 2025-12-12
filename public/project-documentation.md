@@ -25,12 +25,13 @@
 - **Ghost CMS Integration**: Direct publishing to Ghost blog with image management
 - **Admin Dashboard**: Comprehensive interface for monitoring, testing, and managing all aspects
 
-### Current Status
-- **Stories**: 21 total (18 published, 3 pending)
-- **Artifacts**: 4 collected articles
-- **Active Sources**: 7 RSS feeds
+### Current Status (Updated: December 2024)
+- **Stories**: 92 total (53 published, 39 pending)
+- **Artifacts**: 77 collected articles
+- **Active Sources**: 7 RSS feeds (6 actively returning data)
 - **Active Prompts**: 5 different AI prompt templates
-- **Total Runs**: 235 processing runs completed
+- **Total Runs**: 331 processing runs completed
+- **Current AI Model**: google/gemini-3-pro-preview
 - **Admin Users**: 2 (craig@angrychicken.co, ninja.baltes@gmail.com)
 
 ---
@@ -245,7 +246,6 @@ graph TD
 **Technical Details**:
 - Only RSS Feed sources supported (scrapers archived)
 - Parser config stored as JSON for field mapping customization
-- `analyze-rss-feed` function for testing and preview
 - Status field controls whether source is included in scheduled fetches
 
 ---
@@ -325,7 +325,7 @@ CREATE TABLE public.app_settings (
 - `active_ai_model`: Stores current model configuration
   ```json
   {
-    "model_name": "google/gemini-2.0-flash-exp:free",
+    "model_name": "google/gemini-3-pro-preview",
     "model_provider": "Google"
   }
   ```
@@ -1026,47 +1026,7 @@ function getESTTime(): string {
 
 ### Utility Functions
 
-#### 7. `analyze-rss-feed`
-
-**Purpose**: Test and analyze RSS feed structure
-
-**Endpoint**: `/functions/v1/analyze-rss-feed`
-
-**Request Body**:
-```typescript
-{
-  url: string;  // RSS feed URL
-}
-```
-
-**Response**:
-```typescript
-{
-  success: boolean;
-  feed: {
-    title: string;
-    items: Array<{
-      title: string;
-      link: string;
-      date: string;
-      content: string;
-      images: string[];
-    }>;
-  };
-}
-```
-
-**Key Features**:
-- Fetches and parses RSS feed
-- Extracts available fields
-- Returns first 5 items as sample
-- Used for testing new RSS sources
-
-**Source Code**: See Appendix G
-
----
-
-#### 8. `manage-schedule`
+#### 7. `manage-schedule`
 
 **Purpose**: Update schedule configuration
 
@@ -1094,11 +1054,9 @@ function getESTTime(): string {
 - Updates scheduled times array
 - Enables/disables schedule
 
-**Source Code**: See Appendix H
-
 ---
 
-#### 9. `fetch-openrouter-models`
+#### 8. `fetch-openrouter-models`
 
 **Purpose**: Retrieve available AI models from OpenRouter
 
@@ -1125,11 +1083,9 @@ function getESTTime(): string {
 - Sorts by provider then name
 - Used in Models page for selection
 
-**Source Code**: See Appendix I
-
 ---
 
-#### 10. `backfill-artifact-images`
+#### 9. `backfill-artifact-images`
 
 **Purpose**: Utility to download and store images for existing artifacts
 
@@ -1143,8 +1099,6 @@ function getESTTime(): string {
 - Uploads to Supabase Storage
 - Updates artifact images array
 - Useful for migration scenarios
-
-**Source Code**: See Appendix J
 
 ---
 
