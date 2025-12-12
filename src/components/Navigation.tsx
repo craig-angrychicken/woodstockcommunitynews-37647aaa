@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
 import { UserMenu } from "@/components/UserMenu";
+import { FileDown } from "lucide-react";
 
 export const Navigation = () => {
   return (
@@ -70,6 +71,15 @@ export const Navigation = () => {
               >
                 Models
               </NavLink>
+              <a
+                href="/project-documentation.md"
+                download="woodstock-community-news-docs.md"
+                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1.5"
+                title="Download Project Documentation"
+              >
+                <FileDown className="h-4 w-4" />
+                Docs
+              </a>
             </div>
           </div>
 
