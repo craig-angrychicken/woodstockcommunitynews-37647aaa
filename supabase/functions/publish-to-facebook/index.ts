@@ -44,6 +44,7 @@ Deno.serve(async (req) => {
       message: message,
       link: ghostUrl,
       access_token: pageAccessToken,
+      allow_comments: 'false',
     };
 
     console.log('Sending request to Facebook Graph API...');
