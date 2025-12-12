@@ -33,5 +33,8 @@ verify_jwt = false
 [functions.publish-to-ghost]
 verify_jwt = true
 
+[functions.publish-to-facebook]
+verify_jwt = true
+
 [functions.refetch-article-content]
 verify_jwt = true
