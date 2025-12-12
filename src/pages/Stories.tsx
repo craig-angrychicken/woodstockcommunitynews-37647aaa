@@ -15,6 +15,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { publishToGhost } from "@/lib/ghost-api";
+import { publishToFacebook } from "@/lib/facebook-api";
 import { Plus } from "lucide-react";
 
 const Stories = () => {
@@ -32,6 +33,7 @@ const Stories = () => {
   const [selectedStory, setSelectedStory] = useState<any>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showArtifactsModal, setShowArtifactsModal] = useState(false);
+  const [isPublishingToFacebook, setIsPublishingToFacebook] = useState(false);
 
   // Fetch stories
   const { data: stories, isLoading } = useQuery({
@@ -262,6 +264,38 @@ const Stories = () => {
     }
   };
 
+  const handlePublishToFacebook = async (story?: any) => {
+    const storyToPublish = story || selectedStory;
+    if (!storyToPublish) return;
+    
+    if (!storyToPublish.ghost_url) {
+      toast({
+        title: "Publish to Ghost First",
+        description: "Please publish the story to Ghost before sharing to Facebook.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    setIsPublishingToFacebook(true);
+    try {
+      const result = await publishToFacebook({
+        storyId: storyToPublish.id,
+        title: storyToPublish.title,
+        content: storyToPublish.content || '',
+        ghostUrl: storyToPublish.ghost_url,
+        heroImageUrl: storyToPublish.hero_image_url,
+      });
+      
+      if (result.success) {
+        // Optionally close modal or refresh
+        queryClient.invalidateQueries({ queryKey: ['stories'] });
+      }
+    } finally {
+      setIsPublishingToFacebook(false);
+    }
+  };
+
   const handleReject = () => {
     if (!selectedStory) return;
     updateStoryMutation.mutate({
@@ -413,9 +447,11 @@ const Stories = () => {
         onClose={() => setShowDetailModal(false)}
         onSave={handleSaveContent}
         onPublish={() => handlePublish()}
+        onPublishToFacebook={() => handlePublishToFacebook()}
         onDelete={() => handleDelete()}
         onReject={handleReject}
         onViewArtifacts={handleViewArtifacts}
+        isPublishingToFacebook={isPublishingToFacebook}
       />
 
       {/* Artifacts Modal */}

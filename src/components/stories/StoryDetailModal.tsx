@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Save, Send, Trash2, XCircle, Package } from "lucide-react";
+import { Save, Send, Trash2, XCircle, Package, Facebook } from "lucide-react";
 import { Label } from "@/components/ui/label";
 
 interface StoryDetailModalProps {
@@ -27,14 +27,17 @@ interface StoryDetailModalProps {
     environment: string;
     ghost_url?: string | null;
     hero_image_url?: string | null;
+    facebook_url?: string | null;
   } | null;
   open: boolean;
   onClose: () => void;
   onSave: (content: string) => void;
   onPublish: () => void;
+  onPublishToFacebook: () => void;
   onDelete: () => void;
   onReject: () => void;
   onViewArtifacts: () => void;
+  isPublishingToFacebook?: boolean;
 }
 
 export const StoryDetailModal = ({
@@ -43,9 +46,11 @@ export const StoryDetailModal = ({
   onClose,
   onSave,
   onPublish,
+  onPublishToFacebook,
   onDelete,
   onReject,
   onViewArtifacts,
+  isPublishingToFacebook = false,
 }: StoryDetailModalProps) => {
   const [editedContent, setEditedContent] = useState(story?.content || "");
 
@@ -137,7 +142,7 @@ export const StoryDetailModal = ({
           </Button>
         </div>
 
-        <DialogFooter className="flex gap-2">
+        <DialogFooter className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={handleSave}>
             <Save className="h-4 w-4 mr-2" />
             Save Edits
@@ -149,9 +154,20 @@ export const StoryDetailModal = ({
                 {story.ghost_url ? 'Update on Ghost' : 'Publish to Ghost'}
               </Button>
               {story.ghost_url && (
-                <Button variant="outline" onClick={() => window.open(story.ghost_url!, '_blank')}>
-                  View on Ghost →
-                </Button>
+                <>
+                  <Button 
+                    variant="outline" 
+                    onClick={onPublishToFacebook}
+                    disabled={isPublishingToFacebook}
+                    className="bg-[#1877F2] text-white hover:bg-[#1877F2]/90 border-[#1877F2]"
+                  >
+                    <Facebook className="h-4 w-4 mr-2" />
+                    {isPublishingToFacebook ? 'Publishing...' : 'Share to Facebook'}
+                  </Button>
+                  <Button variant="outline" onClick={() => window.open(story.ghost_url!, '_blank')}>
+                    View on Ghost →
+                  </Button>
+                </>
               )}
             </>
           )}
