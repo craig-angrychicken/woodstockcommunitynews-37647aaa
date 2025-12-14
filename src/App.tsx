@@ -14,6 +14,7 @@ import Prompts from "./pages/Prompts";
 import Sources from "./pages/Sources";
 import Models from "./pages/Models";
 import Auth from "./pages/Auth";
+import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +27,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/auth" element={<Auth />} />
+          <Route path="/auth/reset-password" element={<ResetPassword />} />
           <Route
             path="/*"
             element={
