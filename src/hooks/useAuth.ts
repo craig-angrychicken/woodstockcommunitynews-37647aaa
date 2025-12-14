@@ -115,6 +115,30 @@ export const useAuth = () => {
     }
   };
 
+  const resetPassword = async (email: string) => {
+    const redirectUrl = `${window.location.origin}/auth/reset-password`;
+    
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: redirectUrl,
+    });
+
+    if (error) {
+      toast({
+        title: "Password reset failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      return { error };
+    }
+
+    toast({
+      title: "Check your email",
+      description: "We sent you a password reset link.",
+    });
+
+    return { error: null };
+  };
+
   return {
     user,
     session,
@@ -123,5 +147,6 @@ export const useAuth = () => {
     signUp,
     signIn,
     signOut,
+    resetPassword,
   };
 };
