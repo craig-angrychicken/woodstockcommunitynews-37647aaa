@@ -296,10 +296,11 @@ const Stories = () => {
     }
   };
 
-  const handleReject = () => {
-    if (!selectedStory) return;
+  const handleReject = (story?: any) => {
+    const storyToReject = story || selectedStory;
+    if (!storyToReject) return;
     updateStoryMutation.mutate({
-      id: selectedStory.id,
+      id: storyToReject.id,
       updates: { status: 'rejected' }
     });
   };
@@ -434,6 +435,7 @@ const Stories = () => {
               onView={() => handleView(story)}
               onEdit={() => handleView(story)}
               onPublish={() => handlePublish(story)}
+              onReject={() => handleReject(story)}
               onDelete={() => handleDelete(story)}
             />
           ))}
