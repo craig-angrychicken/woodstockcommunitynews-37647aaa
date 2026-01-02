@@ -108,27 +108,35 @@ export const StoryCard = ({ story, sourceCount, onView, onEdit, onPublish, onRej
         </div>
       </CardContent>
 
-      <CardFooter className="flex gap-2 pt-3 border-t">
-        <Button variant="outline" size="sm" onClick={onView} className="flex-1">
-          <Eye className="h-4 w-4 mr-1" />
-          View
-        </Button>
-        <Button variant="outline" size="sm" onClick={onEdit}>
-          <Edit className="h-4 w-4" />
-        </Button>
-        {(story.status === 'pending' || story.status === 'published') && (
-          <Button variant="default" size="sm" onClick={onPublish} title={story.ghost_url ? 'Update on Ghost' : 'Publish to Ghost'}>
-            <CheckCircle className="h-4 w-4" />
+      <CardFooter className="flex flex-col gap-2 pt-3 border-t">
+        <div className="flex gap-2 w-full">
+          <Button variant="outline" size="sm" onClick={onView} className="flex-1">
+            <Eye className="h-4 w-4 mr-1" />
+            View
           </Button>
-        )}
-        {story.status !== 'rejected' && (
-          <Button variant="outline" size="sm" onClick={onReject} title="Reject story" className="text-orange-600 hover:text-orange-700">
-            <XCircle className="h-4 w-4" />
+          <Button variant="outline" size="sm" onClick={onEdit} className="flex-1">
+            <Edit className="h-4 w-4 mr-1" />
+            Edit
           </Button>
-        )}
-        <Button variant="outline" size="sm" onClick={onDelete} className="text-destructive hover:text-destructive">
-          <Trash2 className="h-4 w-4" />
-        </Button>
+          {(story.status === 'pending' || story.status === 'published') && (
+            <Button variant="default" size="sm" onClick={onPublish} className="flex-1">
+              <CheckCircle className="h-4 w-4 mr-1" />
+              Publish
+            </Button>
+          )}
+        </div>
+        <div className="flex gap-2 w-full">
+          {story.status !== 'rejected' && (
+            <Button variant="outline" size="sm" onClick={onReject} className="flex-1 text-orange-600 hover:text-orange-700">
+              <XCircle className="h-4 w-4 mr-1" />
+              Reject
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={onDelete} className="flex-1 text-destructive hover:text-destructive">
+            <Trash2 className="h-4 w-4 mr-1" />
+            Delete
+          </Button>
+        </div>
       </CardFooter>
     </Card>
   );
