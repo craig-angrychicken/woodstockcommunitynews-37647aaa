@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
-import { Eye, Edit, Trash2, CheckCircle } from "lucide-react";
+import { Eye, Edit, Trash2, CheckCircle, XCircle } from "lucide-react";
 
 const sanitizeImageUrl = (url: string | null | undefined): string | null => {
   if (!url) return null;
@@ -40,10 +40,11 @@ interface StoryCardProps {
   onView: () => void;
   onEdit: () => void;
   onPublish: () => void;
+  onReject: () => void;
   onDelete: () => void;
 }
 
-export const StoryCard = ({ story, sourceCount, onView, onEdit, onPublish, onDelete }: StoryCardProps) => {
+export const StoryCard = ({ story, sourceCount, onView, onEdit, onPublish, onReject, onDelete }: StoryCardProps) => {
   const statusColors: Record<string, string> = {
     pending: "bg-yellow-500",
     published: "bg-green-500",
@@ -118,6 +119,11 @@ export const StoryCard = ({ story, sourceCount, onView, onEdit, onPublish, onDel
         {(story.status === 'pending' || story.status === 'published') && (
           <Button variant="default" size="sm" onClick={onPublish} title={story.ghost_url ? 'Update on Ghost' : 'Publish to Ghost'}>
             <CheckCircle className="h-4 w-4" />
+          </Button>
+        )}
+        {story.status !== 'rejected' && (
+          <Button variant="outline" size="sm" onClick={onReject} title="Reject story" className="text-orange-600 hover:text-orange-700">
+            <XCircle className="h-4 w-4" />
           </Button>
         )}
         <Button variant="outline" size="sm" onClick={onDelete} className="text-destructive hover:text-destructive">
