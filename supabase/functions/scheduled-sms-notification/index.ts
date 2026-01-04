@@ -6,6 +6,7 @@ const corsHeaders = {
 };
 
 const LAST_NOTIFICATION_KEY = "last_sms_notification_at";
+const SMS_SETTINGS_KEY = "sms_notification_settings";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -92,9 +93,21 @@ Deno.serve(async (req) => {
 
     console.log(`📋 Sending to ${recipients.length} recipient(s)`);
 
-    // Create the message
+    // Get message template from settings
+    const { data: smsSettingsData } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", SMS_SETTINGS_KEY)
+      .maybeSingle();
+
+    const defaultTemplate = "Check woodstockcommunity.news - there have been {{count}} {{stories}} published since the last notification";
+    const messageTemplate = smsSettingsData?.value?.message_template || defaultTemplate;
+
+    // Create the message by replacing placeholders
     const storyWord = newStoriesCount === 1 ? "story" : "stories";
-    const message = `Check woodstockcommunity.news - there have been ${newStoriesCount} ${storyWord} published since the last notification`;
+    const message = messageTemplate
+      .replace(/\{\{count\}\}/g, String(newStoriesCount))
+      .replace(/\{\{stories\}\}/g, storyWord);
 
     // Create Basic auth header
     const authString = btoa(`${clientId}:${clientSecret}`);

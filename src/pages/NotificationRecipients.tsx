@@ -8,6 +8,7 @@ import { AddRecipientDialog } from "@/components/notifications/AddRecipientDialo
 import { EditRecipientDialog } from "@/components/notifications/EditRecipientDialog";
 import { RecipientRow } from "@/components/notifications/RecipientRow";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { SmsSettingsCard } from "@/components/notifications/SmsSettingsCard";
 import { MessageSquare, Bell, Send } from "lucide-react";
 import { Tables } from "@/integrations/supabase/types";
 import { toast } from "sonner";
@@ -176,6 +177,11 @@ const NotificationRecipients = () => {
         onConfirm={handleDelete}
         variant="destructive"
       />
+
+      {/* SMS Settings Card */}
+      <div className="mt-6">
+        <SmsSettingsCard />
+      </div>
     </main>
   );
 };
