@@ -13,6 +13,7 @@ import Artifacts from "./pages/Artifacts";
 import Prompts from "./pages/Prompts";
 import Sources from "./pages/Sources";
 import Models from "./pages/Models";
+import NotificationRecipients from "./pages/NotificationRecipients";
 import Auth from "./pages/Auth";
 import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
@@ -42,6 +43,7 @@ const App = () => (
                   <Route path="/prompts" element={<ProtectedRoute requireAdmin><Prompts /></ProtectedRoute>} />
                   <Route path="/sources" element={<ProtectedRoute requireAdmin><Sources /></ProtectedRoute>} />
                   <Route path="/models" element={<ProtectedRoute requireAdmin><Models /></ProtectedRoute>} />
+                  <Route path="/notifications" element={<ProtectedRoute requireAdmin><NotificationRecipients /></ProtectedRoute>} />
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>
