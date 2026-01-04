@@ -2,14 +2,16 @@ import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { useNotificationRecipients } from "@/hooks/useNotificationRecipients";
 import { AddRecipientDialog } from "@/components/notifications/AddRecipientDialog";
 import { EditRecipientDialog } from "@/components/notifications/EditRecipientDialog";
 import { RecipientRow } from "@/components/notifications/RecipientRow";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { MessageSquare, Bell } from "lucide-react";
+import { MessageSquare, Bell, Send } from "lucide-react";
 import { Tables } from "@/integrations/supabase/types";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 type NotificationRecipient = Tables<"notification_recipients">;
 
@@ -25,6 +27,32 @@ const NotificationRecipients = () => {
 
   const [editingRecipient, setEditingRecipient] = useState<NotificationRecipient | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+
+  const handleSendTestSMS = async () => {
+    setIsSendingTest(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("send-sms-notification", {
+        body: {
+          storyId: "test-" + Date.now(),
+          storyTitle: "🧪 Test SMS from AI Journalist",
+        },
+      });
+
+      if (error) throw error;
+
+      if (data?.sent === 0) {
+        toast.warning("No active recipients to send test SMS to");
+      } else {
+        toast.success(`Test SMS sent to ${data?.sent || 0} recipient(s)`);
+      }
+    } catch (error: any) {
+      console.error("Error sending test SMS:", error);
+      toast.error(error.message || "Failed to send test SMS");
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
 
   const handleAdd = async (data: { phone_number: string; name?: string }) => {
     await addRecipient.mutateAsync(data);
@@ -67,7 +95,17 @@ const NotificationRecipients = () => {
             Manage recipients who receive SMS alerts when new stories are ready
           </p>
         </div>
-        <AddRecipientDialog onAdd={handleAdd} isLoading={addRecipient.isPending} />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleSendTestSMS}
+            disabled={isSendingTest || recipients.length === 0}
+          >
+            <Send className="h-4 w-4 mr-2" />
+            {isSendingTest ? "Sending..." : "Send Test SMS"}
+          </Button>
+          <AddRecipientDialog onAdd={handleAdd} isLoading={addRecipient.isPending} />
+        </div>
       </div>
 
       <Card>
