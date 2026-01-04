@@ -41,3 +41,6 @@ verify_jwt = true
 
 [functions.send-sms-notification]
 verify_jwt = false
+
+[functions.scheduled-sms-notification]
+verify_jwt = false
