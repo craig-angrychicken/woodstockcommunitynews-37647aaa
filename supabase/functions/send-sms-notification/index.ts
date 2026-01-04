@@ -78,14 +78,13 @@ Deno.serve(async (req) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            notificationId: "new_story_ready",
-            user: {
+            type: "woodstock_community_news",
+            to: {
               id: recipient.id,
               number: recipient.phone_number,
             },
-            mergeTags: {
-              title: storyTitle,
-              storyId: storyId,
+            sms: {
+              message: `New story ready for review: ${storyTitle}`,
             },
           }),
         });
