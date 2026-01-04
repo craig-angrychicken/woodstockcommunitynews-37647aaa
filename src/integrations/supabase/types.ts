@@ -212,6 +212,33 @@ export type Database = {
           },
         ]
       }
+      notification_recipients: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string | null
+          phone_number: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          phone_number: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          phone_number?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       prompt_versions: {
         Row: {
           author: string | null
