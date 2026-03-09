@@ -68,12 +68,12 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch queue item with artifact and prompt details
+    // Fetch queue item with artifact, source, and prompt details
     const { data: queueItem, error: queueError } = await supabase
       .from("journalism_queue")
       .select(`
         *,
-        artifact:artifacts(*),
+        artifact:artifacts(*, source:sources(name)),
         query_history:query_history(prompt_version_id)
       `)
       .eq("id", queueItemId)
@@ -132,10 +132,12 @@ Deno.serve(async (req) => {
     }
 
     // Build prompt
+    const sourceName = queueItem.artifact.source?.name || "Unknown Source";
     const artifactData = `
 Title: ${queueItem.artifact.title || queueItem.artifact.name}
 Date: ${queueItem.artifact.date}
-Source: ${queueItem.artifact.source_id}
+Source: ${sourceName}
+URL: ${queueItem.artifact.url || "Not available"}
 Content: ${contentToUse}
 `;
 
