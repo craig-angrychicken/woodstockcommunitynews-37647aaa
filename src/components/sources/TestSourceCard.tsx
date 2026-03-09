@@ -79,15 +79,13 @@ export const TestSourceCard = ({
             <FlaskConical className="h-4 w-4 mr-1" />
             Run Test Query
           </Button>
+          <Button size="sm" onClick={onActivate}>
+            Activate
+          </Button>
           {lastFetchAt && (
-            <>
-              <Button size="sm" onClick={onActivate}>
-                Activate
-              </Button>
-              <Button variant="outline" size="sm" onClick={onViewTestArtifacts}>
-                View Test Artifacts
-              </Button>
-            </>
+            <Button variant="outline" size="sm" onClick={onViewTestArtifacts}>
+              View Test Artifacts
+            </Button>
           )}
           <Button variant="destructive" size="sm" onClick={onRemove}>
             Remove
