@@ -19,3 +19,88 @@ The project is already linked to `cceprnhnpqnpexmouuig` (Woodstock Wire 2.0).
 Push changes to `git@github.com:craig-angrychicken/woodstockcommunitynews-37647aaa.git`
 
 Never commit `.env` — it contains secrets.
+
+## App Context
+
+### Overview
+Woodstock Wire 2.0 — private admin tool for AI-generated local news.
+
+**Stack:** React 18 + Vite + TypeScript + Tailwind + shadcn/ui (frontend); Supabase (PostgreSQL + Deno edge functions); Ghost CMS (publishing); OpenRouter (LLM access).
+
+### Supabase Project (public config)
+- Project ID: `cceprnhnpqnpexmouuig`
+- Supabase URL: `https://cceprnhnpqnpexmouuig.supabase.co`
+- Dashboard: https://supabase.com/dashboard/project/cceprnhnpqnpexmouuig
+
+### Frontend Pages (React Router)
+| Route | Page | Purpose |
+|---|---|---|
+| `/` | Dashboard | Overview |
+| `/stories` | Stories | View/manage generated stories |
+| `/manual-query` | ManualQuery | Manually trigger journalism run |
+| `/ai-journalist` | AIJournalist | Monitor AI journalist + queue |
+| `/artifacts` | Artifacts | Browse raw RSS artifacts |
+| `/prompts` | Prompts | Manage AI prompts |
+| `/sources` | Sources | Configure RSS feeds |
+| `/models` | Models | Configure LLM model |
+
+All routes are admin-protected.
+
+### Database Tables
+| Table | Purpose |
+|---|---|
+| `sources` | RSS feed sources (url, status, last_fetch_at) |
+| `artifacts` | Raw content fetched from RSS feeds |
+| `stories` | AI-generated articles (status: pending/draft/published/archived/rejected) |
+| `story_artifacts` | Many-to-many junction: stories ↔ artifacts |
+| `prompt_versions` | AI prompt templates (retrieval + journalism types) |
+| `journalism_queue` | Serial processing queue for artifact → story conversion |
+| `query_history` | Logs of journalism pipeline runs |
+| `schedules` | Cron schedule config (artifact_fetch, ai_journalism) |
+| `app_settings` | Global config (ai_model_config, etc.) |
+| `cron_job_logs` | Audit trail of automated tasks |
+
+### Edge Functions (all verify_jwt = false)
+| Function | Trigger | Purpose |
+|---|---|---|
+| `fetch-rss-feeds` | UI / scheduled | Fetch + normalize RSS feeds → artifacts table |
+| `scheduled-fetch-artifacts` | pg_cron (every 30min) | Cron wrapper for fetch-rss-feeds |
+| `run-ai-journalist` | UI / scheduled | Orchestrate journalism pipeline run |
+| `process-journalism-queue-item` | Internal | Convert single artifact → story via LLM |
+| `scheduled-run-journalism` | pg_cron (hourly) | Cron wrapper for journalism pipeline |
+| `publish-to-ghost` | UI | Publish story to Ghost CMS |
+| `fetch-openrouter-models` | UI | List available LLM models from OpenRouter |
+| `manage-schedule` | UI | Enable/disable/update schedule config |
+| `backfill-artifact-images` | UI / manual | Extract images from artifact HTML |
+
+### Key File Paths
+- Frontend pages: `src/pages/`
+- Supabase client: `src/integrations/supabase/client.ts`
+- Ghost API helper: `src/lib/ghost-api.ts`
+- Edge functions: `supabase/functions/<name>/index.ts`
+- DB migrations: `supabase/migrations/`
+- Supabase config: `supabase/config.toml`
+
+## MCP
+
+Supabase MCP is configured via `.mcp.json` (project root). It connects to `https://mcp.supabase.com/mcp` using OAuth — on first use, Claude Code will open a browser to authenticate with your Supabase account (one-time).
+
+Once authenticated, Claude can:
+- Read edge function logs (e.g., `fetch-rss-feeds`, `run-ai-journalist`)
+- Run SQL queries against the database
+- Inspect table schemas and row data
+
+No secrets are stored in `.mcp.json` — it is safe to commit.
+
+### Secrets Reference (where they live, not what they are)
+Stored in Supabase dashboard secrets:
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `GHOST_ADMIN_API_KEY` + `GHOST_API_URL`
+- `OPENROUTER_API_KEY`
+- `QUEUE_PROCESSOR_SECRET`
+- `LOVABLE_API_KEY`
+
+Stored locally in `.env` (never committed):
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `VITE_SUPABASE_PROJECT_ID`

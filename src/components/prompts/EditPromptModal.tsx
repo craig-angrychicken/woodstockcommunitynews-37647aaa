@@ -67,7 +67,7 @@ export const EditPromptModal = ({
         const { error } = await supabase.from("prompt_versions").insert({
           version_name: versionName,
           content,
-          prompt_type: "journalism",
+          prompt_type: promptType,
           is_active: false,
           is_test_draft: false,
           update_notes: updateNotes || "Initial version",
@@ -110,7 +110,7 @@ export const EditPromptModal = ({
         const { error } = await supabase.from("prompt_versions").insert({
           version_name: versionName,
           content,
-          prompt_type: "journalism",
+          prompt_type: promptType,
           is_active: false,
           is_test_draft: true,
           update_notes: updateNotes,

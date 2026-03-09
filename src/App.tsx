@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import Stories from "./pages/Stories";
 import ManualQuery from "./pages/ManualQuery";
 import AIJournalist from "./pages/AIJournalist";
+import AIEditor from "./pages/AIEditor";
 import Artifacts from "./pages/Artifacts";
 import Prompts from "./pages/Prompts";
 import Sources from "./pages/Sources";
@@ -38,6 +39,7 @@ const App = () => (
                   <Route path="/stories" element={<ProtectedRoute requireAdmin><Stories /></ProtectedRoute>} />
                   <Route path="/manual-query" element={<ProtectedRoute requireAdmin><ManualQuery /></ProtectedRoute>} />
                   <Route path="/ai-journalist" element={<ProtectedRoute requireAdmin><AIJournalist /></ProtectedRoute>} />
+                  <Route path="/ai-editor" element={<ProtectedRoute requireAdmin><AIEditor /></ProtectedRoute>} />
                   <Route path="/artifacts" element={<ProtectedRoute requireAdmin><Artifacts /></ProtectedRoute>} />
                   <Route path="/prompts" element={<ProtectedRoute requireAdmin><Prompts /></ProtectedRoute>} />
                   <Route path="/sources" element={<ProtectedRoute requireAdmin><Sources /></ProtectedRoute>} />

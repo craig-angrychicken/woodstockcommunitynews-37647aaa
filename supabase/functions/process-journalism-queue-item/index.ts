@@ -13,10 +13,12 @@ async function updateHistoryProgress(supabase: any, historyId: string) {
 
   const completed = queueStats?.filter((q: any) => q.status === "completed").length || 0;
   const failed = queueStats?.filter((q: any) => q.status === "failed").length || 0;
+  const skipped = queueStats?.filter((q: any) => q.status === "skipped").length || 0;
   const total = queueStats?.length || 0;
 
+  const terminal = completed + failed + skipped;
   const status =
-    completed + failed === total && total > 0
+    terminal === total && total > 0
       ? failed > 0
         ? "failed"
         : "completed"
@@ -26,6 +28,7 @@ async function updateHistoryProgress(supabase: any, historyId: string) {
     .from("query_history")
     .update({
       stories_count: completed,
+      skipped_count: skipped,
       artifacts_count: total,
       status,
       completed_at: status === "running" ? null : new Date().toISOString(),
@@ -245,6 +248,47 @@ ${artifactData}`;
 
     const aiData = await aiResponse.json();
     const storyContent = aiData.choices?.[0]?.message?.content || "No content generated";
+
+    // Check if LLM signaled insufficient source material
+    if (storyContent.trim().toUpperCase().startsWith("SKIP:")) {
+      const skipReason = storyContent.trim().slice(5).trim();
+      console.log(`⏭️ Skipping artifact — insufficient source material: ${skipReason}`);
+
+      await supabase
+        .from("journalism_queue")
+        .update({
+          status: "skipped",
+          completed_at: new Date().toISOString(),
+          error_message: skipReason,
+        })
+        .eq("id", queueItemId);
+
+      await updateHistoryProgress(supabase, queueItem.query_history_id);
+
+      // Chain to next pending item
+      const { data: nextItem } = await supabase
+        .from("journalism_queue")
+        .select("id")
+        .eq("query_history_id", queueItem.query_history_id)
+        .eq("status", "pending")
+        .order("position", { ascending: true })
+        .limit(1)
+        .single();
+
+      if (nextItem) {
+        console.log("📋 Processing next item in queue...");
+        const secret = Deno.env.get("QUEUE_PROCESSOR_SECRET")!;
+        await supabase.functions.invoke("process-journalism-queue-item", {
+          body: { queueItemId: nextItem.id },
+          headers: { "x-internal-secret": secret },
+        });
+      }
+
+      return new Response(
+        JSON.stringify({ skipped: true, reason: skipReason, queueItemId }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Extract title and content
     const lines = storyContent.split("\n").filter((line: string) => line.trim());

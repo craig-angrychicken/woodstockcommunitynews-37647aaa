@@ -6,7 +6,7 @@ const corsHeaders = {
 };
 
 interface ScheduleRequest {
-  scheduleType: "artifact_fetch" | "ai_journalism";
+  scheduleType: "artifact_fetch" | "ai_journalism" | "ai_editor";
   scheduledTimes: string[];
   isEnabled: boolean;
 }
