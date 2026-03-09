@@ -89,12 +89,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Calculate current time in EST
-    const utcHours = now.getUTCHours();
-    const utcMinutes = now.getUTCMinutes();
-    let estHours = utcHours - 5; // EST is UTC-5
-    if (estHours < 0) estHours += 24;
-    if (estHours >= 24) estHours -= 24;
+    // Calculate current time in ET (handles EST/EDT automatically)
+    const etTimeStr = now.toLocaleString('en-US', {
+      timeZone: 'America/New_York',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const [etHStr, etMStr] = etTimeStr.split(':');
+    const estHours = parseInt(etHStr) % 24;
+    const utcMinutes = parseInt(etMStr);
 
     const currentTimeEST = `${estHours.toString().padStart(2, '0')}:${utcMinutes.toString().padStart(2, '0')}`;
 
@@ -159,28 +163,31 @@ Deno.serve(async (req) => {
 
     console.log(`📊 Found ${sources.length} active RSS feed sources to process`);
 
-    // Calculate TRUE 24-hour window in EST (UTC - 5 hours)
-    const EST_OFFSET_HOURS = -5;
-    const estNow = new Date(now.getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
+    // Calculate TRUE 24-hour window in ET (handles EST/EDT automatically)
+    const utcStr = now.toLocaleString('en-US', { timeZone: 'UTC' });
+    const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+    const ET_OFFSET_MS = new Date(etStr).getTime() - new Date(utcStr).getTime();
+    const estNow = new Date(now.getTime() + ET_OFFSET_MS);
     
     // True 24 hours back from now
     const dateTo = estNow.toISOString();
     const dateFrom = new Date(estNow.getTime() - 24 * 60 * 60 * 1000).toISOString();
     
-    // Format EST times for logging
-    const formatEST = (date: Date) => {
-      const hours = date.getHours().toString().padStart(2, '0');
-      const minutes = date.getMinutes().toString().padStart(2, '0');
-      const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      const day = date.getDate().toString().padStart(2, '0');
-      return `${date.getFullYear()}-${month}-${day} ${hours}:${minutes} EST`;
+    // Format ET times for logging
+    const formatET = (date: Date) => {
+      return date.toLocaleString('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }) + ' ET';
     };
-    
-    const estDateFrom = new Date(new Date(dateFrom).getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
-    const estDateTo = new Date(new Date(dateTo).getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
-    
-    console.log(`🕐 Current time: ${formatEST(estNow)}`);
-    console.log(`📅 Fetching articles from ${formatEST(estDateFrom)} to ${formatEST(estDateTo)}`);
+
+    console.log(`🕐 Current time: ${formatET(now)}`);
+    console.log(`📅 Fetching articles from ${formatET(new Date(dateFrom))} to ${formatET(new Date(dateTo))}`);
 
     // Create a single query history entry for the entire batch
     const sourceIds = sources.map(s => s.id);

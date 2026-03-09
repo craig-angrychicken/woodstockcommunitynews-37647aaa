@@ -92,7 +92,7 @@ const ManualQuery = () => {
         .order('created_at', { ascending: false })
         .limit(10);
       if (error) throw error;
-      return data as any[]; // Cast to any until types are regenerated
+      return data;
     }
   });
 
@@ -146,7 +146,7 @@ const ManualQuery = () => {
         }
       }
       
-      return data as any; // Cast to any until types are regenerated
+      return data;
     },
     enabled: !!currentHistoryId && isRunning,
     refetchInterval: 2000, // Poll every 2 seconds
@@ -338,8 +338,10 @@ const ManualQuery = () => {
                   {displayQuery.status === 'running' ? 'Processing Query' : displayQuery.status === 'completed' ? 'Last Query Completed' : 'Last Query Failed'}
                 </CardTitle>
                 <CardDescription>
-                  {displayQuery.status === 'running' && displayQuery.current_source_name 
-                    ? `Currently processing: ${displayQuery.current_source_name}`
+                  {displayQuery.status === 'running'
+                    ? displayQuery.current_source_name
+                      ? `Currently processing: ${displayQuery.current_source_name}`
+                      : 'Fetching sources...'
                     : displayQuery.status === 'completed'
                     ? `Completed on ${formatUTCtoEST(displayQuery.completed_at || displayQuery.created_at, 'MMM d, yyyy h:mm a')}`
                     : displayQuery.error_message || 'Query failed'}

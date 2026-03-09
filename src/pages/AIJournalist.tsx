@@ -748,11 +748,11 @@ const AIJournalist = () => {
                 scheduledTimes={journalismScheduleTimes}
                 onChange={setJournalismScheduleTimes}
                 label="Story Generation Times"
-                description="Choose specific times each day to generate stories (EST timezone)"
+                description="Choose specific times each day to generate stories (ET timezone)"
                 presets={[
-                  { label: "6 AM EST", time: "06:00" },
-                  { label: "12 PM EST", time: "12:00" },
-                  { label: "6 PM EST", time: "18:00" },
+                  { label: "6 AM ET", time: "06:00" },
+                  { label: "12 PM ET", time: "12:00" },
+                  { label: "6 PM ET", time: "18:00" },
                 ]}
               />
 

@@ -28,7 +28,7 @@ Deno.serve(async (req) => {
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const summary = { published: 0, rejected: 0, skipped: 0, errors: 0 };
+  const summary = { published: 0, rejected: 0, featured: 0, skipped: 0, errors: 0 };
 
   try {
     // Step 1: Fetch active editor prompt
@@ -85,6 +85,19 @@ Deno.serve(async (req) => {
     const storyList = stories || [];
     console.log(`📚 Found ${storyList.length} pending stories to evaluate`);
 
+    // Query recent featured count for context
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const { count: recentFeaturedCount } = await supabase
+      .from("stories")
+      .select("id", { count: "exact", head: true })
+      .eq("featured", true)
+      .eq("status", "published")
+      .gte("published_at", sevenDaysAgo.toISOString());
+
+    const featuredThisWeek = recentFeaturedCount || 0;
+    console.log(`⭐ Featured stories in last 7 days: ${featuredThisWeek}`);
+
     if (storyList.length === 0) {
       return new Response(
         JSON.stringify({ success: true, message: "No pending stories to evaluate", ...summary }),
@@ -118,8 +131,14 @@ Deno.serve(async (req) => {
       console.log(`\n🔍 Evaluating: "${storyTitle}" (${story.id})`);
 
       try {
-        // Build evaluation prompt
-        const fullPrompt = `${editorPrompt.content}
+        // Build evaluation prompt with featured context
+        const featuredContext = `\n\nFEATURED CONTEXT: ${featuredThisWeek} stories have been featured in the last 7 days. ${
+          featuredThisWeek === 0
+            ? "The featured section is EMPTY — be more willing to feature a high-impact story."
+            : "The minimum of 1/week is met; only feature truly standout community stories."
+        }`;
+
+        const fullPrompt = `${editorPrompt.content}${featuredContext}
 
 HEADLINE: ${storyTitle}
 
@@ -149,7 +168,11 @@ ${story.content || ""}`;
 
         console.log(`📋 Verdict for "${storyTitle}": ${verdict.substring(0, 100)}`);
 
-        if (verdict.toUpperCase() === "PUBLISH") {
+        const upperVerdict = verdict.toUpperCase().trim();
+        const isFeatured = upperVerdict === "PUBLISH_FEATURED";
+        const isPublish = upperVerdict === "PUBLISH" || isFeatured;
+
+        if (isPublish) {
           // Get artifact_id for storage cleanup
           const artifactId = (story.story_artifacts as any[])?.[0]?.artifact_id || null;
 
@@ -163,6 +186,7 @@ ${story.content || ""}`;
                 status: "published",
                 heroImageUrl: story.hero_image_url || null,
                 artifactId,
+                featured: isFeatured,
               },
             }
           );
@@ -180,12 +204,14 @@ ${story.content || ""}`;
             .update({
               status: "published",
               ghost_url: publishData.url || null,
+              featured: isFeatured,
             })
             .eq("id", story.id);
 
-          console.log(`✅ Published: "${storyTitle}" → ${publishData.url}`);
+          console.log(`${isFeatured ? "⭐" : "✅"} Published${isFeatured ? " (featured)" : ""}: "${storyTitle}" → ${publishData.url}`);
           summary.published++;
-        } else if (verdict.toUpperCase().startsWith("REJECT:")) {
+          if (isFeatured) summary.featured++;
+        } else if (upperVerdict.startsWith("REJECT:")) {
           const reason = verdict.slice(7).trim();
 
           await supabase

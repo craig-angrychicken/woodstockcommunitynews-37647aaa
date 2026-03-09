@@ -23,7 +23,7 @@ const AIEditor = () => {
 
   // Run tab state
   const [isRunning, setIsRunning] = useState(false);
-  const [runResult, setRunResult] = useState<{ published?: number; rejected?: number; skipped?: number; errors?: number } | null>(null);
+  const [runResult, setRunResult] = useState<{ published?: number; rejected?: number; featured?: number; skipped?: number; errors?: number } | null>(null);
 
   // Schedule tab state
   const [editorScheduleTimes, setEditorScheduleTimes] = useState<string[]>([]);
@@ -211,6 +211,7 @@ const AIEditor = () => {
                   <p className="text-sm font-medium">Last Run Results</p>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>Published: <span className="font-medium text-green-600">{runResult.published ?? 0}</span></div>
+                    <div>Featured: <span className="font-medium text-yellow-600">{runResult.featured ?? 0}</span></div>
                     <div>Rejected: <span className="font-medium text-red-600">{runResult.rejected ?? 0}</span></div>
                     <div>Skipped: <span className="font-medium text-muted-foreground">{runResult.skipped ?? 0}</span></div>
                     <div>Errors: <span className="font-medium text-orange-600">{runResult.errors ?? 0}</span></div>
@@ -275,11 +276,11 @@ const AIEditor = () => {
                 scheduledTimes={editorScheduleTimes}
                 onChange={setEditorScheduleTimes}
                 label="Editor Run Times"
-                description="Choose specific times each day to run the AI editor (EST timezone)"
+                description="Choose specific times each day to run the AI editor (ET timezone)"
                 presets={[
-                  { label: "8 AM EST", time: "08:00" },
-                  { label: "2 PM EST", time: "14:00" },
-                  { label: "8 PM EST", time: "20:00" },
+                  { label: "8 AM ET", time: "08:00" },
+                  { label: "2 PM ET", time: "14:00" },
+                  { label: "8 PM ET", time: "20:00" },
                 ]}
               />
 
@@ -293,7 +294,7 @@ const AIEditor = () => {
 
           <Alert>
             <AlertDescription>
-              <strong>Tip:</strong> Runs 1 hour after the journalism pipeline (07:00, 13:00, 19:00 EST) to ensure new stories are ready for editing.
+              <strong>Tip:</strong> Runs 1 hour after the journalism pipeline (07:00, 13:00, 19:00 ET) to ensure new stories are ready for editing.
             </AlertDescription>
           </Alert>
         </TabsContent>

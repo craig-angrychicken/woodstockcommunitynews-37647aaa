@@ -28,17 +28,13 @@ const Dashboard = () => {
 
       const pendingStories = storiesRes.data?.filter(s => s.status === 'pending').length || 0;
       
-      const oneWeekAgo = new Date();
-      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-      const publishedThisWeek = storiesRes.data?.filter(
-        s => s.status === 'published' && new Date(s.published_at) >= oneWeekAgo
-      ).length || 0;
+      const totalPublished = storiesRes.data?.filter(s => s.status === 'published').length || 0;
 
       const totalStorageMB = artifactsRes.data?.reduce((sum, a) => sum + Number(a.size_mb), 0) || 0;
 
       return {
         pendingStories,
-        publishedThisWeek,
+        totalPublished,
         totalStorageMB: totalStorageMB.toFixed(2),
         totalSources: sourcesRes.count || 0,
         totalArtifacts: artifactsRes.count || 0
@@ -93,27 +89,25 @@ const Dashboard = () => {
       return null;
     }
 
-    const EST_OFFSET_HOURS = -5;
     const now = new Date();
-    
-    // Get current UTC time
-    const utcHours = now.getUTCHours();
-    const utcMinutes = now.getUTCMinutes();
-    
-    // Convert to EST (UTC - 5)
-    let estHours = utcHours + EST_OFFSET_HOURS;
-    let dayOffset = 0;
-    
-    // Handle day boundary
-    if (estHours < 0) {
-      estHours += 24;
-      dayOffset = -1;
-    } else if (estHours >= 24) {
-      estHours -= 24;
-      dayOffset = 1;
-    }
-    
-    const currentTimeMinutes = estHours * 60 + utcMinutes;
+
+    // Get current ET time using Intl (handles EST/EDT automatically)
+    const etParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false,
+    }).formatToParts(now);
+
+    const etHours = parseInt(etParts.find(p => p.type === 'hour')?.value || '0');
+    const etMinutes = parseInt(etParts.find(p => p.type === 'minute')?.value || '0');
+
+    // Derive the ET offset from UTC dynamically
+    const utcStr = now.toLocaleString('en-US', { timeZone: 'UTC' });
+    const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+    const ET_OFFSET_HOURS = (new Date(etStr).getTime() - new Date(utcStr).getTime()) / (60 * 60 * 1000);
+
+    const currentTimeMinutes = etHours * 60 + etMinutes;
 
     // Parse scheduled times (e.g., ["06:00", "12:00", "18:00"])
     const scheduledTimesMinutes = (schedule.scheduled_times as string[])
@@ -132,11 +126,8 @@ const Dashboard = () => {
       const nextRunHourEST = Math.floor(nextTodayTime / 60);
       const nextRunMinuteEST = nextTodayTime % 60;
       
-      // Convert EST time back to UTC for the Date object
-      nextRunUTC.setUTCHours(nextRunHourEST - EST_OFFSET_HOURS, nextRunMinuteEST, 0, 0);
-      if (dayOffset !== 0) {
-        nextRunUTC.setUTCDate(nextRunUTC.getUTCDate() + dayOffset);
-      }
+      // Convert ET time back to UTC for the Date object
+      nextRunUTC.setUTCHours(nextRunHourEST - ET_OFFSET_HOURS, nextRunMinuteEST, 0, 0);
       
       return { date: nextRunUTC, isToday: true };
     } else {
@@ -145,9 +136,9 @@ const Dashboard = () => {
       const firstTimeEST = Math.floor(scheduledTimesMinutes[0] / 60);
       const firstMinuteEST = scheduledTimesMinutes[0] % 60;
       
-      // Convert EST time back to UTC for the Date object (tomorrow in EST)
-      nextRunUTC.setUTCHours(firstTimeEST - EST_OFFSET_HOURS, firstMinuteEST, 0, 0);
-      nextRunUTC.setUTCDate(nextRunUTC.getUTCDate() + 1 + dayOffset);
+      // Convert ET time back to UTC for the Date object (tomorrow in ET)
+      nextRunUTC.setUTCHours(firstTimeEST - ET_OFFSET_HOURS, firstMinuteEST, 0, 0);
+      nextRunUTC.setUTCDate(nextRunUTC.getUTCDate() + 1);
       
       return { date: nextRunUTC, isToday: false };
     }
@@ -223,7 +214,7 @@ const Dashboard = () => {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Published This Week</CardTitle>
+              <CardTitle className="text-sm font-medium">Published Stories</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -231,8 +222,8 @@ const Dashboard = () => {
                 <Skeleton className="h-8 w-16" />
               ) : (
                 <>
-                  <div className="text-2xl font-bold">{stats?.publishedThisWeek}</div>
-                  <p className="text-xs text-muted-foreground">Last 7 days</p>
+                  <div className="text-2xl font-bold">{stats?.totalPublished}</div>
+                  <p className="text-xs text-muted-foreground">Total published</p>
                 </>
               )}
             </CardContent>
@@ -255,7 +246,7 @@ const Dashboard = () => {
                         minute: '2-digit', 
                         hour12: true,
                         timeZone: 'America/New_York'
-                      })} EST
+                      })} ET
                     </p>
                   </>
                 ) : (

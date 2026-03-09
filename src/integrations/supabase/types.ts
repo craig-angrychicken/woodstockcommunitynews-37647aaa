@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "13.0.5"
+    PostgrestVersion: "14.1"
   }
   public: {
     Tables: {
@@ -212,33 +212,6 @@ export type Database = {
           },
         ]
       }
-      notification_recipients: {
-        Row: {
-          created_at: string
-          id: string
-          is_active: boolean
-          name: string | null
-          phone_number: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          is_active?: boolean
-          name?: string | null
-          phone_number: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          is_active?: boolean
-          name?: string | null
-          phone_number?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       prompt_versions: {
         Row: {
           author: string | null
@@ -298,11 +271,8 @@ export type Database = {
       query_history: {
         Row: {
           artifacts_count: number | null
-          batch_results: Json | null
           completed_at: string | null
           created_at: string
-          current_source_id: string | null
-          current_source_name: string | null
           date_from: string
           date_to: string
           environment: string
@@ -310,20 +280,15 @@ export type Database = {
           id: string
           prompt_version_id: string | null
           run_stages: string
+          skipped_count: number | null
           source_ids: string[]
-          sources_failed: number | null
-          sources_processed: number | null
-          sources_total: number | null
           status: string
           stories_count: number | null
         }
         Insert: {
           artifacts_count?: number | null
-          batch_results?: Json | null
           completed_at?: string | null
           created_at?: string
-          current_source_id?: string | null
-          current_source_name?: string | null
           date_from: string
           date_to: string
           environment: string
@@ -331,20 +296,15 @@ export type Database = {
           id?: string
           prompt_version_id?: string | null
           run_stages: string
+          skipped_count?: number | null
           source_ids: string[]
-          sources_failed?: number | null
-          sources_processed?: number | null
-          sources_total?: number | null
           status?: string
           stories_count?: number | null
         }
         Update: {
           artifacts_count?: number | null
-          batch_results?: Json | null
           completed_at?: string | null
           created_at?: string
-          current_source_id?: string | null
-          current_source_name?: string | null
           date_from?: string
           date_to?: string
           environment?: string
@@ -352,10 +312,8 @@ export type Database = {
           id?: string
           prompt_version_id?: string | null
           run_stages?: string
+          skipped_count?: number | null
           source_ids?: string[]
-          sources_failed?: number | null
-          sources_processed?: number | null
-          sources_total?: number | null
           status?: string
           stories_count?: number | null
         }
@@ -440,7 +398,9 @@ export type Database = {
           article_type: string | null
           content: string | null
           created_at: string
+          editor_notes: string | null
           environment: string | null
+          featured: boolean
           ghost_url: string | null
           guid: string | null
           hero_image_url: string | null
@@ -457,7 +417,9 @@ export type Database = {
           article_type?: string | null
           content?: string | null
           created_at?: string
+          editor_notes?: string | null
           environment?: string | null
+          featured?: boolean
           ghost_url?: string | null
           guid?: string | null
           hero_image_url?: string | null
@@ -474,7 +436,9 @@ export type Database = {
           article_type?: string | null
           content?: string | null
           created_at?: string
+          editor_notes?: string | null
           environment?: string | null
+          featured?: boolean
           ghost_url?: string | null
           guid?: string | null
           hero_image_url?: string | null

@@ -276,12 +276,17 @@ ${artifactData}`;
         .single();
 
       if (nextItem) {
-        console.log("📋 Processing next item in queue...");
+        console.log("📋 Chaining to next item (fire-and-forget)...");
         const secret = Deno.env.get("QUEUE_PROCESSOR_SECRET")!;
-        await supabase.functions.invoke("process-journalism-queue-item", {
-          body: { queueItemId: nextItem.id },
-          headers: { "x-internal-secret": secret },
-        });
+        fetch(`${supabaseUrl}/functions/v1/process-journalism-queue-item`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${supabaseKey}`,
+            "x-internal-secret": secret,
+          },
+          body: JSON.stringify({ queueItemId: nextItem.id }),
+        }).catch(err => console.warn("Chain invoke error (non-fatal):", err?.message));
       }
 
       return new Response(
@@ -352,13 +357,17 @@ ${artifactData}`;
       .single();
 
     if (nextItem) {
-      console.log("📋 Processing next item in queue...");
+      console.log("📋 Chaining to next item (fire-and-forget)...");
       const INTERNAL_SECRET = Deno.env.get('QUEUE_PROCESSOR_SECRET')!;
-      // Trigger next item processing with internal secret
-      await supabase.functions.invoke("process-journalism-queue-item", {
-        body: { queueItemId: nextItem.id },
-        headers: { 'x-internal-secret': INTERNAL_SECRET }
-      });
+      fetch(`${supabaseUrl}/functions/v1/process-journalism-queue-item`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+          "x-internal-secret": INTERNAL_SECRET,
+        },
+        body: JSON.stringify({ queueItemId: nextItem.id }),
+      }).catch(err => console.warn("Chain invoke error (non-fatal):", err?.message));
     }
 
     return new Response(
@@ -397,6 +406,30 @@ ${artifactData}`;
 
         if (queueItem) {
           await updateHistoryProgress(supabase, queueItem.query_history_id);
+
+          // Chain to next pending item so the queue doesn't stall on failure
+          const { data: nextItem } = await supabase
+            .from("journalism_queue")
+            .select("id")
+            .eq("query_history_id", queueItem.query_history_id)
+            .eq("status", "pending")
+            .order("position", { ascending: true })
+            .limit(1)
+            .single();
+
+          if (nextItem) {
+            console.log("📋 Chaining to next item after failure (fire-and-forget)...");
+            const secret = Deno.env.get("QUEUE_PROCESSOR_SECRET")!;
+            fetch(`${supabaseUrl}/functions/v1/process-journalism-queue-item`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${supabaseKey}`,
+                "x-internal-secret": secret,
+              },
+              body: JSON.stringify({ queueItemId: nextItem.id }),
+            }).catch(err => console.warn("Chain invoke error (non-fatal):", err?.message));
+          }
         }
       } catch (updateError) {
         console.error("Failed to update queue item status:", updateError);

@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { ArtifactCard } from "@/components/artifacts/ArtifactCard";
@@ -34,6 +35,7 @@ const countImages = (artifact: any): number => {
 };
 
 const Artifacts = () => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   // Filters
@@ -255,7 +257,7 @@ const Artifacts = () => {
 
   const handleViewStory = (artifactId: string) => {
     // Navigate to stories page filtered by this artifact
-    window.location.href = `/stories?artifact=${artifactId}`;
+    navigate(`/stories?artifact=${artifactId}`);
   };
 
 

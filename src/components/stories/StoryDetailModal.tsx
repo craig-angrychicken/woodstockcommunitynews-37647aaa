@@ -27,6 +27,7 @@ interface StoryDetailModalProps {
     environment: string;
     ghost_url?: string | null;
     hero_image_url?: string | null;
+    featured?: boolean;
   } | null;
   open: boolean;
   onClose: () => void;
@@ -70,6 +71,11 @@ export const StoryDetailModal = ({
               <Badge variant="outline" className="capitalize">
                 {story.status}
               </Badge>
+              {story.featured && (
+                <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                  Featured
+                </Badge>
+              )}
               {story.is_test && (
                 <Badge variant="secondary" className="bg-amber-100 text-amber-800">
                   🧪 TEST

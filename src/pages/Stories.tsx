@@ -38,13 +38,33 @@ const Stories = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('stories')
-        .select('id, title, content, status, is_test, article_type, prompt_version_id, created_at, environment, ghost_url, hero_image_url, published_at, source_id, guid')
+        .select('id, title, content, status, is_test, article_type, prompt_version_id, created_at, environment, ghost_url, hero_image_url, published_at, source_id, guid, featured')
         .order('created_at', { ascending: false });
       
       if (error) throw error;
       return data;
     }
   });
+
+  // Fetch story artifact counts for all stories
+  const { data: allStoryArtifacts } = useQuery({
+    queryKey: ['all-story-artifact-counts'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('story_artifacts')
+        .select('story_id');
+      if (error) throw error;
+      return data;
+    }
+  });
+
+  const storySourceCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    allStoryArtifacts?.forEach(sa => {
+      counts.set(sa.story_id, (counts.get(sa.story_id) || 0) + 1);
+    });
+    return counts;
+  }, [allStoryArtifacts]);
 
   // Fetch sources for filter dropdown
   const { data: sources } = useQuery({
@@ -222,7 +242,7 @@ const Stories = () => {
         {
           status: 'published',
           tags: [],
-          featured: false,
+          featured: storyToPublish.featured || false,
           ghostUrl: storyToPublish.ghost_url || undefined,
           publishedAt: artifactDate || storyToPublish.created_at,
           heroImageUrl: storyToPublish.hero_image_url,
@@ -396,7 +416,7 @@ const Stories = () => {
             <StoryCard
               key={story.id}
               story={story}
-              sourceCount={0} // TODO: Calculate from story_artifacts
+              sourceCount={storySourceCounts.get(story.id) || 0}
               onView={() => handleView(story)}
               onEdit={() => handleView(story)}
               onPublish={() => handlePublish(story)}

@@ -109,7 +109,7 @@ export const CronJobMonitor = () => {
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Clock className="h-3 w-3" />
                         {formatDistanceToNow(new Date(log.triggered_at), { addSuffix: true })}
-                        {log.time_checked && ` • Checked at ${log.time_checked} EST`}
+                        {log.time_checked && ` • Checked at ${log.time_checked} ET`}
                         {log.execution_duration_ms && ` • ${log.execution_duration_ms}ms`}
                       </div>
 

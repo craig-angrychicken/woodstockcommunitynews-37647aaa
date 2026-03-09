@@ -105,9 +105,11 @@ Deno.serve(async (req) => {
 
     console.log(`📝 Using active prompt: ${activePrompt.version_name} (${activePrompt.id})`);
 
-    // Set date range to yesterday through end of today in EST
-    const EST_OFFSET_HOURS = -5;
-    const estNow = new Date(now.getTime() + EST_OFFSET_HOURS * 60 * 60 * 1000);
+    // Set date range to yesterday through end of today in ET (handles EST/EDT automatically)
+    const utcStr = now.toLocaleString('en-US', { timeZone: 'UTC' });
+    const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+    const ET_OFFSET_MS = new Date(etStr).getTime() - new Date(utcStr).getTime();
+    const estNow = new Date(now.getTime() + ET_OFFSET_MS);
 
     // Set date range to yesterday through end of today (EST)
     const yesterday = new Date(estNow);

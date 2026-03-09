@@ -13,12 +13,14 @@ Deno.serve(async (req) => {
 
   console.log("🚀 run-ai-journalist started");
 
+  let historyId: string | null = null;
+
   try {
     // Step 0: Environment variable validation
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const queueSecret = Deno.env.get("QUEUE_PROCESSOR_SECRET");
-    
+
     console.log("✅ Environment check:", {
       SUPABASE_URL: supabaseUrl ? "present" : "MISSING",
       SERVICE_ROLE_KEY: supabaseKey ? "present" : "MISSING",
@@ -29,14 +31,15 @@ Deno.serve(async (req) => {
       throw new Error("Missing required environment variables");
     }
 
+    const body = await req.json();
     const {
       dateFrom,
       dateTo,
       environment,
       promptVersionId,
-      historyId,
       artifactIds,
-    } = await req.json();
+    } = body;
+    historyId = body.historyId;
 
     console.log("📋 Request params:", {
       dateFrom,
@@ -217,17 +220,18 @@ Deno.serve(async (req) => {
       throw new Error("QUEUE_PROCESSOR_SECRET environment variable not set");
     }
 
-    const { data: invokeData, error: invokeError } = await supabase.functions.invoke("process-journalism-queue-item", {
-      body: { queueItemId: firstItem.id },
-      headers: { 'x-internal-secret': queueSecret }
-    });
+    // Fire-and-forget: kick off the first item without awaiting the chain
+    fetch(`${supabaseUrl}/functions/v1/process-journalism-queue-item`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${supabaseKey}`,
+        "x-internal-secret": queueSecret,
+      },
+      body: JSON.stringify({ queueItemId: firstItem.id }),
+    }).catch(err => console.warn("Chain invoke error (non-fatal):", err?.message));
 
-    if (invokeError) {
-      console.error("❌ Step 6 failed - Queue processing invoke error:", invokeError);
-      throw new Error(`Failed to invoke queue processor: ${invokeError.message}`);
-    }
-
-    console.log("✅ Step 6 complete: Queue processing invoked successfully");
+    console.log("✅ Step 6 complete: Queue processing kicked off (fire-and-forget)");
 
     // Return immediately with 202 Accepted
     return new Response(
@@ -248,7 +252,28 @@ Deno.serve(async (req) => {
       message: error instanceof Error ? error.message : "Unknown error",
       stack: error instanceof Error ? error.stack : undefined,
     });
-    
+
+    // Mark history record as failed so it doesn't stay 'running' forever
+    if (historyId) {
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL");
+        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        if (supabaseUrl && supabaseKey) {
+          const supabase = createClient(supabaseUrl, supabaseKey);
+          await supabase
+            .from("query_history")
+            .update({
+              status: "failed",
+              error_message: error instanceof Error ? error.message : "Unknown error",
+              completed_at: new Date().toISOString(),
+            })
+            .eq("id", historyId);
+        }
+      } catch (updateError) {
+        console.error("Failed to update history status:", updateError);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: false,

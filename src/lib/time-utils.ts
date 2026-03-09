@@ -1,55 +1,74 @@
 /**
  * Utility functions for time formatting and validation
- * 
- * NOTE: All times in the database are stored in EST (Eastern Standard Time, UTC-5).
- * Edge functions run on UTC but convert to EST before comparing with scheduled times.
+ *
+ * NOTE: All times in the database are stored in ET (Eastern Time).
+ * Uses Intl.DateTimeFormat with America/New_York to handle EST/EDT automatically.
  */
 
 /**
- * Convert 24-hour time format to 12-hour display with AM/PM and EST label
+ * Get the current UTC offset for America/New_York in hours (e.g., -5 for EST, -4 for EDT)
+ */
+function getETOffsetHours(date: Date = new Date()): number {
+  const utcStr = date.toLocaleString('en-US', { timeZone: 'UTC' });
+  const etStr = date.toLocaleString('en-US', { timeZone: 'America/New_York' });
+  const utcDate = new Date(utcStr);
+  const etDate = new Date(etStr);
+  return (etDate.getTime() - utcDate.getTime()) / (60 * 60 * 1000);
+}
+
+/**
+ * Convert 24-hour time format to 12-hour display with AM/PM and ET label
  * @param time24 - Time in 24-hour format (e.g., "06:00", "13:30")
- * @returns Time in 12-hour format with EST label (e.g., "6:00 AM EST", "1:30 PM EST")
+ * @returns Time in 12-hour format with ET label (e.g., "6:00 AM ET", "1:30 PM ET")
  */
 export function formatTime24To12Hour(time24: string): string {
   const [hours, minutes] = time24.split(':');
   const hour = parseInt(hours);
   const ampm = hour >= 12 ? 'PM' : 'AM';
   const displayHour = hour % 12 || 12;
-  return `${displayHour}:${minutes} ${ampm} EST`;
+  return `${displayHour}:${minutes} ${ampm} ET`;
 }
 
 /**
- * Convert UTC time to EST (UTC - 5 hours)
+ * Convert UTC time to ET (handles EST/EDT automatically)
  * @param utcTime - Time in 24-hour UTC format (e.g., "11:00")
- * @returns Time in 24-hour EST format (e.g., "06:00")
+ * @returns Time in 24-hour ET format (e.g., "07:00" during EDT, "06:00" during EST)
  */
 export function convertUTCtoEST(utcTime: string): string {
   const [hours, minutes] = utcTime.split(':').map(Number);
-  const estHours = (hours - 5 + 24) % 24;
-  return `${String(estHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  const offset = getETOffsetHours();
+  const etHours = (hours + offset + 24) % 24;
+  return `${String(Math.floor(etHours)).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
 /**
- * Convert EST time to UTC (EST + 5 hours)
- * @param estTime - Time in 24-hour EST format (e.g., "06:00")
- * @returns Time in 24-hour UTC format (e.g., "11:00")
+ * Convert ET time to UTC (handles EST/EDT automatically)
+ * @param estTime - Time in 24-hour ET format (e.g., "06:00")
+ * @returns Time in 24-hour UTC format (e.g., "10:00" during EDT, "11:00" during EST)
  */
 export function convertESTtoUTC(estTime: string): string {
   const [hours, minutes] = estTime.split(':').map(Number);
-  const utcHours = (hours + 5) % 24;
-  return `${String(utcHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  const offset = getETOffsetHours();
+  const utcHours = (hours - offset + 24) % 24;
+  return `${String(Math.floor(utcHours)).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
 /**
- * Get current time in EST format (HH:MM)
- * @returns Current time in EST as HH:MM string
+ * Get current time in ET format (HH:MM)
+ * @returns Current time in ET as HH:MM string
  */
 export function getCurrentEST(): string {
   const now = new Date();
-  const utcHours = now.getUTCHours();
-  const utcMinutes = now.getUTCMinutes();
-  const estHours = (utcHours - 5 + 24) % 24;
-  return `${String(estHours).padStart(2, '0')}:${String(utcMinutes).padStart(2, '0')}`;
+  const etStr = now.toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  // toLocaleString with hour12:false may return "24:xx" for midnight in some engines
+  const [h, m] = etStr.split(':').map(s => s.trim());
+  const hour = parseInt(h) % 24;
+  return `${String(hour).padStart(2, '0')}:${m}`;
 }
 
 /**
@@ -86,32 +105,27 @@ export function timeToMinutes(time24: string): number {
 }
 
 /**
- * Format a UTC timestamp to EST display format
+ * Format a UTC timestamp to ET display format
  * @param utcTimestamp - ISO timestamp string from database (UTC)
- * @param formatStr - Format string for date-fns (default: "MMM d, h:mm a")
- * @returns Formatted time string in EST with " EST" suffix
+ * @param formatStr - Format hint (default: "MMM d, h:mm a"). If it contains 'yyyy', year is included.
+ * @returns Formatted time string in ET with " ET" suffix
  */
 export function formatUTCtoEST(utcTimestamp: string, formatStr: string = "MMM d, h:mm a"): string {
   const date = new Date(utcTimestamp);
-  const estDate = new Date(date.getTime() - 5 * 60 * 60 * 1000);
-  
-  // Get EST components
-  const year = estDate.getUTCFullYear();
-  const month = estDate.getUTCMonth();
-  const day = estDate.getUTCDate();
-  const hours = estDate.getUTCHours();
-  const minutes = estDate.getUTCMinutes();
-  const seconds = estDate.getUTCSeconds();
-  
-  // Create a new date using UTC methods to avoid timezone issues
-  const displayDate = new Date(Date.UTC(year, month, day, hours, minutes, seconds));
-  
-  // Format using date-fns (we'll need to import format from date-fns)
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const monthName = monthNames[month];
-  const hour12 = hours % 12 || 12;
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  const minuteStr = String(minutes).padStart(2, '0');
-  
-  return `${monthName} ${day}, ${hour12}:${minuteStr} ${ampm} EST`;
+
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: 'America/New_York',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  };
+
+  if (formatStr.includes('yyyy')) {
+    options.year = 'numeric';
+  }
+
+  const formatted = date.toLocaleString('en-US', options);
+  return `${formatted} ET`;
 }
