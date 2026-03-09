@@ -295,24 +295,6 @@ ${artifactData}`;
 
     console.log(`✅ Story created: ${title}`);
 
-    // Send SMS notification for the new story (fire and forget)
-    try {
-      console.log("📱 Triggering SMS notification...");
-      supabase.functions.invoke("send-sms-notification", {
-        body: { storyId: newStory.id, storyTitle: title },
-      }).then(response => {
-        if (response.error) {
-          console.error("⚠️ SMS notification failed:", response.error);
-        } else {
-          console.log("✅ SMS notification sent successfully");
-        }
-      }).catch(err => {
-        console.error("⚠️ SMS notification error:", err);
-      });
-    } catch (notifyError) {
-      console.error("⚠️ Error initiating SMS notification:", notifyError);
-    }
-
     // Check if there are more pending items and process next
     const { data: nextItem } = await supabase
       .from("journalism_queue")
