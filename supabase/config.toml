@@ -25,5 +25,5 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.publish-to-ghost]
-verify_jwt = true
+verify_jwt = false
 
