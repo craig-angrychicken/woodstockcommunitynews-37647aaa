@@ -71,13 +71,6 @@ export const Navigation = () => {
               >
                 Models
               </NavLink>
-              <NavLink
-                to="/notifications"
-                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-                activeClassName="text-primary"
-              >
-                SMS
-              </NavLink>
               <a
                 href="/project-documentation.md"
                 download="woodstock-community-news-docs.md"

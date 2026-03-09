@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-export type ScheduleType = "artifact_fetch" | "ai_journalism" | "sms_notification";
+export type ScheduleType = "artifact_fetch" | "ai_journalism";
 
 export interface Schedule {
   id: string;

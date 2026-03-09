@@ -1,7 +1,4 @@
-project_id = "xuikcvxwgwqyeulflitn"
-
-[functions.run-manual-query]
-verify_jwt = true
+project_id = "cceprnhnpqnpexmouuig"
 
 [functions.run-ai-journalist]
 verify_jwt = true
@@ -10,9 +7,6 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.backfill-artifact-images]
-verify_jwt = true
-
-[functions.scrape-articles]
 verify_jwt = true
 
 [functions.fetch-rss-feeds]
@@ -33,14 +27,3 @@ verify_jwt = false
 [functions.publish-to-ghost]
 verify_jwt = true
 
-[functions.publish-to-facebook]
-verify_jwt = true
-
-[functions.refetch-article-content]
-verify_jwt = true
-
-[functions.send-sms-notification]
-verify_jwt = false
-
-[functions.scheduled-sms-notification]
-verify_jwt = false
