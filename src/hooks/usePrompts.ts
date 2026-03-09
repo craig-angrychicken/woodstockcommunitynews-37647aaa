@@ -67,18 +67,3 @@ export const usePromptVersion = (promptId: string) => {
   });
 };
 
-export const usePromptsByType = (promptType: "retrieval" | "journalism") => {
-  return useQuery({
-    queryKey: ["prompts", "type", promptType],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("prompt_versions")
-        .select("*")
-        .eq("prompt_type", promptType)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data;
-    },
-  });
-};
