@@ -11,12 +11,10 @@ import { Badge } from "@/components/ui/badge";
 import { TestBadge } from "@/components/ui/status-badge";
 import { CopyText } from "@/components/ui/copy-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Trash2, ExternalLink, RefreshCw } from "lucide-react";
+import { Trash2, ExternalLink } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Link } from "react-router-dom";
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 
 interface ArtifactDetailModalProps {
   artifact: {
@@ -48,14 +46,6 @@ export const ArtifactDetailModal = ({
   onDelete,
 }: ArtifactDetailModalProps) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isRefetching, setIsRefetching] = useState(false);
-  const [localContent, setLocalContent] = useState<string | null>(null);
-  const { toast } = useToast();
-
-  // Reset local content when artifact changes
-  useEffect(() => {
-    setLocalContent(null);
-  }, [artifact?.id]);
 
   if (!artifact) return null;
 
@@ -66,42 +56,6 @@ export const ArtifactDetailModal = ({
   const confirmDelete = () => {
     onDelete();
     setShowDeleteConfirm(false);
-  };
-
-  const handleRefetchContent = async () => {
-    if (!artifact) return;
-
-    setIsRefetching(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('refetch-article-content', {
-        body: { artifactId: artifact.id }
-      });
-
-      if (error) throw error;
-
-      if (data.replaced) {
-        setLocalContent(data.newContent || artifact.content);
-        toast({
-          title: "Content Updated",
-          description: `Replaced ${data.originalLength} characters with ${data.newLength} characters${data.imagesUpdated ? ' and updated images' : ''}.`,
-        });
-      } else {
-        toast({
-          title: "No Changes",
-          description: data.message || "No longer content was found.",
-          variant: "default",
-        });
-      }
-    } catch (error) {
-      console.error('Error refetching content:', error);
-      toast({
-        title: "Refetch Failed",
-        description: error instanceof Error ? error.message : "Failed to fetch full content",
-        variant: "destructive",
-      });
-    } finally {
-      setIsRefetching(false);
-    }
   };
 
   return (
@@ -147,21 +101,10 @@ export const ArtifactDetailModal = ({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-semibold">Content</h3>
-                {artifact.url && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRefetchContent}
-                    disabled={isRefetching}
-                  >
-                    <RefreshCw className={`h-3 w-3 mr-1 ${isRefetching ? 'animate-spin' : ''}`} />
-                    {isRefetching ? 'Fetching...' : 'Fetch full content'}
-                  </Button>
-                )}
               </div>
               <ScrollArea className="h-[300px] w-full rounded-md border p-4">
                 <div className="text-sm font-mono whitespace-pre-wrap break-all select-text">
-                  {localContent || artifact.content || 'No content available'}
+                  {artifact.content || 'No content available'}
                 </div>
               </ScrollArea>
             </div>
