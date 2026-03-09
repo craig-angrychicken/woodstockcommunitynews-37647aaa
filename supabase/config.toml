@@ -7,10 +7,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.backfill-artifact-images]
-verify_jwt = true
+verify_jwt = false
 
 [functions.fetch-rss-feeds]
-verify_jwt = true
+verify_jwt = false
 
 [functions.scheduled-fetch-artifacts]
 verify_jwt = false
@@ -19,7 +19,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.manage-schedule]
-verify_jwt = true
+verify_jwt = false
 
 [functions.fetch-openrouter-models]
 verify_jwt = false
