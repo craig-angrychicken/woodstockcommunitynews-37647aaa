@@ -1,7 +1,7 @@
 project_id = "cceprnhnpqnpexmouuig"
 
 [functions.run-ai-journalist]
-verify_jwt = true
+verify_jwt = false
 
 [functions.process-journalism-queue-item]
 verify_jwt = false
