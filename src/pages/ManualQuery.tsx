@@ -126,10 +126,24 @@ const ManualQuery = () => {
       
       if (error) throw error;
       
-      // Stop running state if query completed or failed
+      // Stop polling and notify when query completes or fails
       if (data.status !== 'running') {
         setIsRunning(false);
         setCurrentHistoryId(null);
+        queryClient.invalidateQueries({ queryKey: ['query-history'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+        if (data.status === 'completed') {
+          toast({
+            title: "Fetch Complete!",
+            description: `${data.artifacts_count || 0} artifacts found across ${data.sources_processed || 0} sources.`,
+          });
+        } else if (data.status === 'failed') {
+          toast({
+            title: "Fetch Failed",
+            description: data.error_message || "An error occurred during fetching.",
+            variant: "destructive",
+          });
+        }
       }
       
       return data as any; // Cast to any until types are regenerated
@@ -210,12 +224,14 @@ const ManualQuery = () => {
 
       if (historyError) throw historyError;
 
-      // Store the history ID for potential cancellation
+      // Store the history ID for polling — do this before invoking
       setCurrentHistoryId(historyRecord.id);
 
-      // All sources are RSS feeds - make single batch call
+      // Fire-and-forget: don't await the response.
+      // The function can take 60-90s for many sources; the browser will time out
+      // waiting. Instead, the query_history polling below detects completion.
       console.log('📡 Fetching RSS feeds:', selectedSources.length);
-      const { data, error } = await supabase.functions.invoke('fetch-rss-feeds', {
+      supabase.functions.invoke('fetch-rss-feeds', {
         body: {
           dateFrom: dateFrom.toISOString(),
           dateTo: dateTo.toISOString(),
@@ -223,33 +239,25 @@ const ManualQuery = () => {
           environment,
           queryHistoryId: historyRecord.id
         }
+      }).catch(err => {
+        // Swallow connection/timeout errors — the function is still running
+        // server-side and will update query_history when done.
+        console.warn('fetch-rss-feeds connection closed (function still running):', err?.message);
       });
 
-      if (error) {
-        console.error('RSS fetch error:', error);
-        throw error;
-      }
-
-      console.log('✅ RSS feeds fetched:', data?.artifactsCreated || 0, 'artifacts');
-
-      if (error) throw error;
-      return data;
+      return historyRecord;
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['query-history'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      queryClient.invalidateQueries({ queryKey: ['stories'] });
-      
+    onSuccess: () => {
+      // Don't stop polling here — query_history polling handles completion detection
       toast({
-        title: "Query Complete!",
-        description: data.message,
+        title: "Fetch In Progress",
+        description: "Sources are being processed. Monitor progress above.",
       });
-      setIsRunning(false);
-      setCurrentHistoryId(null);
     },
     onError: (error: Error) => {
+      // Only fires for DB errors (history insert), not function timeouts
       toast({
-        title: "Query Failed",
+        title: "Failed to Start Fetch",
         description: error.message,
         variant: "destructive"
       });
