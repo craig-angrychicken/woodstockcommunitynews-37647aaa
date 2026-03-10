@@ -229,7 +229,7 @@ Deno.serve(async (req) => {
             const artifactGuid = crypto.randomUUID();
             
             // Download and upload images to Supabase Storage with robust error handling
-            const storageImages: { original_url: string; stored_url: string }[] = [];
+            const storageImages: { original_url: string; stored_url: string; download_failed?: true }[] = [];
             const problematicDomains = ['facebook.com', 'instagram.com', 'twitter.com', 'x.com'];
             
             for (let i = 0; i < allImages.length; i++) {
@@ -276,10 +276,61 @@ Deno.serve(async (req) => {
                       break; // Success
                     }
                     
-                    // Handle 403 Forbidden (protected URLs) — store original URL as fallback
+                    // Handle 403 Forbidden (protected URLs) — try weserv.nl proxy first
                     if (imgResponse.status === 403) {
-                      console.warn(`🔒 Image protected (403), storing original URL as fallback: ${imageUrl}`);
-                      storageImages.push({ original_url: imageUrl, stored_url: imageUrl, download_failed: true });
+                      console.warn(`🔒 Image returned 403. Attempting weserv.nl proxy for: ${imageUrl}`);
+
+                      let proxied = false;
+                      try {
+                        const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(imageUrl)}&output=jpg&n=-1`;
+                        const proxyController = new AbortController();
+                        const proxyTimeoutId = setTimeout(() => proxyController.abort(), 20000);
+
+                        const proxyResponse = await fetch(proxyUrl, { signal: proxyController.signal });
+                        clearTimeout(proxyTimeoutId);
+
+                        if (proxyResponse.ok) {
+                          const proxyBuffer = await proxyResponse.arrayBuffer();
+                          const proxyContentType = proxyResponse.headers.get('content-type') || 'image/jpeg';
+
+                          // Reject weserv.nl error placeholder (~1 KB red PNG)
+                          const MIN_VALID_IMAGE_BYTES = 5000;
+                          if (!proxyContentType.startsWith('image/') || proxyBuffer.byteLength < MIN_VALID_IMAGE_BYTES) {
+                            console.warn(`⚠️ weserv.nl returned suspiciously small response (${proxyBuffer.byteLength} bytes), treating as failure`);
+                          } else {
+                            const proxyExt = proxyContentType.split('/')[1]?.split(';')[0] || 'jpg';
+                            const storagePath = `${artifactGuid}/image-${i}.${proxyExt}`;
+
+                            const { error: proxyUploadError } = await supabase.storage
+                              .from('artifact-images')
+                              .upload(storagePath, proxyBuffer, { contentType: proxyContentType, upsert: false });
+
+                            if (!proxyUploadError) {
+                              const { data: proxyUrlData } = supabase.storage
+                                .from('artifact-images')
+                                .getPublicUrl(storagePath);
+
+                              if (proxyUrlData?.publicUrl) {
+                                storageImages.push({ original_url: imageUrl, stored_url: proxyUrlData.publicUrl });
+                                console.log(`✅ Proxied image stored: ${proxyUrlData.publicUrl}`);
+                                proxied = true;
+                              }
+                            } else {
+                              console.error(`❌ Proxy image upload failed:`, proxyUploadError);
+                            }
+                          }
+                        } else {
+                          console.warn(`⚠️ weserv.nl returned ${proxyResponse.status} for: ${imageUrl}`);
+                        }
+                      } catch (proxyErr) {
+                        console.warn(`⚠️ weserv.nl fetch failed:`, proxyErr instanceof Error ? proxyErr.message : proxyErr);
+                      }
+
+                      if (!proxied) {
+                        console.warn(`🔒 Proxy also failed, storing as download_failed fallback: ${imageUrl}`);
+                        storageImages.push({ original_url: imageUrl, stored_url: imageUrl, download_failed: true });
+                      }
+
                       break; // Don't retry 403s
                     }
                     

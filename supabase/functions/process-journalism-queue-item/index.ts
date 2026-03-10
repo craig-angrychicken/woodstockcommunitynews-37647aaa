@@ -169,7 +169,7 @@ ${artifactData}`;
       for (const img of queueItem.artifact.images) {
         if (typeof img === 'string') {
           imageUrls.push(img);
-        } else if (img && typeof img === 'object' && img.stored_url && !img.download_failed) {
+        } else if (img && typeof img === 'object' && img.stored_url && img.stored_url !== img.original_url) {
           imageUrls.push(img.stored_url);
         }
       }
