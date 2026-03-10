@@ -49,9 +49,9 @@ const Dashboard = () => {
       const [lastPublished, recentSources] = await Promise.all([
         supabase
           .from('stories')
-          .select('title, published_at')
+          .select('title, published_at, created_at')
           .eq('status', 'published')
-          .order('published_at', { ascending: false })
+          .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle(),
         supabase
@@ -322,7 +322,7 @@ const Dashboard = () => {
                         {recentActivity.lastPublished.title}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {new Date(recentActivity.lastPublished.published_at).toLocaleString()}
+                        {new Date(recentActivity.lastPublished.published_at || recentActivity.lastPublished.created_at).toLocaleString()}
                       </p>
                     </div>
                   </div>

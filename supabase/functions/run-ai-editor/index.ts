@@ -70,7 +70,8 @@ Deno.serve(async (req) => {
         title,
         content,
         hero_image_url,
-        story_artifacts(artifact_id)
+        created_at,
+        story_artifacts(artifact_id, artifacts(date))
       `)
       .eq("status", "pending")
       .eq("environment", "production")
@@ -173,8 +174,11 @@ ${story.content || ""}`;
         const isPublish = upperVerdict === "PUBLISH" || isFeatured;
 
         if (isPublish) {
-          // Get artifact_id for storage cleanup
-          const artifactId = (story.story_artifacts as any[])?.[0]?.artifact_id || null;
+          // Get artifact_id and date for storage cleanup and publish date
+          const firstArtifact = (story.story_artifacts as any[])?.[0];
+          const artifactId = firstArtifact?.artifact_id || null;
+          const artifactDate = firstArtifact?.artifacts?.date || null;
+          const publishedAt = artifactDate || (story as any).created_at || new Date().toISOString();
 
           // Invoke publish-to-ghost
           const { data: publishData, error: publishError } = await supabase.functions.invoke(
@@ -187,6 +191,7 @@ ${story.content || ""}`;
                 heroImageUrl: story.hero_image_url || null,
                 artifactId,
                 featured: isFeatured,
+                publishedAt,
               },
             }
           );
@@ -198,13 +203,14 @@ ${story.content || ""}`;
             continue; // Leave as pending on publish failure
           }
 
-          // Update story status and ghost_url in DB
+          // Update story status, ghost_url, and published_at in DB
           await supabase
             .from("stories")
             .update({
               status: "published",
               ghost_url: publishData.url || null,
               featured: isFeatured,
+              published_at: new Date().toISOString(),
             })
             .eq("id", story.id);
 

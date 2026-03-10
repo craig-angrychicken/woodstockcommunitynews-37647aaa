@@ -79,7 +79,7 @@ const ManualQuery = () => {
     }
   });
 
-  // Fetch query history
+  // Fetch query history — only manual fetch-artifacts runs
   const { data: queryHistory } = useQuery({
     queryKey: ['query-history'],
     queryFn: async () => {
@@ -89,6 +89,7 @@ const ManualQuery = () => {
           *,
           prompt_versions (version_name)
         `)
+        .eq('run_stages', 'manual')
         .order('created_at', { ascending: false })
         .limit(10);
       if (error) throw error;
@@ -152,8 +153,8 @@ const ManualQuery = () => {
     refetchInterval: 2000, // Poll every 2 seconds
   });
 
-  // Get the display query (current running or most recent from history)
-  const displayQuery = currentProgress || (queryHistory && queryHistory.length > 0 ? queryHistory[0] : null);
+  // Get the display query — only show banner for actively tracked runs, not stale history
+  const displayQuery = currentProgress || null;
 
   // Detect stale queries (running for > 5 minutes)
   const isStaleQuery = displayQuery?.status === 'running' && 

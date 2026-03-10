@@ -303,7 +303,7 @@ serve(async (req) => {
     const cleanHeroImageUrl = decodeHtmlEntities(heroImageUrl);
     
     // Upload hero image to Ghost if present
-    let featureImageUrl = cleanHeroImageUrl;
+    let featureImageUrl: string | null | undefined = cleanHeroImageUrl;
     if (cleanHeroImageUrl) {
       const uploadedUrl = await fetchAndUploadHeroImageToGhost(
         cleanHeroImageUrl,
@@ -313,11 +313,15 @@ serve(async (req) => {
       if (uploadedUrl) {
         featureImageUrl = uploadedUrl;
         console.log(`🖼️ Using Ghost-hosted image: ${uploadedUrl}`);
+      } else if (method === 'PUT') {
+        // For updates: if upload fails, omit feature_image entirely so Ghost keeps its existing image
+        console.log(`⚠️ Image upload failed on PUT — preserving existing Ghost image`);
+        featureImageUrl = undefined;
       } else {
         console.log(`⚠️ Falling back to original URL: ${cleanHeroImageUrl}`);
       }
     }
-    
+
     // Prepare post data
     const postData = {
       posts: [{
@@ -328,7 +332,7 @@ serve(async (req) => {
         featured: featured || false,
         custom_excerpt: excerpt || subhead || null,
         published_at: publishedAt,
-        feature_image: featureImageUrl,
+        ...(featureImageUrl !== undefined ? { feature_image: featureImageUrl } : {}),
         // Include updated_at for PUT requests (required by Ghost API)
         ...(method === 'PUT' && updatedAt ? { updated_at: updatedAt } : {})
       }]
