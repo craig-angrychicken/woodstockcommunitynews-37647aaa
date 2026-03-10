@@ -152,17 +152,24 @@ ${artifactData}`;
     // Collect images for vision analysis
     const imageUrls: string[] = [];
     
-    // Add hero image if available
-    if (queueItem.artifact.hero_image_url) {
-      imageUrls.push(queueItem.artifact.hero_image_url);
+    // Add hero image if available and successfully stored (not a 403 fallback)
+    const heroUrl = queueItem.artifact.hero_image_url;
+    if (heroUrl) {
+      // Only use hero image for vision if it's a Supabase storage URL (successfully downloaded)
+      const isStoredInSupabase = heroUrl.includes('supabase.co/storage');
+      if (isStoredInSupabase) {
+        imageUrls.push(heroUrl);
+      } else {
+        console.log(`⚠️ Skipping hero image for vision (not in Supabase storage): ${heroUrl}`);
+      }
     }
-    
-    // Add additional images from images array if available
+
+    // Add additional images from images array if available and successfully downloaded
     if (queueItem.artifact.images && Array.isArray(queueItem.artifact.images)) {
       for (const img of queueItem.artifact.images) {
         if (typeof img === 'string') {
           imageUrls.push(img);
-        } else if (img && typeof img === 'object' && img.stored_url) {
+        } else if (img && typeof img === 'object' && img.stored_url && !img.download_failed) {
           imageUrls.push(img.stored_url);
         }
       }

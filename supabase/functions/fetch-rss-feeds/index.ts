@@ -279,7 +279,7 @@ Deno.serve(async (req) => {
                     // Handle 403 Forbidden (protected URLs) — store original URL as fallback
                     if (imgResponse.status === 403) {
                       console.warn(`🔒 Image protected (403), storing original URL as fallback: ${imageUrl}`);
-                      storageImages.push({ original_url: imageUrl, stored_url: imageUrl });
+                      storageImages.push({ original_url: imageUrl, stored_url: imageUrl, download_failed: true });
                       break; // Don't retry 403s
                     }
                     
