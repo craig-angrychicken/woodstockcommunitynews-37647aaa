@@ -17,6 +17,7 @@ interface StoryCardProps {
     ghost_url?: string | null;
     hero_image_url?: string | null;
     featured?: boolean;
+    editor_notes?: string | null;
   };
   sourceCount: number;
   onView: () => void;

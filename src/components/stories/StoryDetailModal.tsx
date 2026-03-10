@@ -29,6 +29,7 @@ interface StoryDetailModalProps {
     ghost_url?: string | null;
     hero_image_url?: string | null;
     featured?: boolean;
+    editor_notes?: string | null;
   } | null;
   open: boolean;
   onClose: () => void;
@@ -108,6 +109,13 @@ export const StoryDetailModal = ({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {story.status === 'rejected' && story.editor_notes && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-xs font-semibold text-destructive mb-1">Editor Rejection Note</p>
+              <p className="text-sm text-destructive/80">{story.editor_notes}</p>
+            </div>
+          )}
+
           {story.hero_image_url && (
             <div>
               <Label>Hero Image</Label>
