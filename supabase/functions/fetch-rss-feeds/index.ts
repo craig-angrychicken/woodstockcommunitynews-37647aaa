@@ -264,8 +264,10 @@ Deno.serve(async (req) => {
                     imgResponse = await fetch(imageUrl, {
                       signal: imgController.signal,
                       headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; ArtifactFetcher/1.0)',
-                        'Accept': 'image/*'
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                        'Referer': 'https://www.facebook.com/',
+                        'Accept-Language': 'en-US,en;q=0.9',
                       }
                     });
                     clearTimeout(imgTimeoutId);
@@ -274,10 +276,10 @@ Deno.serve(async (req) => {
                       break; // Success
                     }
                     
-                    // Handle 403 Forbidden (protected URLs)
+                    // Handle 403 Forbidden (protected URLs) — store original URL as fallback
                     if (imgResponse.status === 403) {
-                      console.error(`🔒 Image is protected (403 Forbidden): ${imageUrl}`);
-                      lastError = new Error(`Protected URL: ${imgResponse.status}`);
+                      console.warn(`🔒 Image protected (403), storing original URL as fallback: ${imageUrl}`);
+                      storageImages.push({ original_url: imageUrl, stored_url: imageUrl });
                       break; // Don't retry 403s
                     }
                     
