@@ -127,7 +127,7 @@ const Dashboard = () => {
       const nextRunMinuteEST = nextTodayTime % 60;
       
       // Convert ET time back to UTC for the Date object
-      nextRunUTC.setUTCHours(nextRunHourEST - ET_OFFSET_HOURS, nextRunMinuteEST, 0, 0);
+      nextRunUTC.setUTCHours(nextRunHourEST - Math.round(ET_OFFSET_HOURS), nextRunMinuteEST, 0, 0);
       
       return { date: nextRunUTC, isToday: true };
     } else {
@@ -137,7 +137,7 @@ const Dashboard = () => {
       const firstMinuteEST = scheduledTimesMinutes[0] % 60;
       
       // Convert ET time back to UTC for the Date object (tomorrow in ET)
-      nextRunUTC.setUTCHours(firstTimeEST - ET_OFFSET_HOURS, firstMinuteEST, 0, 0);
+      nextRunUTC.setUTCHours(firstTimeEST - Math.round(ET_OFFSET_HOURS), firstMinuteEST, 0, 0);
       nextRunUTC.setUTCDate(nextRunUTC.getUTCDate() + 1);
       
       return { date: nextRunUTC, isToday: false };

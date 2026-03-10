@@ -89,7 +89,47 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`✅ Schedule is enabled - running AI journalism`);
+    // Calculate current time in ET (handles EST/EDT automatically)
+    const etTimeStr = now.toLocaleString('en-US', {
+      timeZone: 'America/New_York',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const [etHStr, etMStr] = etTimeStr.split(':');
+    const estHours = parseInt(etHStr) % 24;
+    const etMinutes = parseInt(etMStr);
+
+    const currentTimeEST = `${estHours.toString().padStart(2, '0')}:${etMinutes.toString().padStart(2, '0')}`;
+
+    // Check if current time matches any scheduled time (within 5 minutes tolerance)
+    const isScheduledTime = schedule.scheduled_times?.some((scheduledTime: string) => {
+      const [schedHour, schedMin] = scheduledTime.split(':').map(Number);
+      const schedMinutes = schedHour * 60 + schedMin;
+      const currentMinutes = estHours * 60 + etMinutes;
+      const diff = Math.abs(currentMinutes - schedMinutes);
+      return diff <= 5; // 5 minute tolerance
+    });
+
+    if (!isScheduledTime) {
+      console.log(`⏭️ Skipping run - current time ${currentTimeEST} EST is not a scheduled time`);
+      const duration = Date.now() - startTime;
+      await logCronJob(supabase, {
+        job_name: "scheduled-run-journalism",
+        schedule_check_passed: false,
+        schedule_enabled: true,
+        scheduled_times: schedule.scheduled_times,
+        time_checked: currentTimeEST,
+        reason: `Not scheduled for this time (scheduled: ${schedule.scheduled_times?.join(', ')})`,
+        execution_duration_ms: duration,
+      });
+      return new Response(
+        JSON.stringify({ success: false, message: "Not a scheduled run time" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+      );
+    }
+
+    console.log(`✅ Schedule is enabled and time matches (${currentTimeEST} EST) - running AI journalism`);
 
     // Fetch the active journalism prompt
     const { data: activePrompt, error: promptError } = await supabase

@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Save, Send, Trash2, XCircle, Package } from "lucide-react";
 import { Label } from "@/components/ui/label";
+import { sanitizeImageUrl } from "@/lib/image-utils";
 
 interface StoryDetailModalProps {
   story: {
@@ -111,8 +112,8 @@ export const StoryDetailModal = ({
             <div>
               <Label>Hero Image</Label>
               <div className="mt-2 border rounded-lg overflow-hidden">
-                <img 
-                  src={story.hero_image_url} 
+                <img
+                  src={sanitizeImageUrl(story.hero_image_url) || ''}
                   alt={story.title}
                   className="w-full h-auto object-cover max-h-[300px]"
                   onError={(e) => {

@@ -84,7 +84,12 @@ export const ArtifactsModal = ({ artifacts, open, onClose }: ArtifactsModalProps
                   </div>
                   
                   <div className="flex gap-2 pt-2">
-                    <Button variant="outline" size="sm" className="flex-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => window.open(`/artifacts?id=${artifact.id}`, '_blank')}
+                    >
                       <Eye className="h-4 w-4 mr-2" />
                       View Content
                     </Button>

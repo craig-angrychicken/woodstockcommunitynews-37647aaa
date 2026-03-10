@@ -106,16 +106,6 @@ Deno.serve(async (req) => {
 
     console.log(`✅ Loaded ${sources.length} RSS feed sources`);
 
-    // Update query history with total sources
-    if (queryHistoryId) {
-      await supabase
-        .from('query_history')
-        .update({
-          sources_total: sources.length,
-        })
-        .eq('id', queryHistoryId);
-    }
-
     const dateFromTime = new Date(dateFrom).getTime();
     const dateToTime = new Date(dateTo).getTime();
     let totalArtifacts = 0;
@@ -123,17 +113,6 @@ Deno.serve(async (req) => {
 
     for (const source of sources) {
       try {
-        // Update query history with current source
-        if (queryHistoryId) {
-          await supabase
-            .from('query_history')
-            .update({
-              current_source_id: source.id,
-              current_source_name: source.name,
-            })
-            .eq('id', queryHistoryId);
-        }
-
         console.log(`\n📡 Fetching RSS feed: ${source.name}`);
         console.log(`   URL: ${source.url}`);
         
@@ -250,7 +229,7 @@ Deno.serve(async (req) => {
             const artifactGuid = crypto.randomUUID();
             
             // Download and upload images to Supabase Storage with robust error handling
-            const storageImages: string[] = [];
+            const storageImages: { original_url: string; stored_url: string }[] = [];
             const problematicDomains = ['facebook.com', 'instagram.com', 'twitter.com', 'x.com'];
             
             for (let i = 0; i < allImages.length; i++) {
@@ -363,7 +342,7 @@ Deno.serve(async (req) => {
                   .getPublicUrl(storagePath);
                 
                 if (urlData?.publicUrl) {
-                  storageImages.push(urlData.publicUrl);
+                  storageImages.push({ original_url: imageUrl, stored_url: urlData.publicUrl });
                   console.log(`✅ Stored image ${i + 1}: ${urlData.publicUrl}`);
                 }
               } catch (error) {
@@ -374,7 +353,7 @@ Deno.serve(async (req) => {
               }
             }
             
-            const heroImage = storageImages[0] || null;
+            const heroImage = storageImages[0]?.stored_url || null;
             console.log(`📸 Successfully stored ${storageImages.length}/${allImages.length} images`);
 
             // Get content using configured field
@@ -480,8 +459,6 @@ Deno.serve(async (req) => {
           completed_at: new Date().toISOString(),
           artifacts_count: totalArtifacts,
           sources_processed: sources.length,
-          current_source_id: null,
-          current_source_name: null,
         })
         .eq('id', queryHistoryId);
     }
