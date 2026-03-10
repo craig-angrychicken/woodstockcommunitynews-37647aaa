@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
     const currentTimeEST = `${estHours.toString().padStart(2, '0')}:${etMinutes.toString().padStart(2, '0')}`;
 
     // Check if current time matches any scheduled time (within 5 minutes tolerance)
-    const isScheduledTime = schedule.scheduled_times.some((scheduledTime: string) => {
+    const isScheduledTime = schedule.scheduled_times?.some((scheduledTime: string) => {
       const [schedHour, schedMin] = scheduledTime.split(':').map(Number);
       const schedMinutes = schedHour * 60 + schedMin;
       const currentMinutes = estHours * 60 + etMinutes;
@@ -248,6 +248,8 @@ Deno.serve(async (req) => {
         status: finalStatus,
         completed_at: new Date().toISOString(),
         artifacts_count: totalArtifactsCount,
+        current_source_id: null,
+        current_source_name: null,
         error_message: errorMessage
       })
       .eq("id", historyEntry.id);

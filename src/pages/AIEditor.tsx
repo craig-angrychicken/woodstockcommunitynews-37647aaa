@@ -236,14 +236,14 @@ const AIEditor = () => {
                     <div key={log.id} className="border rounded-lg p-3 space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">{formatUTCtoEST(log.created_at)}</span>
-                        {log.status === "success" ? (
+                        {log.schedule_check_passed ? (
                           <CheckCircle className="h-4 w-4 text-green-500" />
                         ) : (
-                          <span className="text-xs text-red-500">{log.status}</span>
+                          <span className="text-xs text-red-500">{log.error_message ? 'error' : 'skipped'}</span>
                         )}
                       </div>
-                      {log.message && (
-                        <p className="text-xs text-muted-foreground">{log.message}</p>
+                      {log.reason && (
+                        <p className="text-xs text-muted-foreground">{log.reason}</p>
                       )}
                     </div>
                   ))

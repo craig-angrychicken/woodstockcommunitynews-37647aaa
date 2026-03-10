@@ -15,7 +15,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { publishToGhost } from "@/lib/ghost-api";
-import { Plus } from "lucide-react";
 
 const Stories = () => {
   const { toast } = useToast();
@@ -312,10 +311,6 @@ const Stories = () => {
             Showing {filteredStories.length} of {stories?.length || 0} stories
           </p>
         </div>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          New Story
-        </Button>
       </div>
 
       {/* Filter Bar */}

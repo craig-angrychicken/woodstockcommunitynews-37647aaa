@@ -418,7 +418,10 @@ Deno.serve(async (req) => {
           await supabase
             .from('query_history')
             .update({
+              sources_total: sources.length,
               sources_processed: currentProcessed,
+              current_source_id: source.id,
+              current_source_name: source.name,
               artifacts_count: totalArtifacts,
             })
             .eq('id', queryHistoryId);
@@ -459,6 +462,8 @@ Deno.serve(async (req) => {
           completed_at: new Date().toISOString(),
           artifacts_count: totalArtifacts,
           sources_processed: sources.length,
+          current_source_id: null,
+          current_source_name: null,
         })
         .eq('id', queryHistoryId);
     }
