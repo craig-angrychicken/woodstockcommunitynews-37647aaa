@@ -267,9 +267,9 @@ serve(async (req) => {
       if (mdLinkMatch) {
         const displayName = mdLinkMatch[1];
         const url = mdLinkMatch[2];
-        htmlContent += `\n<hr>\n<p><em>Source: <a href="${url}">${displayName}</a></em></p>`;
+        htmlContent += `\n<hr>\n<p style="color: #555; font-size: 0.9em;"><em>Source: <a href="${url}">${displayName}</a></em></p>`;
       } else {
-        htmlContent += `\n<hr>\n<p><em>Source: ${sourceLine}</em></p>`;
+        htmlContent += `\n<hr>\n<p style="color: #555; font-size: 0.9em;"><em>Source: ${sourceLine}</em></p>`;
       }
     }
 
