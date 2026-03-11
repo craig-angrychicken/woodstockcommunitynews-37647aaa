@@ -200,6 +200,7 @@ serve(async (req) => {
     let subhead = '';
     let byline = '';
     let mainContent = '';
+    let sourceLine = '';
     let inMainContent = false;
 
     for (let i = 0; i < lines.length; i++) {
@@ -215,8 +216,8 @@ serve(async (req) => {
         console.log('✅ Found byline:', byline);
         continue;
       } else if (line.startsWith('SOURCE:') || line.startsWith('**SOURCE:**')) {
-        console.log('🛑 Hit SOURCE marker, stopping content extraction');
-        break;
+        sourceLine = line.replace(/\*\*SOURCE:\*\*|SOURCE:/, '').trim();
+        console.log('✅ Found source:', sourceLine);
       } else if (inMainContent && line.trim()) {
         mainContent += line + '\n';
       }
@@ -259,6 +260,18 @@ serve(async (req) => {
       htmlContent += `<p><em>${byline}</em></p>\n`;
     }
     htmlContent += paragraphs;
+
+    // Append source attribution if present
+    if (sourceLine) {
+      const mdLinkMatch = sourceLine.match(/\[([^\]]+)\]\(([^)]+)\)/);
+      if (mdLinkMatch) {
+        const displayName = mdLinkMatch[1];
+        const url = mdLinkMatch[2];
+        htmlContent += `\n<hr>\n<p><em>Source: <a href="${url}">${displayName}</a></em></p>`;
+      } else {
+        htmlContent += `\n<hr>\n<p><em>Source: ${sourceLine}</em></p>`;
+      }
+    }
 
     // Generate JWT token
     const token = await generateGhostToken(ghostApiKey);
