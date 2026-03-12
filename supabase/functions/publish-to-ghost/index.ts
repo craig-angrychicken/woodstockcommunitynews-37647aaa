@@ -267,7 +267,7 @@ serve(async (req) => {
       if (mdLinkMatch) {
         const displayName = mdLinkMatch[1];
         const url = mdLinkMatch[2];
-        htmlContent += `\n<!--kg-card-begin: html-->\n<hr>\n<p style="color: #000; font-size: 0.9em;"><em>Source: <a href="${url}">${displayName}</a></em></p>\n<!--kg-card-end: html-->`;
+        htmlContent += `\n<!--kg-card-begin: html-->\n<hr>\n<p style="color: #000; font-size: 0.9em;"><em>Source: <a href="${url}" style="color: #000;">${displayName}</a></em></p>\n<!--kg-card-end: html-->`;
       } else {
         htmlContent += `\n<!--kg-card-begin: html-->\n<hr>\n<p style="color: #000; font-size: 0.9em;"><em>Source: ${sourceLine}</em></p>\n<!--kg-card-end: html-->`;
       }
