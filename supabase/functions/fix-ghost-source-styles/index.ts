@@ -42,9 +42,9 @@ function buildSourceCard(sourceLine: string): string {
   if (mdLinkMatch) {
     const displayName = mdLinkMatch[1];
     const url = mdLinkMatch[2];
-    return `<!--kg-card-begin: html-->\n<hr>\n<p><em>Source: <a href="${url}">${displayName}</a></em></p>\n<!--kg-card-end: html-->`;
+    return `<!--kg-card-begin: html-->\n<hr>\n<p style="color: #000; font-size: 0.9em;"><em>Source: <a href="${url}">${displayName}</a></em></p>\n<!--kg-card-end: html-->`;
   }
-  return `<!--kg-card-begin: html-->\n<hr>\n<p><em>Source: ${sourceLine}</em></p>\n<!--kg-card-end: html-->`;
+  return `<!--kg-card-begin: html-->\n<hr>\n<p style="color: #000; font-size: 0.9em;"><em>Source: ${sourceLine}</em></p>\n<!--kg-card-end: html-->`;
 }
 
 serve(async (req) => {
@@ -111,9 +111,9 @@ serve(async (req) => {
         const post = postData.posts[0];
         const html: string = post.html || '';
 
-        // Skip if already using kg-card format
-        if (html.includes('<!--kg-card-begin: html-->')) {
-          console.log(`⏭️ Already has kg-card: ${story.title}`);
+        // Skip if already using kg-card format with correct inline style
+        if (html.includes('<!--kg-card-begin: html-->') && html.includes('style="color: #000')) {
+          console.log(`⏭️ Already has kg-card with style: ${story.title}`);
           results.skipped++;
           continue;
         }
