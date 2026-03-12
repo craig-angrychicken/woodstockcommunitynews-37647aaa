@@ -36,6 +36,17 @@ async function generateGhostToken(apiKey: string): Promise<string> {
   return `${message}.${base64Sig}`;
 }
 
+/** Build the kg-card HTML block from a raw source line (same logic as publish-to-ghost) */
+function buildSourceCard(sourceLine: string): string {
+  const mdLinkMatch = sourceLine.match(/\[([^\]]+)\]\(([^)]+)\)/);
+  if (mdLinkMatch) {
+    const displayName = mdLinkMatch[1];
+    const url = mdLinkMatch[2];
+    return `<!--kg-card-begin: html-->\n<hr>\n<p><em>Source: <a href="${url}">${displayName}</a></em></p>\n<!--kg-card-end: html-->`;
+  }
+  return `<!--kg-card-begin: html-->\n<hr>\n<p><em>Source: ${sourceLine}</em></p>\n<!--kg-card-end: html-->`;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -49,29 +60,39 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    // Fetch all published stories with a ghost_url and SOURCE line
+    // Fetch all published stories with a ghost_url and a SOURCE line in content
     const { data: stories, error } = await supabase
       .from('stories')
-      .select('id, title, ghost_url')
+      .select('id, title, content, ghost_url')
       .not('ghost_url', 'is', null)
       .ilike('content', '%SOURCE:%')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    console.log(`Found ${stories.length} stories to patch`);
+    console.log(`Found ${stories.length} stories to process`);
 
-    const results = { patched: 0, skipped: 0, errors: [] as string[], debugHtml: '' };
+    const results = { patched: 0, skipped: 0, errors: [] as string[] };
 
     for (const story of stories) {
       try {
-        const token = await generateGhostToken(ghostApiKey);
+        // Extract SOURCE line from Supabase content (authoritative source)
+        const sourceMatch = story.content?.match(/^SOURCE:\s*(.+)$/im);
+        if (!sourceMatch) {
+          console.log(`⏭️ No SOURCE line in content: ${story.title}`);
+          results.skipped++;
+          continue;
+        }
+        const sourceLine = sourceMatch[1].trim();
+        const newSourceCard = buildSourceCard(sourceLine);
 
         // Extract slug from ghost_url
         const urlParts = story.ghost_url.split('/').filter((p: string) => p);
         const slug = urlParts[urlParts.length - 1].split('?')[0].split('#')[0];
 
-        // Fetch current post with rendered HTML
+        const token = await generateGhostToken(ghostApiKey);
+
+        // Fetch current post HTML from Ghost
         const getRes = await fetch(`${ghostApiUrl}/ghost/api/admin/posts/slug/${slug}/?formats=html,lexical`, {
           headers: {
             'Authorization': `Ghost ${token}`,
@@ -90,37 +111,32 @@ serve(async (req) => {
         const post = postData.posts[0];
         const html: string = post.html || '';
 
-        // Debug: always capture the FIRST story processed
-        if (!results.debugHtml) {
-          results.debugHtml = JSON.stringify({
-            title: story.title,
-            htmlLen: html.length,
-            htmlTail: html.slice(-800),
-            hasSourceTag: html.includes('<p><em>Source:'),
-            hasHr: html.includes('<hr>'),
-            hasSource: html.toLowerCase().includes('source:'),
-          });
-        }
-
-        // Check if already fixed
-        if (html.includes('style="color: #555')) {
-          console.log(`⏭️ Already fixed: ${story.title}`);
+        // Skip if already using kg-card format
+        if (html.includes('<!--kg-card-begin: html-->')) {
+          console.log(`⏭️ Already has kg-card: ${story.title}`);
           results.skipped++;
           continue;
         }
 
-        // Check if source attribution exists (without the style)
-        if (!html.includes('<p><em>Source:')) {
-          console.log(`⏭️ No source attribution found: ${story.title}`);
+        // Skip if no source attribution at all in the rendered HTML
+        if (!html.toLowerCase().includes('source:')) {
+          console.log(`⏭️ No source in rendered HTML: ${story.title}`);
           results.skipped++;
           continue;
         }
 
-        // Patch: replace <p><em>Source: with styled version
-        const patchedHtml = html.replace(
-          /<p><em>Source:/g,
-          '<p style="color: #555; font-size: 0.9em;"><em>Source:'
+        // Replace any existing source attribution (with or without inline styles) with kg-card version.
+        // Pattern covers both the old inline-style variant and any plain <p><em>Source: variant,
+        // each preceded by an optional <hr>.
+        let patchedHtml = html.replace(
+          /(<hr\s*\/?>\s*)?<p(?:\s[^>]*)?>(<em>)?Source:.*?(<\/em>)?<\/p>/gi,
+          newSourceCard
         );
+
+        // If nothing was replaced (pattern didn't match), append the card
+        if (patchedHtml === html) {
+          patchedHtml = html + '\n' + newSourceCard;
+        }
 
         // Refresh token for the PUT
         const putToken = await generateGhostToken(ghostApiKey);
