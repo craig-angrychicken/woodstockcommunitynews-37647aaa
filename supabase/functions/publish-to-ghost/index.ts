@@ -1,77 +1,8 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-// Helper function to convert string to base64url
-function base64UrlEncode(str: string): string {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(str);
-  let binary = '';
-  for (let i = 0; i < data.length; i++) {
-    binary += String.fromCharCode(data[i]);
-  }
-  return btoa(binary)
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
-}
-
-// Generate JWT token for Ghost Admin API
-async function generateGhostToken(apiKey: string): Promise<string> {
-  const [id, secret] = apiKey.split(':');
-  
-  const header = {
-    alg: 'HS256',
-    typ: 'JWT',
-    kid: id
-  };
-  
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iat: now,
-    exp: now + 5 * 60, // 5 minutes
-    aud: '/admin/'
-  };
-  
-  // Properly encode header and payload to base64url
-  const base64Header = base64UrlEncode(JSON.stringify(header));
-  const base64Payload = base64UrlEncode(JSON.stringify(payload));
-  
-  const message = `${base64Header}.${base64Payload}`;
-  
-  // Convert hex secret to bytes
-  const encoder = new TextEncoder();
-  const secretBytes = new Uint8Array(secret.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []);
-  const messageBytes = encoder.encode(message);
-  
-  // Create HMAC signature
-  const key = await crypto.subtle.importKey(
-    'raw',
-    secretBytes,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  
-  const signature = await crypto.subtle.sign('HMAC', key, messageBytes);
-  const signatureArray = new Uint8Array(signature);
-  
-  // Convert signature to base64url
-  let binary = '';
-  for (let i = 0; i < signatureArray.length; i++) {
-    binary += String.fromCharCode(signatureArray[i]);
-  }
-  const base64Signature = btoa(binary)
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
-  
-  return `${message}.${base64Signature}`;
-}
+import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
+import { createSupabaseClient } from "../_shared/supabase-client.ts";
+import { generateGhostToken } from "../_shared/ghost-token.ts";
 
 // Helper function to decode HTML entities in URLs
 function decodeHtmlEntities(url: string | null | undefined): string | null {
@@ -92,11 +23,11 @@ async function fetchAndUploadHeroImageToGhost(
 ): Promise<string | null> {
   try {
     console.log(`📸 Fetching image from: ${imageUrl}`);
-    
+
     // Fetch the image with a timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-    
+
     const imageResponse = await fetch(imageUrl, {
       signal: controller.signal,
       headers: {
@@ -104,16 +35,16 @@ async function fetchAndUploadHeroImageToGhost(
       }
     });
     clearTimeout(timeoutId);
-    
+
     if (!imageResponse.ok) {
       console.error(`❌ Failed to fetch image: ${imageResponse.status}`);
       return null;
     }
-    
+
     // Get the image data
     const imageBuffer = await imageResponse.arrayBuffer();
     const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
-    
+
     // Determine filename from URL or content type
     let filename = 'hero-image';
     const urlParts = imageUrl.split('/');
@@ -125,14 +56,14 @@ async function fetchAndUploadHeroImageToGhost(
       const ext = contentType.split('/')[1]?.split(';')[0] || 'jpg';
       filename = `hero-image.${ext}`;
     }
-    
+
     // Create FormData for Ghost upload
     const formData = new FormData();
     const blob = new Blob([imageBuffer], { type: contentType });
     formData.append('file', blob, filename);
-    
+
     console.log(`⬆️ Uploading image to Ghost: ${filename}`);
-    
+
     // Upload to Ghost
     const uploadUrl = `${ghostAdminUrl}/ghost/api/admin/images/upload/`;
     const uploadResponse = await fetch(uploadUrl, {
@@ -142,21 +73,21 @@ async function fetchAndUploadHeroImageToGhost(
       },
       body: formData,
     });
-    
+
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
       console.error(`❌ Ghost upload failed: ${uploadResponse.status}`, errorText);
       return null;
     }
-    
+
     const uploadResult = await uploadResponse.json();
     const ghostImageUrl = uploadResult.images?.[0]?.url;
-    
+
     if (ghostImageUrl) {
       console.log(`✅ Image uploaded successfully: ${ghostImageUrl}`);
       return ghostImageUrl;
     }
-    
+
     console.error('❌ No image URL in upload response');
     return null;
   } catch (error) {
@@ -167,14 +98,13 @@ async function fetchAndUploadHeroImageToGhost(
 
 serve(async (req) => {
   // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsResponse = handleCorsPrelight(req);
+  if (corsResponse) return corsResponse;
 
   try {
-    const { title, content, status, tags, featured, excerpt, ghostUrl, publishedAt, heroImageUrl, artifactId } = await req.json();
+    const { title, content, status, tags, featured, excerpt, ghostUrl, publishedAt, heroImageUrl, artifactId, structuredMetadata } = await req.json();
 
-    console.log('📝 Publishing to Ghost:', { title, status: status || 'draft', isUpdate: !!ghostUrl, hasHeroImage: !!heroImageUrl, artifactId });
+    console.log('📝 Publishing to Ghost:', { title, status: status || 'draft', isUpdate: !!ghostUrl, hasHeroImage: !!heroImageUrl, artifactId, hasStructuredMetadata: !!structuredMetadata });
 
     const ghostApiKey = Deno.env.get('GHOST_ADMIN_API_KEY');
     let ghostApiUrl = Deno.env.get('GHOST_API_URL');
@@ -190,59 +120,83 @@ serve(async (req) => {
     }
     // Remove trailing slash
     ghostApiUrl = ghostApiUrl.replace(/\/$/, '');
-    
+
     console.log('🔗 Using Ghost API URL:', ghostApiUrl);
 
-    // Parse story content to extract subhead and main content
-    console.log('📄 Raw content received:', content);
-    
-    const lines = content.split('\n');
     let subhead = '';
     let byline = '';
     let mainContent = '';
-    let sourceLine = '';
-    let inMainContent = false;
+    let sourceName = '';
+    let sourceUrl = '';
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      
-      // Handle both plain and markdown-formatted markers
-      if (line.startsWith('SUBHEAD:') || line.startsWith('**SUBHEAD:**')) {
-        subhead = line.replace(/\*\*SUBHEAD:\*\*|SUBHEAD:/, '').trim();
-        console.log('✅ Found subhead:', subhead);
-      } else if (line.startsWith('BYLINE:') || line.startsWith('**BYLINE:**')) {
-        byline = line.replace(/\*\*BYLINE:\*\*|BYLINE:/, '').trim();
-        inMainContent = true;
-        console.log('✅ Found byline:', byline);
-        continue;
-      } else if (line.startsWith('SOURCE:') || line.startsWith('**SOURCE:**')) {
-        sourceLine = line.replace(/\*\*SOURCE:\*\*|SOURCE:/, '').trim();
-        console.log('✅ Found source:', sourceLine);
-      } else if (inMainContent && line.trim()) {
-        mainContent += line + '\n';
+    if (structuredMetadata) {
+      // Use structured metadata from JSON LLM output
+      console.log('📋 Using structured metadata for content extraction');
+      subhead = structuredMetadata.subhead || '';
+      byline = structuredMetadata.byline || '';
+      sourceName = structuredMetadata.source_name || '';
+      sourceUrl = structuredMetadata.source_url || '';
+      mainContent = content; // Content is already clean body text
+    } else {
+      // Legacy: parse markers from content text
+      console.log('📄 Parsing content markers (legacy format)');
+
+      const lines = content.split('\n');
+      let sourceLine = '';
+      let inMainContent = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Handle both plain and markdown-formatted markers
+        if (line.startsWith('SUBHEAD:') || line.startsWith('**SUBHEAD:**')) {
+          subhead = line.replace(/\*\*SUBHEAD:\*\*|SUBHEAD:/, '').trim();
+          console.log('✅ Found subhead:', subhead);
+        } else if (line.startsWith('BYLINE:') || line.startsWith('**BYLINE:**')) {
+          byline = line.replace(/\*\*BYLINE:\*\*|BYLINE:/, '').trim();
+          inMainContent = true;
+          console.log('✅ Found byline:', byline);
+          continue;
+        } else if (line.startsWith('SOURCE:') || line.startsWith('**SOURCE:**')) {
+          sourceLine = line.replace(/\*\*SOURCE:\*\*|SOURCE:/, '').trim();
+          console.log('✅ Found source:', sourceLine);
+        } else if (inMainContent && line.trim()) {
+          mainContent += line + '\n';
+        }
+      }
+
+      // Fallback: if no main content was extracted using markers, use full content minus marker lines
+      if (!mainContent.trim()) {
+        console.log('ℹ️ No main content extracted via markers, falling back to full content');
+        mainContent = content
+          .split('\n')
+          .filter((line: string) =>
+            !line.startsWith('SUBHEAD:') &&
+            !line.startsWith('**SUBHEAD:**') &&
+            !line.startsWith('BYLINE:') &&
+            !line.startsWith('**BYLINE:**') &&
+            !line.startsWith('SOURCE:') &&
+            !line.startsWith('**SOURCE:**')
+          )
+          .join('\n')
+          .trim();
+      }
+
+      // Parse source line for name/url from legacy format
+      if (sourceLine) {
+        const mdLinkMatch = sourceLine.match(/\[([^\]]+)\]\(([^)]+)\)/);
+        if (mdLinkMatch) {
+          sourceName = mdLinkMatch[1];
+          sourceUrl = mdLinkMatch[2];
+        } else {
+          sourceName = sourceLine;
+        }
       }
     }
 
-    // Fallback: if no main content was extracted using markers, use full content minus marker lines
-    if (!mainContent.trim()) {
-      console.log('ℹ️ No main content extracted via markers, falling back to full content');
-      mainContent = content
-        .split('\n')
-        .filter((line: string) =>
-          !line.startsWith('SUBHEAD:') &&
-          !line.startsWith('**SUBHEAD:**') &&
-          !line.startsWith('BYLINE:') &&
-          !line.startsWith('**BYLINE:**') &&
-          !line.startsWith('SOURCE:') &&
-          !line.startsWith('**SOURCE:**')
-        )
-        .join('\n')
-        .trim();
-    }
-
-    console.log('📝 Extracted content:', { 
-      subheadLength: subhead.length, 
-      bylineLength: byline.length, 
+    console.log('📝 Extracted content:', {
+      subheadLength: subhead.length,
+      bylineLength: byline.length,
       mainContentLength: mainContent.length,
       mainContentPreview: mainContent.substring(0, 200)
     });
@@ -262,14 +216,11 @@ serve(async (req) => {
     htmlContent += paragraphs;
 
     // Append source attribution if present
-    if (sourceLine) {
-      const mdLinkMatch = sourceLine.match(/\[([^\]]+)\]\(([^)]+)\)/);
-      if (mdLinkMatch) {
-        const displayName = mdLinkMatch[1];
-        const url = mdLinkMatch[2];
-        htmlContent += `\n<!--kg-card-begin: html-->\n<hr>\n<p style="color: #000; font-size: 0.9em;"><em>Source: <a href="${url}" style="color: #000;">${displayName}</a></em></p>\n<!--kg-card-end: html-->`;
+    if (sourceName) {
+      if (sourceUrl) {
+        htmlContent += `\n<!--kg-card-begin: html-->\n<hr>\n<p style="color: #000; font-size: 0.9em;"><em>Source: <a href="${sourceUrl}" style="color: #000;">${sourceName}</a></em></p>\n<!--kg-card-end: html-->`;
       } else {
-        htmlContent += `\n<!--kg-card-begin: html-->\n<hr>\n<p style="color: #000; font-size: 0.9em;"><em>Source: ${sourceLine}</em></p>\n<!--kg-card-end: html-->`;
+        htmlContent += `\n<!--kg-card-begin: html-->\n<hr>\n<p style="color: #000; font-size: 0.9em;"><em>Source: ${sourceName}</em></p>\n<!--kg-card-end: html-->`;
       }
     }
 
@@ -281,12 +232,12 @@ serve(async (req) => {
     let updatedAt = null;
     let method = 'POST';
     let endpoint = `${ghostApiUrl}/ghost/api/admin/posts/`;
-    
+
     if (ghostUrl) {
       // Extract slug from URL (last part of path before query/hash)
       const urlParts = ghostUrl.split('/').filter((p: string) => p);
       const slug = urlParts[urlParts.length - 1].split('?')[0].split('#')[0];
-      
+
       // Get the post by slug to find its ID and updated_at timestamp
       const getResponse = await fetch(`${ghostApiUrl}/ghost/api/admin/posts/slug/${slug}/`, {
         method: 'GET',
@@ -296,7 +247,7 @@ serve(async (req) => {
           'Accept-Version': 'v5.0',
         },
       });
-      
+
       if (getResponse.ok) {
         const getResult = await getResponse.json();
         const existingPost = getResult.posts[0];
@@ -314,7 +265,7 @@ serve(async (req) => {
 
     // Decode HTML entities in hero image URL before sending to Ghost
     const cleanHeroImageUrl = decodeHtmlEntities(heroImageUrl);
-    
+
     // Upload hero image to Ghost if present
     let featureImageUrl: string | null | undefined = cleanHeroImageUrl;
     if (cleanHeroImageUrl) {
@@ -430,37 +381,30 @@ serve(async (req) => {
     if (artifactId) {
       try {
         console.log(`🧹 Cleaning up Storage images for artifact: ${artifactId}`);
-        
-        // Initialize Supabase client for Storage operations
-        const supabaseUrl = Deno.env.get('SUPABASE_URL');
-        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-        
-        if (supabaseUrl && supabaseKey) {
-          const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
-          const supabase = createClient(supabaseUrl, supabaseKey);
-          
-          // List all files in the artifact's folder
-          const { data: fileList, error: listError } = await supabase.storage
+
+        const supabase = createSupabaseClient();
+
+        // List all files in the artifact's folder
+        const { data: fileList, error: listError } = await supabase.storage
+          .from('artifact-images')
+          .list(artifactId);
+
+        if (listError) {
+          console.error('❌ Error listing files for cleanup:', listError);
+        } else if (fileList && fileList.length > 0) {
+          // Delete all files in the folder
+          const filePaths = fileList.map(f => `${artifactId}/${f.name}`);
+          const { error: deleteError } = await supabase.storage
             .from('artifact-images')
-            .list(artifactId);
-          
-          if (listError) {
-            console.error('❌ Error listing files for cleanup:', listError);
-          } else if (fileList && fileList.length > 0) {
-            // Delete all files in the folder
-            const filePaths = fileList.map(f => `${artifactId}/${f.name}`);
-            const { error: deleteError } = await supabase.storage
-              .from('artifact-images')
-              .remove(filePaths);
-            
-            if (deleteError) {
-              console.error('❌ Error deleting files:', deleteError);
-            } else {
-              console.log(`✅ Deleted ${fileList.length} image(s) from Storage`);
-            }
+            .remove(filePaths);
+
+          if (deleteError) {
+            console.error('❌ Error deleting files:', deleteError);
           } else {
-            console.log('ℹ️ No files found to clean up');
+            console.log(`✅ Deleted ${fileList.length} image(s) from Storage`);
           }
+        } else {
+          console.log('ℹ️ No files found to clean up');
         }
       } catch (cleanupError) {
         // Don't fail the whole operation if cleanup fails
@@ -482,7 +426,7 @@ serve(async (req) => {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('❌ Error in publish-to-ghost function:', error);
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         success: false,
         error: errorMessage
       }),

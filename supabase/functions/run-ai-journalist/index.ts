@@ -1,15 +1,9 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
+import { createSupabaseClient, getSupabaseUrl, getServiceRoleKey } from "../_shared/supabase-client.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsResponse = handleCorsPrelight(req);
+  if (corsResponse) return corsResponse;
 
   console.log("🚀 run-ai-journalist started");
 
@@ -17,8 +11,8 @@ Deno.serve(async (req) => {
 
   try {
     // Step 0: Environment variable validation
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const supabaseUrl = getSupabaseUrl();
+    const supabaseKey = getServiceRoleKey();
     const queueSecret = Deno.env.get("QUEUE_PROCESSOR_SECRET");
 
     console.log("✅ Environment check:", {
@@ -26,10 +20,6 @@ Deno.serve(async (req) => {
       SERVICE_ROLE_KEY: supabaseKey ? "present" : "MISSING",
       QUEUE_PROCESSOR_SECRET: queueSecret ? "present" : "MISSING"
     });
-
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error("Missing required environment variables");
-    }
 
     const body = await req.json();
     const {
@@ -50,7 +40,7 @@ Deno.serve(async (req) => {
       artifactIds: artifactIds ? `${artifactIds.length} IDs` : "null",
     });
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = createSupabaseClient();
 
     // Step 1: Fetch the prompt version
     console.log(`🔍 Step 1: Fetching prompt version ${promptVersionId}...`);
@@ -64,7 +54,7 @@ Deno.serve(async (req) => {
       console.error("❌ Step 1 failed - Prompt fetch error:", promptError);
       throw new Error(`Failed to fetch prompt version: ${promptError.message}`);
     }
-    
+
     if (!promptVersion) {
       console.error("❌ Step 1 failed - Prompt not found");
       throw new Error("Prompt version not found");
@@ -75,7 +65,7 @@ Deno.serve(async (req) => {
     // Step 2: Fetch artifacts by IDs or date range
     const queryMode = artifactIds && artifactIds.length > 0 ? "by IDs" : "by date range";
     console.log(`🔍 Step 2: Querying artifacts (${queryMode})...`);
-    
+
     if (queryMode === "by date range") {
       console.log(`   - dateFrom: ${dateFrom}`);
       console.log(`   - dateTo: ${dateTo}`);
@@ -120,7 +110,7 @@ Deno.serve(async (req) => {
     // Step 3: Check for duplicates
     if (environment !== "test") {
       console.log("🔍 Step 3: Checking for duplicates...");
-      
+
       const { data: usedArtifacts, error: usedError } = await supabase
         .from('story_artifacts')
         .select('artifact:artifacts(guid)');
@@ -135,11 +125,11 @@ Deno.serve(async (req) => {
           .map((sa: any) => sa.artifact?.guid)
           .filter((guid: any) => guid != null)
       );
-      
+
       const beforeCount = artifacts.length;
       artifacts = artifacts.filter(a => !usedGUIDs.has(a.guid));
       const afterCount = artifacts.length;
-      
+
       console.log(`✅ Step 3 complete: ${usedGUIDs.size} already used, ${afterCount} remaining (filtered out ${beforeCount - afterCount})`);
     } else {
       console.log(`🧪 Step 3: Test mode - Skipping duplicate check to allow multiple runs`);
@@ -161,17 +151,49 @@ Deno.serve(async (req) => {
           message: "No artifacts found",
           historyId,
         }),
-        { 
+        {
           status: 202,
-          headers: { ...corsHeaders, "Content-Type": "application/json" } 
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
         }
       );
     }
 
+    // Step 3b: Group by cluster — queue one item per cluster (representative artifact)
+    console.log("🔗 Step 3b: Grouping artifacts by cluster...");
+
+    const clustered = new Map<string, typeof artifacts>();
+    const unclustered: typeof artifacts = [];
+
+    for (const artifact of artifacts) {
+      if (artifact.cluster_id) {
+        const existing = clustered.get(artifact.cluster_id) || [];
+        existing.push(artifact);
+        clustered.set(artifact.cluster_id, existing);
+      } else {
+        unclustered.push(artifact);
+      }
+    }
+
+    // For each cluster, pick the most recent artifact as the representative
+    const representativeArtifacts: typeof artifacts = [];
+    for (const [clusterId, clusterArtifacts] of clustered) {
+      const sorted = clusterArtifacts.sort((a, b) =>
+        new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
+      );
+      representativeArtifacts.push(sorted[0]);
+      if (clusterArtifacts.length > 1) {
+        console.log(`   Cluster ${clusterId.substring(0, 8)}: ${clusterArtifacts.length} artifacts → using "${sorted[0].title?.substring(0, 60) || sorted[0].id}"`);
+      }
+    }
+
+    // Combine: representatives + unclustered artifacts
+    const artifactsToQueue = [...representativeArtifacts, ...unclustered];
+    console.log(`✅ Step 3b complete: ${artifacts.length} artifacts → ${artifactsToQueue.length} queue items (${clustered.size} clusters, ${unclustered.length} unclustered)`);
+
     // Step 4: Create queue entries for all artifacts
-    console.log(`🔍 Step 4: Creating queue with ${artifacts.length} items...`);
-    
-    const queueEntries = artifacts.map((artifact, index) => ({
+    console.log(`🔍 Step 4: Creating queue with ${artifactsToQueue.length} items...`);
+
+    const queueEntries = artifactsToQueue.map((artifact, index) => ({
       query_history_id: historyId,
       artifact_id: artifact.id,
       position: index + 1,
@@ -187,7 +209,7 @@ Deno.serve(async (req) => {
       throw new Error(`Failed to create queue: ${queueError.message}`);
     }
 
-    console.log(`✅ Step 4 complete: ${artifacts.length} queue items created`);
+    console.log(`✅ Step 4 complete: ${artifactsToQueue.length} queue items created`);
 
     // Step 5: Get the first item to process
     console.log("🔍 Step 5: Fetching first queue item...");
@@ -204,7 +226,7 @@ Deno.serve(async (req) => {
       console.error("❌ Step 5 failed - First item fetch error:", firstItemError);
       throw new Error(`Failed to fetch first queue item: ${firstItemError.message}`);
     }
-    
+
     if (!firstItem) {
       console.error("❌ Step 5 failed - No first item found");
       throw new Error("No first queue item found");
@@ -214,7 +236,7 @@ Deno.serve(async (req) => {
 
     // Step 6: Trigger processing of first item (which will chain to the rest)
     console.log("🔍 Step 6: Starting queue processing...");
-    
+
     if (!queueSecret) {
       console.error("❌ Step 6 failed - QUEUE_PROCESSOR_SECRET not set");
       throw new Error("QUEUE_PROCESSOR_SECRET environment variable not set");
@@ -239,11 +261,11 @@ Deno.serve(async (req) => {
         success: true,
         message: "AI Journalist queue created and processing started",
         historyId,
-        queueSize: artifacts.length,
+        queueSize: artifactsToQueue.length,
       }),
-      { 
+      {
         status: 202,
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       }
     );
   } catch (error) {
@@ -256,19 +278,15 @@ Deno.serve(async (req) => {
     // Mark history record as failed so it doesn't stay 'running' forever
     if (historyId) {
       try {
-        const supabaseUrl = Deno.env.get("SUPABASE_URL");
-        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-        if (supabaseUrl && supabaseKey) {
-          const supabase = createClient(supabaseUrl, supabaseKey);
-          await supabase
-            .from("query_history")
-            .update({
-              status: "failed",
-              error_message: error instanceof Error ? error.message : "Unknown error",
-              completed_at: new Date().toISOString(),
-            })
-            .eq("id", historyId);
-        }
+        const supabase = createSupabaseClient();
+        await supabase
+          .from("query_history")
+          .update({
+            status: "failed",
+            error_message: error instanceof Error ? error.message : "Unknown error",
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", historyId);
       } catch (updateError) {
         console.error("Failed to update history status:", updateError);
       }

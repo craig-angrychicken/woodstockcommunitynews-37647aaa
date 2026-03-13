@@ -50,36 +50,57 @@ All routes are admin-protected.
 | Table | Purpose |
 |---|---|
 | `sources` | RSS feed sources (url, status, last_fetch_at) |
-| `artifacts` | Raw content fetched from RSS feeds |
-| `stories` | AI-generated articles (status: pending/draft/published/archived/rejected) |
+| `artifacts` | Raw content fetched from RSS feeds. Columns include `embedding vector(384)`, `cluster_id UUID` for dedup |
+| `artifact_clusters` | Groups of similar artifacts (pgvector cosine similarity > 0.85) |
+| `stories` | AI-generated articles (status: pending/fact_checked/edited/draft/published/archived/rejected). Columns include `structured_metadata JSONB`, `word_count`, `source_count`, `reading_level`, `generation_metadata JSONB`, `fact_check_notes TEXT` |
 | `story_artifacts` | Many-to-many junction: stories ↔ artifacts |
 | `prompt_versions` | AI prompt templates (retrieval + journalism types) |
-| `journalism_queue` | Serial processing queue for artifact → story conversion |
+| `journalism_queue` | Serial processing queue for artifact → story conversion. Includes `retry_count INTEGER` for watchdog recovery |
 | `query_history` | Logs of journalism pipeline runs |
 | `schedules` | Cron schedule config (artifact_fetch, ai_journalism) |
 | `app_settings` | Global config (ai_model_config, etc.) |
-| `cron_job_logs` | Audit trail of automated tasks |
+| `cron_job_logs` | Audit trail of automated tasks (trigger on error → send-alert) |
 
 ### Edge Functions (all verify_jwt = false)
 | Function | Trigger | Purpose |
 |---|---|---|
 | `fetch-rss-feeds` | UI / scheduled | Fetch + normalize RSS feeds → artifacts table |
 | `scheduled-fetch-artifacts` | pg_cron (every 30min) | Cron wrapper for fetch-rss-feeds |
-| `run-ai-journalist` | UI / scheduled | Orchestrate journalism pipeline run |
-| `process-journalism-queue-item` | Internal | Convert single artifact → story via LLM |
+| `run-ai-journalist` | UI / scheduled | Orchestrate journalism pipeline run (with cluster dedup) |
+| `process-journalism-queue-item` | Internal | Convert single artifact → story via LLM (structured JSON output) |
 | `scheduled-run-journalism` | pg_cron (hourly) | Cron wrapper for journalism pipeline |
-| `publish-to-ghost` | UI | Publish story to Ghost CMS |
+| `run-ai-fact-checker` | Internal / scheduled | Compare story claims against source artifacts |
+| `run-ai-rewriter` | Internal / scheduled | Rewrite stories based on fact-check feedback |
+| `run-ai-editor` | Internal / scheduled | Final editorial review (publish/reject) |
+| `scheduled-run-editor` | pg_cron | Orchestrates 3-stage editorial pipeline (fact-check → rewrite → edit) |
+| `publish-to-ghost` | UI | Publish story to Ghost CMS (reads structured_metadata) |
 | `fetch-openrouter-models` | UI | List available LLM models from OpenRouter |
 | `manage-schedule` | UI | Enable/disable/update schedule config |
 | `backfill-artifact-images` | UI / manual | Extract images from artifact HTML |
+| `recover-stuck-queue-items` | Internal | Watchdog: retry stuck queue items (max 3 retries) |
+| `scheduled-recover-queue` | pg_cron (every 15min) | Cron wrapper for queue recovery watchdog |
+| `cluster-artifacts` | Internal | Generate embeddings + cluster similar artifacts |
+| `send-alert` | DB trigger / internal | Send error alerts via Resend email |
+
+### Shared Modules (`supabase/functions/_shared/`)
+| Module | Exports |
+|---|---|
+| `cors.ts` | `corsHeaders`, `handleCorsPrelight(req)` |
+| `supabase-client.ts` | `createSupabaseClient()`, `getSupabaseUrl()`, `getServiceRoleKey()` |
+| `cron-logger.ts` | `logCronJob(supabase, log)` |
+| `ghost-token.ts` | `generateGhostToken(apiKey)` |
+| `llm-client.ts` | `callLLM(options)` — OpenRouter/Lovable API wrapper with retry |
 
 ### Key File Paths
 - Frontend pages: `src/pages/`
 - Supabase client: `src/integrations/supabase/client.ts`
 - Ghost API helper: `src/lib/ghost-api.ts`
 - Edge functions: `supabase/functions/<name>/index.ts`
+- Shared utilities: `supabase/functions/_shared/`
 - DB migrations: `supabase/migrations/`
 - Supabase config: `supabase/config.toml`
+- Tests: `supabase/functions/**/__tests__/`, `vitest.config.ts`
+- CI/CD: `.github/workflows/ci.yml`
 
 ## MCP
 
@@ -99,6 +120,12 @@ Stored in Supabase dashboard secrets:
 - `OPENROUTER_API_KEY`
 - `QUEUE_PROCESSOR_SECRET`
 - `LOVABLE_API_KEY`
+- `RESEND_API_KEY` (optional — for email alerts via send-alert)
+- `ALERT_EMAIL` (optional — recipient for error alerts)
+
+Stored in GitHub repository secrets (for CI/CD):
+- `SUPABASE_PROJECT_ID`
+- `SUPABASE_ACCESS_TOKEN`
 
 Stored locally in `.env` (never committed):
 - `VITE_SUPABASE_URL`

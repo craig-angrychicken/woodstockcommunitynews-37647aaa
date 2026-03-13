@@ -1,14 +1,8 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsResponse = handleCorsPrelight(req);
+  if (corsResponse) return corsResponse;
 
   try {
     console.log("🔍 Fetching OpenRouter models");
@@ -33,13 +27,13 @@ Deno.serve(async (req) => {
     }
 
     const data = await response.json();
-    
+
     // Filter to only show Google, Anthropic, OpenAI, and xAI (Grok) models
     const filteredModels = data.data.filter((model: any) => {
       const id = model.id.toLowerCase();
       return (
-        id.includes('google/') || 
-        id.includes('anthropic/') || 
+        id.includes('google/') ||
+        id.includes('anthropic/') ||
         id.includes('openai/') ||
         id.includes('x-ai/')
       );

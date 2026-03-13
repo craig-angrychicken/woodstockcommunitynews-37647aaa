@@ -33,3 +33,21 @@ verify_jwt = false
 [functions.scheduled-run-editor]
 verify_jwt = false
 
+[functions.recover-stuck-queue-items]
+verify_jwt = false
+
+[functions.scheduled-recover-queue]
+verify_jwt = false
+
+[functions.send-alert]
+verify_jwt = false
+
+[functions.cluster-artifacts]
+verify_jwt = false
+
+[functions.run-ai-fact-checker]
+verify_jwt = false
+
+[functions.run-ai-rewriter]
+verify_jwt = false
+

@@ -1,9 +1,39 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
+import { createSupabaseClient, getSupabaseUrl, getServiceRoleKey } from "../_shared/supabase-client.ts";
+import { callLLM } from "../_shared/llm-client.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+interface StructuredStoryResponse {
+  headline: string;
+  subhead?: string;
+  byline?: string;
+  source_name?: string;
+  source_url?: string;
+  body: string[] | string;
+  skip?: boolean;
+  skip_reason?: string | null;
+}
+
+function parseStructuredResponse(content: string): StructuredStoryResponse | null {
+  try {
+    // Strip markdown code fences if present (```json ... ```)
+    let jsonStr = content.trim();
+    const fenceMatch = jsonStr.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+    if (fenceMatch) {
+      jsonStr = fenceMatch[1].trim();
+    }
+
+    const parsed = JSON.parse(jsonStr);
+
+    // Validate minimum required fields
+    if (typeof parsed !== "object" || parsed === null) return null;
+    if (parsed.skip === true) return parsed as StructuredStoryResponse;
+    if (!parsed.headline || (!parsed.body && !Array.isArray(parsed.body))) return null;
+
+    return parsed as StructuredStoryResponse;
+  } catch {
+    return null;
+  }
+}
 
 async function updateHistoryProgress(supabase: any, historyId: string) {
   const { data: queueStats } = await supabase
@@ -36,20 +66,32 @@ async function updateHistoryProgress(supabase: any, historyId: string) {
     .eq("id", historyId);
 }
 
+function chainToNextItem(supabaseUrl: string, supabaseKey: string, secret: string, nextItemId: string) {
+  console.log("📋 Chaining to next item (fire-and-forget)...");
+  fetch(`${supabaseUrl}/functions/v1/process-journalism-queue-item`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${supabaseKey}`,
+      "x-internal-secret": secret,
+    },
+    body: JSON.stringify({ queueItemId: nextItemId }),
+  }).catch(err => console.warn("Chain invoke error (non-fatal):", err?.message));
+}
+
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsResponse = handleCorsPrelight(req);
+  if (corsResponse) return corsResponse;
 
   // Security: Check for internal secret to prevent unauthorized access
   const INTERNAL_SECRET = Deno.env.get('QUEUE_PROCESSOR_SECRET');
   const providedSecret = req.headers.get('x-internal-secret');
-  
+
   if (!INTERNAL_SECRET || providedSecret !== INTERNAL_SECRET) {
     console.error("❌ Unauthorized access attempt - invalid or missing secret");
     return new Response(
-      JSON.stringify({ error: 'Unauthorized' }), 
-      { 
+      JSON.stringify({ error: 'Unauthorized' }),
+      {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
@@ -64,12 +106,9 @@ Deno.serve(async (req) => {
 
     console.log("🔄 Processing queue item:", queueItemId);
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    const openRouterApiKey = Deno.env.get("OPENROUTER_API_KEY");
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseUrl = getSupabaseUrl();
+    const supabaseKey = getServiceRoleKey();
+    const supabase = createSupabaseClient();
 
     // Fetch queue item with artifact, source, and prompt details
     const { data: queueItem, error: queueError } = await supabase
@@ -120,7 +159,7 @@ Deno.serve(async (req) => {
     }
 
     const modelConfig = modelSettings.value as { model_name: string; model_provider: string };
-    
+
     if (!modelConfig.model_name) {
       throw new Error("No model configured. Please select a model in the Models tab.");
     }
@@ -151,7 +190,7 @@ ${artifactData}`;
 
     // Collect images for vision analysis
     const imageUrls: string[] = [];
-    
+
     // Add hero image if available and successfully stored (not a 403 fallback)
     const heroUrl = queueItem.artifact.hero_image_url;
     if (heroUrl) {
@@ -175,38 +214,11 @@ ${artifactData}`;
       }
     }
 
-    // Determine API URL and authentication based on provider from settings
-    const isOpenRouter = modelConfig.model_provider === "openrouter";
-    const apiUrl = isOpenRouter
-      ? "https://openrouter.ai/api/v1/chat/completions"
-      : "https://ai.gateway.lovable.dev/v1/chat/completions";
-
-    const authToken = isOpenRouter ? openRouterApiKey : LOVABLE_API_KEY;
-    if (!authToken) {
-      throw new Error(
-        isOpenRouter
-          ? "OPENROUTER_API_KEY not configured"
-          : "LOVABLE_API_KEY not configured"
-      );
-    }
-
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${authToken}`,
-      "Content-Type": "application/json",
-    };
-
-    if (isOpenRouter) {
-      headers["HTTP-Referer"] = supabaseUrl;
-      headers["X-Title"] = "Woodstock Community News AI Journalist";
-    }
-
-    const model = modelConfig.model_name;
-
     // Build message content with vision support
     const messageContent: any[] = [
       { type: "text", text: fullPrompt }
     ];
-    
+
     // Add images for vision analysis
     if (imageUrls.length > 0) {
       console.log(`📷 Including ${imageUrls.length} image(s) for analysis`);
@@ -218,47 +230,30 @@ ${artifactData}`;
       }
     }
 
-    // Call AI API with vision support
-    const aiResponse = await fetch(apiUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          {
-            role: "user",
-            content: messageContent,
-          },
-        ],
-        max_tokens: 5000,
-        temperature: 0.6,
-      }),
+    // Call LLM via shared client
+    const llmResponse = await callLLM({
+      prompt: messageContent,
+      modelConfig,
+      maxTokens: 5000,
+      temperature: 0.6,
+      appTitle: "Woodstock Community News AI Journalist",
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("AI API error:", aiResponse.status, errorText);
+    const storyContent = llmResponse.content || "No content generated";
 
-      let message = `AI API error ${aiResponse.status}`;
-      try {
-        const parsed = JSON.parse(errorText);
-        const providerMsg = parsed?.error?.message || parsed?.message;
-        if (providerMsg) {
-          message = providerMsg;
-        }
-      } catch {
-        // ignore JSON parse errors
-      }
+    // Try to parse as structured JSON first
+    let parsed = parseStructuredResponse(storyContent);
 
-      throw new Error(message);
-    }
+    // Check for skip signal (structured or legacy)
+    const isSkip = parsed
+      ? parsed.skip === true
+      : storyContent.trim().toUpperCase().startsWith("SKIP:");
 
-    const aiData = await aiResponse.json();
-    const storyContent = aiData.choices?.[0]?.message?.content || "No content generated";
+    if (isSkip) {
+      const skipReason = parsed
+        ? (parsed.skip_reason || "Insufficient source material")
+        : storyContent.trim().slice(5).trim();
 
-    // Check if LLM signaled insufficient source material
-    if (storyContent.trim().toUpperCase().startsWith("SKIP:")) {
-      const skipReason = storyContent.trim().slice(5).trim();
       console.log(`⏭️ Skipping artifact — insufficient source material: ${skipReason}`);
 
       await supabase
@@ -283,17 +278,7 @@ ${artifactData}`;
         .single();
 
       if (nextItem) {
-        console.log("📋 Chaining to next item (fire-and-forget)...");
-        const secret = Deno.env.get("QUEUE_PROCESSOR_SECRET")!;
-        fetch(`${supabaseUrl}/functions/v1/process-journalism-queue-item`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${supabaseKey}`,
-            "x-internal-secret": secret,
-          },
-          body: JSON.stringify({ queueItemId: nextItem.id }),
-        }).catch(err => console.warn("Chain invoke error (non-fatal):", err?.message));
+        chainToNextItem(supabaseUrl, supabaseKey, INTERNAL_SECRET, nextItem.id);
       }
 
       return new Response(
@@ -302,16 +287,50 @@ ${artifactData}`;
       );
     }
 
-    // Extract title and content
-    const lines = storyContent.split("\n").filter((line: string) => line.trim());
-    let title = lines[0]
-      .replace(/^#+\s*/, "")
-      .replace(/^HEADLINE:\s*/i, "")
-      .trim() || "Untitled Story";
-    
-    const content = lines.slice(1).join("\n").trim();
+    // Extract title, content, and structured metadata
+    let title: string;
+    let content: string;
+    let structuredMetadata: Record<string, unknown> | null = null;
+
+    if (parsed) {
+      // Structured JSON response
+      console.log("📋 Using structured JSON response from LLM");
+      title = parsed.headline || "Untitled Story";
+      content = Array.isArray(parsed.body)
+        ? parsed.body.join("\n\n")
+        : (parsed.body || "");
+      structuredMetadata = {
+        subhead: parsed.subhead || null,
+        byline: parsed.byline || null,
+        source_name: parsed.source_name || null,
+        source_url: parsed.source_url || null,
+      };
+    } else {
+      // Legacy text response — fallback to regex parsing
+      console.log("📋 Using legacy text parsing (LLM did not return JSON)");
+      const lines = storyContent.split("\n").filter((line: string) => line.trim());
+      title = lines[0]
+        .replace(/^#+\s*/, "")
+        .replace(/^HEADLINE:\s*/i, "")
+        .trim() || "Untitled Story";
+      content = lines.slice(1).join("\n").trim();
+    }
+
     const source_id = queueItem.artifact.source_id || null;
     const heroImageUrl = queueItem.artifact.hero_image_url || null;
+
+    // Compute quality metrics
+    const wordCount = content.split(/\s+/).filter((w: string) => w.length > 0).length;
+
+    // Build generation metadata from LLM response
+    const generationMetadata = {
+      model: llmResponse.model || modelConfig.model_name,
+      provider: modelConfig.model_provider,
+      prompt_tokens: llmResponse.usage?.prompt_tokens || null,
+      completion_tokens: llmResponse.usage?.completion_tokens || null,
+      total_tokens: llmResponse.usage?.total_tokens || null,
+      prompt_version_id: promptVersion.id,
+    };
 
     // Insert story
     const { data: newStory, error: storyError } = await supabase
@@ -324,6 +343,10 @@ ${artifactData}`;
         environment,
         is_test: environment === "test",
         hero_image_url: heroImageUrl,
+        word_count: wordCount,
+        source_count: 1,
+        generation_metadata: generationMetadata,
+        ...(structuredMetadata ? { structured_metadata: structuredMetadata } : {}),
       })
       .select()
       .single();
@@ -364,17 +387,7 @@ ${artifactData}`;
       .single();
 
     if (nextItem) {
-      console.log("📋 Chaining to next item (fire-and-forget)...");
-      const INTERNAL_SECRET = Deno.env.get('QUEUE_PROCESSOR_SECRET')!;
-      fetch(`${supabaseUrl}/functions/v1/process-journalism-queue-item`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${supabaseKey}`,
-          "x-internal-secret": INTERNAL_SECRET,
-        },
-        body: JSON.stringify({ queueItemId: nextItem.id }),
-      }).catch(err => console.warn("Chain invoke error (non-fatal):", err?.message));
+      chainToNextItem(supabaseUrl, supabaseKey, INTERNAL_SECRET, nextItem.id);
     }
 
     return new Response(
@@ -391,9 +404,9 @@ ${artifactData}`;
     // Try to mark queue item as failed
     if (queueItemId) {
       try {
-        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-        const supabase = createClient(supabaseUrl, supabaseKey);
+        const supabaseUrl = getSupabaseUrl();
+        const supabaseKey = getServiceRoleKey();
+        const supabase = createSupabaseClient();
 
         await supabase
           .from("journalism_queue")
@@ -425,17 +438,8 @@ ${artifactData}`;
             .single();
 
           if (nextItem) {
-            console.log("📋 Chaining to next item after failure (fire-and-forget)...");
             const secret = Deno.env.get("QUEUE_PROCESSOR_SECRET")!;
-            fetch(`${supabaseUrl}/functions/v1/process-journalism-queue-item`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${supabaseKey}`,
-                "x-internal-secret": secret,
-              },
-              body: JSON.stringify({ queueItemId: nextItem.id }),
-            }).catch(err => console.warn("Chain invoke error (non-fatal):", err?.message));
+            chainToNextItem(supabaseUrl, supabaseKey, secret, nextItem.id);
           }
         }
       } catch (updateError) {

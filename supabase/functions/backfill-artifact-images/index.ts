@@ -1,19 +1,13 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.80.0';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
+import { createSupabaseClient, getSupabaseUrl } from "../_shared/supabase-client.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsResponse = handleCorsPrelight(req);
+  if (corsResponse) return corsResponse;
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabaseUrl = getSupabaseUrl();
+    const supabase = createSupabaseClient();
 
     console.log('Starting artifact images backfill...');
 
@@ -99,9 +93,9 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Error in backfill-artifact-images function:', error);
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         error: error instanceof Error ? error.message : 'Unknown error',
-        success: false 
+        success: false
       }),
       {
         status: 500,

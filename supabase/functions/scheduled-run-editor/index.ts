@@ -1,34 +1,17 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-async function logCronJob(supabase: any, log: any) {
-  try {
-    const { error } = await supabase.from("cron_job_logs").insert(log);
-    if (error) {
-      console.error("Failed to log cron job:", error);
-    }
-  } catch (err) {
-    console.error("Failed to log cron job (exception):", err);
-  }
-}
+import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
+import { createSupabaseClient } from "../_shared/supabase-client.ts";
+import { logCronJob } from "../_shared/cron-logger.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsResponse = handleCorsPrelight(req);
+  if (corsResponse) return corsResponse;
 
   const startTime = Date.now();
   const now = new Date();
 
   console.log(`🕐 Scheduled editor run triggered at ${now.toISOString()}`);
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  const supabase = createSupabaseClient();
 
   try {
     // Check if AI editor scheduling is enabled
@@ -129,26 +112,57 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`✅ Schedule is enabled and time matches (${currentTimeEST} EST) - running AI editor`);
+    console.log(`✅ Schedule is enabled and time matches (${currentTimeEST} EST) - running editorial pipeline`);
 
-    // Invoke run-ai-editor
-    const { data, error } = await supabase.functions.invoke("run-ai-editor", {
+    // Stage 1: Fact-check pending stories → fact_checked
+    console.log("📋 Stage 1: Running fact-checker...");
+    const { data: factCheckData, error: factCheckError } = await supabase.functions.invoke("run-ai-fact-checker", {
       body: {},
     });
 
-    if (error) {
-      throw new Error(`AI Editor run failed: ${error.message}`);
+    if (factCheckError) {
+      console.error("⚠️ Fact-checker failed:", factCheckError.message);
+    } else {
+      console.log("✅ Fact-checker complete:", factCheckData);
     }
 
-    console.log("✅ AI Editor run complete:", data);
+    // Stage 2: Rewrite fact-checked stories → edited
+    console.log("📋 Stage 2: Running rewriter...");
+    const { data: rewriteData, error: rewriteError } = await supabase.functions.invoke("run-ai-rewriter", {
+      body: {},
+    });
+
+    if (rewriteError) {
+      console.error("⚠️ Rewriter failed:", rewriteError.message);
+    } else {
+      console.log("✅ Rewriter complete:", rewriteData);
+    }
+
+    // Stage 3: Editor evaluates edited stories → published/rejected
+    console.log("📋 Stage 3: Running editor...");
+    const { data: editorData, error: editorError } = await supabase.functions.invoke("run-ai-editor", {
+      body: {},
+    });
+
+    if (editorError) {
+      throw new Error(`AI Editor run failed: ${editorError.message}`);
+    }
+
+    console.log("✅ Editor complete:", editorData);
 
     const duration = Date.now() - startTime;
+    const pipelineResult = {
+      factChecker: factCheckData || { error: factCheckError?.message },
+      rewriter: rewriteData || { error: rewriteError?.message },
+      editor: editorData,
+    };
+
     await logCronJob(supabase, {
       job_name: "run-editor",
       schedule_check_passed: true,
       schedule_enabled: true,
       scheduled_times: schedule.scheduled_times,
-      reason: "Successfully ran AI editor",
+      reason: "Successfully ran editorial pipeline (3 stages)",
       execution_duration_ms: duration,
     });
 
@@ -156,7 +170,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         timestamp: new Date().toISOString(),
-        result: data,
+        result: pipelineResult,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

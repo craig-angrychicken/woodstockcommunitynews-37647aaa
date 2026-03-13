@@ -1,9 +1,5 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
+import { createSupabaseClient } from "../_shared/supabase-client.ts";
 
 // UUID v5 namespace for generating deterministic UUIDs
 const NAMESPACE_UUID = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
@@ -34,7 +30,7 @@ async function normalizeToUUID(guid: string): Promise<string> {
   const hashBuffer = await crypto.subtle.digest('SHA-1', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  
+
   // Format as UUID v5: set version (5) and variant bits
   const uuid = [
     hashHex.slice(0, 8),
@@ -43,7 +39,7 @@ async function normalizeToUUID(guid: string): Promise<string> {
     ((parseInt(hashHex.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, '0') + hashHex.slice(18, 20), // Variant bits
     hashHex.slice(20, 32)
   ].join('-');
-  
+
   return uuid;
 }
 
@@ -73,14 +69,11 @@ interface RSSFeed {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsResponse = handleCorsPrelight(req);
+  if (corsResponse) return corsResponse;
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = createSupabaseClient();
 
     const { dateFrom, dateTo, sourceIds, environment, queryHistoryId } = await req.json();
 
@@ -115,7 +108,7 @@ Deno.serve(async (req) => {
       try {
         console.log(`\n📡 Fetching RSS feed: ${source.name}`);
         console.log(`   URL: ${source.url}`);
-        
+
         // Get parser config for dynamic field mapping
         const parserConfig = source.parser_config;
         console.log(`🔧 Using parser config:`, parserConfig ? 'Custom' : 'Default');
@@ -125,28 +118,28 @@ Deno.serve(async (req) => {
         let lastError;
         const maxRetries = 3;
         const retryDelays = [2000, 4000, 8000]; // Exponential backoff
-        
+
         for (let attempt = 0; attempt < maxRetries; attempt++) {
           try {
             console.log(`   Attempt ${attempt + 1}/${maxRetries}...`);
             response = await fetch(source.url);
-            
+
             if (response.ok) {
               break; // Success!
             }
-            
+
             // Log HTTP error details
             const statusText = response.statusText;
             const responseBody = await response.text().catch(() => 'Unable to read response body');
             lastError = new Error(`HTTP ${response.status}: ${statusText}\nResponse: ${responseBody.substring(0, 500)}`);
             console.error(`   ❌ Attempt ${attempt + 1} failed:`, lastError.message);
-            
+
             // Don't retry on client errors (400-499), only server errors (500+) and network issues
             if (response.status < 500) {
               console.log(`   🚫 Not retrying client error ${response.status}`);
               throw lastError;
             }
-            
+
             if (attempt < maxRetries - 1) {
               const delay = retryDelays[attempt];
               console.log(`   ⏳ Waiting ${delay}ms before retry...`);
@@ -155,7 +148,7 @@ Deno.serve(async (req) => {
           } catch (fetchError: any) {
             lastError = fetchError;
             console.error(`   ❌ Attempt ${attempt + 1} failed:`, fetchError.message);
-            
+
             if (attempt < maxRetries - 1) {
               const delay = retryDelays[attempt];
               console.log(`   ⏳ Waiting ${delay}ms before retry...`);
@@ -163,7 +156,7 @@ Deno.serve(async (req) => {
             }
           }
         }
-        
+
         if (!response || !response.ok) {
           throw lastError || new Error('Failed to fetch RSS feed after retries');
         }
@@ -181,17 +174,17 @@ Deno.serve(async (req) => {
         console.log(`📅 Filtering items by date range...`);
         console.log(`   From: ${new Date(dateFromTime).toISOString()}`);
         console.log(`   To: ${new Date(dateToTime).toISOString()}`);
-        
+
         const filteredItems = items.filter((item, idx) => {
           const dateStr = item.pubDate || item.published;
           console.log(`   Item ${idx + 1}: pubDate="${dateStr}"`);
-          
+
           const itemDate = parseDate(dateStr);
           if (!itemDate) {
             console.log(`     ❌ Date parse failed`);
             return false;
           }
-          
+
           console.log(`     ✓ Parsed as: ${itemDate.toISOString()}`);
           const itemTime = itemDate.getTime();
           const inRange = itemTime >= dateFromTime && itemTime <= dateToTime;
@@ -210,31 +203,31 @@ Deno.serve(async (req) => {
             const linkField = parserConfig?.fieldMappings?.linkField || 'link';
             const dateField = parserConfig?.fieldMappings?.dateField || 'pubDate';
             const contentField = parserConfig?.fieldMappings?.contentField || 'description';
-            
+
             const title = item[titleField] || 'Untitled';
             const link = item[linkField] || '';
-            
+
             // Generate deterministic GUID from source + normalized title (content-based fingerprint)
             const normalizedTitle = title.toLowerCase().trim().replace(/\s+/g, ' ');
             const fingerprint = `${source.id}:${normalizedTitle}`;
             const guid = await normalizeToUUID(fingerprint);
-            
+
             const dateStr = item[dateField] || item.pubDate || item.published;
             const pubDate = parseDate(dateStr) || new Date();
 
             // Extract ALL images using configured fields
             const allImages = extractAllImages(item, parserConfig);
-            
+
             // Generate artifact GUID for storage path
             const artifactGuid = crypto.randomUUID();
-            
+
             // Download and upload images to Supabase Storage with robust error handling
             const storageImages: { original_url: string; stored_url: string; download_failed?: true }[] = [];
             const problematicDomains = ['facebook.com', 'instagram.com', 'twitter.com', 'x.com'];
-            
+
             for (let i = 0; i < allImages.length; i++) {
               const imageUrl = allImages[i];
-              
+
               // Validate URL format
               try {
                 new URL(imageUrl);
@@ -242,25 +235,25 @@ Deno.serve(async (req) => {
                 console.warn(`⚠️ Invalid image URL format, skipping: ${imageUrl}`);
                 continue;
               }
-              
+
               // Check for known problematic domains
               const isProblematic = problematicDomains.some(domain => imageUrl.includes(domain));
               if (isProblematic) {
                 console.warn(`⚠️ Protected social media URL detected, may fail: ${imageUrl}`);
               }
-              
+
               try {
                 console.log(`📥 Downloading image ${i + 1}/${allImages.length}: ${imageUrl}`);
-                
+
                 // Retry logic with exponential backoff (max 3 attempts)
                 let imgResponse: Response | null = null;
                 let lastError: Error | null = null;
-                
+
                 for (let attempt = 1; attempt <= 3; attempt++) {
                   try {
                     const imgController = new AbortController();
                     const imgTimeoutId = setTimeout(() => imgController.abort(), 30000); // 30s timeout
-                    
+
                     imgResponse = await fetch(imageUrl, {
                       signal: imgController.signal,
                       headers: {
@@ -271,11 +264,11 @@ Deno.serve(async (req) => {
                       }
                     });
                     clearTimeout(imgTimeoutId);
-                    
+
                     if (imgResponse.ok) {
                       break; // Success
                     }
-                    
+
                     // Handle 403 Forbidden (protected URLs) — try weserv.nl proxy first
                     if (imgResponse.status === 403) {
                       console.warn(`🔒 Image returned 403. Attempting weserv.nl proxy for: ${imageUrl}`);
@@ -333,23 +326,23 @@ Deno.serve(async (req) => {
 
                       break; // Don't retry 403s
                     }
-                    
+
                     // Log non-OK responses
                     console.warn(`⚠️ Image fetch returned ${imgResponse.status} on attempt ${attempt}/3`);
                     lastError = new Error(`HTTP ${imgResponse.status}: ${imgResponse.statusText}`);
-                    
+
                   } catch (err) {
                     lastError = err instanceof Error ? err : new Error('Unknown error');
                     console.warn(`⚠️ Image fetch failed on attempt ${attempt}/3:`, lastError.message);
                   }
-                  
+
                   // Exponential backoff before retry (1s, 2s)
                   if (attempt < 3) {
                     const delayMs = 1000 * attempt;
                     await new Promise(resolve => setTimeout(resolve, delayMs));
                   }
                 }
-                
+
                 // Check if we got a successful response
                 if (!imgResponse || !imgResponse.ok) {
                   console.error(`❌ Failed to download image after 3 attempts:`, {
@@ -360,40 +353,40 @@ Deno.serve(async (req) => {
                   });
                   continue;
                 }
-                
+
                 // Get image data and content type
                 const imageBuffer = await imgResponse.arrayBuffer();
                 const contentType = imgResponse.headers.get('content-type') || 'image/jpeg';
-                
+
                 // Validate content type
                 if (!contentType.startsWith('image/')) {
                   console.error(`❌ Invalid content type (${contentType}), expected image: ${imageUrl}`);
                   continue;
                 }
-                
+
                 const ext = contentType.split('/')[1]?.split(';')[0] || 'jpg';
-                
+
                 // Upload to Storage
                 const storagePath = `${artifactGuid}/image-${i}.${ext}`;
                 console.log(`⬆️ Uploading to Storage: ${storagePath}`);
-                
+
                 const { error: uploadError } = await supabase.storage
                   .from('artifact-images')
                   .upload(storagePath, imageBuffer, {
                     contentType,
                     upsert: false
                   });
-                
+
                 if (uploadError) {
                   console.error(`❌ Storage upload error:`, uploadError);
                   continue;
                 }
-                
+
                 // Get public URL
                 const { data: urlData } = supabase.storage
                   .from('artifact-images')
                   .getPublicUrl(storagePath);
-                
+
                 if (urlData?.publicUrl) {
                   storageImages.push({ original_url: imageUrl, stored_url: urlData.publicUrl });
                   console.log(`✅ Stored image ${i + 1}: ${urlData.publicUrl}`);
@@ -405,13 +398,13 @@ Deno.serve(async (req) => {
                 });
               }
             }
-            
+
             const heroImage = storageImages[0]?.stored_url || null;
             console.log(`📸 Successfully stored ${storageImages.length}/${allImages.length} images`);
 
             // Get content using configured field
             let content = item[contentField] || item['content:encoded'] || item.content || item.description || item.summary || '';
-            
+
             content = cleanText(content);
 
             // Upsert into artifacts table with Storage-hosted images (updates if GUID exists)
@@ -483,7 +476,7 @@ Deno.serve(async (req) => {
       } catch (error) {
         console.error(`❌ Error processing ${source.name}:`, error);
         totalErrors++;
-        
+
         // Update query history with failed count
         if (queryHistoryId) {
           const { data: currentHistory } = await supabase
@@ -491,7 +484,7 @@ Deno.serve(async (req) => {
             .select('sources_failed')
             .eq('id', queryHistoryId)
             .single();
-          
+
           await supabase
             .from('query_history')
             .update({
@@ -534,17 +527,15 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('❌ Fatal error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    
+
     // Try to update query history with error status
     try {
       const body = await req.clone().json().catch(() => ({}));
       const queryHistoryId = body.queryHistoryId;
-      
+
       if (queryHistoryId) {
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-        const supabase = createClient(supabaseUrl, supabaseKey);
-        
+        const supabase = createSupabaseClient();
+
         await supabase
           .from('query_history')
           .update({
@@ -557,7 +548,7 @@ Deno.serve(async (req) => {
     } catch (updateError) {
       console.error('Failed to update query history:', updateError);
     }
-    
+
     return new Response(
       JSON.stringify({ error: message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
@@ -568,14 +559,14 @@ Deno.serve(async (req) => {
 // Simple RSS/Atom parser
 function parseRSSFeed(xmlText: string): RSSFeed {
   const items: RSSItem[] = [];
-  
+
   // Match both RSS <item> and Atom <entry> tags
   const itemRegex = /<(?:item|entry)[^>]*>([\s\S]*?)<\/(?:item|entry)>/gi;
   const matches = xmlText.matchAll(itemRegex);
 
   for (const match of matches) {
     const itemXml = match[1];
-    
+
     items.push({
       title: extractTag(itemXml, 'title'),
       link: extractTag(itemXml, 'link') || extractAttr(itemXml, 'link', 'href'),
@@ -601,21 +592,21 @@ function extractTag(xml: string, tagName: string): string {
   if (cdataMatch) {
     return cdataMatch[1].trim();
   }
-  
+
   // Fallback to regular tag content
   const regex = new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i');
   const match = xml.match(regex);
   if (!match) return '';
-  
+
   let content = match[1].trim();
-  
+
   // Handle case where CDATA might be present but with extra whitespace
   const cdataInnerRegex = /^<!\[CDATA\[([\s\S]*)\]\]>$/;
   const cdataInner = content.match(cdataInnerRegex);
   if (cdataInner) {
     content = cdataInner[1].trim();
   }
-  
+
   return content;
 }
 
@@ -636,7 +627,7 @@ function parseDate(dateStr: string | undefined): Date | null {
 
 function extractAllImages(item: RSSItem, config?: any): string[] {
   const images: string[] = [];
-  
+
   // Get image fields from config or use defaults
   const imageFields = config?.fieldMappings?.imageFields || [
     'enclosure.url',
@@ -644,16 +635,16 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
     'media:thumbnail.url',
     'image.url'
   ];
-  
+
   // Extract images from configured fields
   for (const field of imageFields) {
     const parts = field.split('.');
     let value: any = item;
-    
+
     for (const part of parts) {
       value = value?.[part];
     }
-    
+
     if (typeof value === 'string' && value) {
       console.log(`  🖼️ Found image in ${field}: ${value.substring(0, 80)}...`);
       images.push(value);
@@ -661,12 +652,12 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
       images.push(...value.filter(v => typeof v === 'string'));
     }
   }
-  
+
   // Handle media:group special case
   if (item['media:group']?.urls && Array.isArray(item['media:group'].urls)) {
     images.push(...item['media:group'].urls);
   }
-  
+
   // CRITICAL: Extract images from description/content/summary fields
   // FetchRSS and rss.app embed images as markdown or HTML in these fields
   const textFields = [
@@ -675,10 +666,10 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
     item.summary,
     item['content:encoded']
   ].filter(Boolean).join('\n');
-  
+
   if (textFields) {
     console.log(`  📝 Scanning ${textFields.length} chars of text content for images...`);
-    
+
     // Extract markdown images: ![alt](url) or ![](url)
     const markdownImageRegex = /!\[(?:[^\]]*)\]\((https?:\/\/[^\s\)]+)\)/g;
     let match;
@@ -686,21 +677,21 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
       console.log(`  🖼️ Found markdown image: ${match[1].substring(0, 80)}...`);
       images.push(match[1]);
     }
-    
+
     // Extract HTML images: <img src="url" ... > or <img src='url' ...>
     const htmlImageRegex = /<img[^>]+src=["']([^"']+)["']/gi;
     while ((match = htmlImageRegex.exec(textFields)) !== null) {
       console.log(`  🖼️ Found HTML img tag: ${match[1].substring(0, 80)}...`);
       images.push(match[1]);
     }
-    
+
     // Extract media:content URLs embedded in text (some feeds do this)
     const mediaContentRegex = /<media:content[^>]+url=["']([^"']+)["']/gi;
     while ((match = mediaContentRegex.exec(textFields)) !== null) {
       console.log(`  🖼️ Found media:content: ${match[1].substring(0, 80)}...`);
       images.push(match[1]);
     }
-    
+
     // Extract enclosure URLs embedded in text
     const enclosureRegex = /<enclosure[^>]+url=["']([^"']+)["']/gi;
     while ((match = enclosureRegex.exec(textFields)) !== null) {
@@ -708,7 +699,7 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
       images.push(match[1]);
     }
   }
-  
+
   // Encode and validate all URLs
   const validImages: string[] = [];
   for (const rawUrl of images) {
@@ -718,13 +709,13 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
         console.log(`  ⏭️ Skipping tracking pixel: ${rawUrl.substring(0, 50)}...`);
         continue;
       }
-      
+
       const url = new URL(rawUrl);
       // Ensure the URL looks like an image
       const path = url.pathname.toLowerCase();
       const hasImageExt = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(path);
       const hasImageInUrl = rawUrl.includes('image') || rawUrl.includes('photo') || rawUrl.includes('media') || rawUrl.includes('cdn') || rawUrl.includes('fbcdn');
-      
+
       // Allow URLs that either have image extension or contain image-related keywords
       if (hasImageExt || hasImageInUrl || rawUrl.includes('scontent')) {
         const encodedUrl = `${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
@@ -736,7 +727,7 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
       console.error(`  ❌ Invalid image URL: ${rawUrl}`, error);
     }
   }
-  
+
   // Remove duplicates and return
   const uniqueImages = [...new Set(validImages)];
   console.log(`  📸 Total extracted: ${uniqueImages.length} unique image(s)`);
@@ -753,5 +744,3 @@ function cleanText(text: string): string {
     .replace(/&quot;/g, '"')
     .trim();
 }
-
-

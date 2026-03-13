@@ -325,6 +325,8 @@ const Stories = () => {
               <SelectContent>
                 <SelectItem value="all">All</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="fact_checked">Fact Checked</SelectItem>
+                <SelectItem value="edited">Edited</SelectItem>
                 <SelectItem value="published">Published</SelectItem>
                 <SelectItem value="rejected">Rejected</SelectItem>
                 <SelectItem value="draft">Draft</SelectItem>

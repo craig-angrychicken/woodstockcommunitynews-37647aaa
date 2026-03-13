@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -19,7 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarIcon, Loader2, Sparkles, CheckCircle, XCircle, X } from "lucide-react";
+import { CalendarIcon, Loader2, Sparkles, CheckCircle, XCircle, X, ArrowRight } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { formatUTCtoEST } from "@/lib/time-utils";
@@ -379,6 +380,33 @@ const AIJournalist = () => {
           Generate news stories from your stored artifacts using AI
         </p>
       </div>
+
+      {/* Editorial Pipeline Stages */}
+      <Card>
+        <CardContent className="py-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">Editorial Pipeline</p>
+          <div className="flex items-center gap-1 flex-wrap">
+            {[
+              { label: "Pending", description: "AI generates draft from artifacts" },
+              { label: "Fact Checked", description: "AI verifies claims against sources" },
+              { label: "Edited", description: "AI rewrites for style and clarity" },
+              { label: "Published / Rejected", description: "Final review and publish to Ghost" },
+            ].map((stage, index) => (
+              <div key={stage.label} className="flex items-center gap-1">
+                {index > 0 && <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0" />}
+                <div className="group relative">
+                  <Badge variant="outline" className="text-xs whitespace-nowrap cursor-default">
+                    {index + 1}. {stage.label}
+                  </Badge>
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 text-xs bg-popover text-popover-foreground border rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
+                    {stage.description}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="run" className="space-y-6">
         <TabsList>

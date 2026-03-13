@@ -1,32 +1,16 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
+import { createSupabaseClient, getSupabaseUrl } from "../_shared/supabase-client.ts";
+import { callLLM } from "../_shared/llm-client.ts";
 
 const MAX_STORIES_PER_RUN = 20;
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsResponse = handleCorsPrelight(req);
+  if (corsResponse) return corsResponse;
 
   console.log("🖊️ run-ai-editor started");
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const openRouterApiKey = Deno.env.get("OPENROUTER_API_KEY");
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-
-  if (!supabaseUrl || !supabaseKey) {
-    return new Response(
-      JSON.stringify({ success: false, error: "Missing required environment variables" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  const supabase = createSupabaseClient();
 
   const summary = { published: 0, rejected: 0, featured: 0, skipped: 0, errors: 0 };
 
@@ -62,8 +46,10 @@ Deno.serve(async (req) => {
       throw new Error("No model configured");
     }
 
-    // Step 3: Fetch pending production stories (with linked artifact for publish-to-ghost)
-    const { data: stories, error: storiesError } = await supabase
+    // Step 3: Fetch edited production stories (or pending for backward compat)
+    // The multi-stage pipeline flow is: pending → fact_checked → edited → published/rejected
+    // Editor processes 'edited' stories first, then falls back to 'pending' for backward compat
+    const { data: editedStories, error: editedError } = await supabase
       .from("stories")
       .select(`
         id,
@@ -71,13 +57,50 @@ Deno.serve(async (req) => {
         content,
         hero_image_url,
         created_at,
+        structured_metadata,
         story_artifacts(artifact_id, artifacts(date))
       `)
-      .eq("status", "pending")
+      .eq("status", "edited")
       .eq("environment", "production")
       .eq("is_test", false)
       .order("created_at", { ascending: true })
       .limit(MAX_STORIES_PER_RUN);
+
+    if (editedError) {
+      throw new Error(`Failed to fetch edited stories: ${editedError.message}`);
+    }
+
+    // Also fetch pending stories (backward compat: stories created before the pipeline existed)
+    const remainingSlots = MAX_STORIES_PER_RUN - (editedStories?.length || 0);
+    let pendingStories: any[] = [];
+
+    if (remainingSlots > 0) {
+      const { data: pending, error: pendingError } = await supabase
+        .from("stories")
+        .select(`
+          id,
+          title,
+          content,
+          hero_image_url,
+          created_at,
+          structured_metadata,
+          story_artifacts(artifact_id, artifacts(date))
+        `)
+        .eq("status", "pending")
+        .eq("environment", "production")
+        .eq("is_test", false)
+        .order("created_at", { ascending: true })
+        .limit(remainingSlots);
+
+      if (pendingError) {
+        console.warn("⚠️ Failed to fetch pending stories:", pendingError.message);
+      } else {
+        pendingStories = pending || [];
+      }
+    }
+
+    const stories = [...(editedStories || []), ...pendingStories];
+    const storiesError = null;
 
     if (storiesError) {
       throw new Error(`Failed to fetch pending stories: ${storiesError.message}`);
@@ -106,26 +129,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Determine LLM API endpoint and auth
-    const isOpenRouter = modelConfig.model_provider === "openrouter";
-    const apiUrl = isOpenRouter
-      ? "https://openrouter.ai/api/v1/chat/completions"
-      : "https://ai.gateway.lovable.dev/v1/chat/completions";
-
-    const authToken = isOpenRouter ? openRouterApiKey : LOVABLE_API_KEY;
-    if (!authToken) {
-      throw new Error(isOpenRouter ? "OPENROUTER_API_KEY not configured" : "LOVABLE_API_KEY not configured");
-    }
-
-    const llmHeaders: Record<string, string> = {
-      Authorization: `Bearer ${authToken}`,
-      "Content-Type": "application/json",
-    };
-    if (isOpenRouter) {
-      llmHeaders["HTTP-Referer"] = supabaseUrl;
-      llmHeaders["X-Title"] = "Woodstock Community News AI Editor";
-    }
-
     // Step 4: Evaluate each story
     for (const story of storyList) {
       const storyTitle = story.title || "Untitled";
@@ -145,27 +148,16 @@ HEADLINE: ${storyTitle}
 
 ${story.content || ""}`;
 
-        // Call LLM
-        const aiResponse = await fetch(apiUrl, {
-          method: "POST",
-          headers: llmHeaders,
-          body: JSON.stringify({
-            model: modelConfig.model_name,
-            messages: [{ role: "user", content: fullPrompt }],
-            max_tokens: 200,
-            temperature: 0.2,
-          }),
+        // Call LLM via shared client
+        const llmResponse = await callLLM({
+          prompt: fullPrompt,
+          modelConfig,
+          maxTokens: 200,
+          temperature: 0.2,
+          appTitle: "Woodstock Community News AI Editor",
         });
 
-        if (!aiResponse.ok) {
-          const errorText = await aiResponse.text();
-          console.error(`❌ LLM error for story ${story.id}: ${aiResponse.status} ${errorText}`);
-          summary.errors++;
-          continue; // Fail-safe: leave as pending
-        }
-
-        const aiData = await aiResponse.json();
-        const verdict = (aiData.choices?.[0]?.message?.content || "").trim();
+        const verdict = llmResponse.content.trim();
 
         console.log(`📋 Verdict for "${storyTitle}": ${verdict.substring(0, 100)}`);
 
@@ -192,6 +184,7 @@ ${story.content || ""}`;
                 artifactId,
                 featured: isFeatured,
                 publishedAt,
+                structuredMetadata: (story as any).structured_metadata || null,
               },
             }
           );

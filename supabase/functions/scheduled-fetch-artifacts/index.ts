@@ -1,34 +1,17 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-async function logCronJob(supabase: any, log: any) {
-  try {
-    const { error } = await supabase.from("cron_job_logs").insert(log);
-    if (error) {
-      console.error("Failed to log cron job:", error);
-    }
-  } catch (err) {
-    console.error("Failed to log cron job (exception):", err);
-  }
-}
+import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
+import { createSupabaseClient } from "../_shared/supabase-client.ts";
+import { logCronJob } from "../_shared/cron-logger.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsResponse = handleCorsPrelight(req);
+  if (corsResponse) return corsResponse;
 
   const startTime = Date.now();
   const now = new Date();
-  
+
   console.log(`🕐 Scheduled artifact fetch triggered at ${now.toISOString()}`);
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  const supabase = createSupabaseClient();
 
   try {
     // Check if artifact fetching scheduling is enabled
@@ -61,9 +44,9 @@ Deno.serve(async (req) => {
         execution_duration_ms: duration,
       });
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          message: "No schedule configured. Please configure a schedule in the UI." 
+        JSON.stringify({
+          success: false,
+          message: "No schedule configured. Please configure a schedule in the UI."
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
       );
@@ -81,9 +64,9 @@ Deno.serve(async (req) => {
         execution_duration_ms: duration,
       });
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          message: "Scheduling is disabled. Enable it in the UI to run scheduled fetching." 
+        JSON.stringify({
+          success: false,
+          message: "Scheduling is disabled. Enable it in the UI to run scheduled fetching."
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
       );
@@ -168,11 +151,11 @@ Deno.serve(async (req) => {
     const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
     const ET_OFFSET_MS = new Date(etStr).getTime() - new Date(utcStr).getTime();
     const estNow = new Date(now.getTime() + ET_OFFSET_MS);
-    
+
     // True 24 hours back from now
     const dateTo = estNow.toISOString();
     const dateFrom = new Date(estNow.getTime() - 24 * 60 * 60 * 1000).toISOString();
-    
+
     // Format ET times for logging
     const formatET = (date: Date) => {
       return date.toLocaleString('en-US', {
@@ -217,7 +200,7 @@ Deno.serve(async (req) => {
 
     // Make ONE batch call to fetch-rss-feeds with ALL RSS sources
     console.log(`🔄 Batch fetching ${sources.length} RSS sources...`);
-    
+
     const { data: fetchResult, error: fetchError } = await supabase.functions.invoke('fetch-rss-feeds', {
       body: {
         dateFrom,
@@ -266,7 +249,7 @@ Deno.serve(async (req) => {
       sourcesProcessed: sources.length,
       artifactsCount: totalArtifactsCount,
       historyId: historyEntry.id,
-      message: fetchError 
+      message: fetchError
         ? `Failed to fetch RSS feeds: ${errorMessage}`
         : `Processed ${sources.length} RSS sources in batch. Created ${totalArtifactsCount} artifacts.`,
     };

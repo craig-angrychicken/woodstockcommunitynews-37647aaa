@@ -1,19 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
-import { 
-  FileText, 
-  Search, 
-  Database, 
-  MessageSquare, 
+import {
+  FileText,
+  Search,
+  Database,
+  MessageSquare,
   Box,
   Clock,
   HardDrive,
   TrendingUp,
-  Calendar
+  Calendar,
+  Activity
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CronJobMonitor } from "@/components/monitoring/CronJobMonitor";
 
 const Dashboard = () => {
   // Fetch stats
@@ -298,6 +300,15 @@ const Dashboard = () => {
             );
           })}
         </div>
+      </section>
+
+      {/* System Health */}
+      <section>
+        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          <Activity className="h-5 w-5" />
+          System Health
+        </h2>
+        <CronJobMonitor />
       </section>
 
       {/* Recent Activity */}
