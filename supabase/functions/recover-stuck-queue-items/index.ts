@@ -33,9 +33,8 @@ Deno.serve(async (req) => {
       const duration = Date.now() - startTime;
       await logCronJob(supabase, {
         job_name: "recover-stuck-queue-items",
-        stuck_items_found: 0,
-        recovered: 0,
-        failed_permanently: 0,
+        schedule_check_passed: true,
+        reason: "Found 0 stuck items",
         execution_duration_ms: duration,
       });
 
@@ -128,7 +127,8 @@ Deno.serve(async (req) => {
 
     await logCronJob(supabase, {
       job_name: "recover-stuck-queue-items",
-      ...summary,
+      schedule_check_passed: true,
+      reason: `Recovered ${recovered}, failed permanently: ${failedPermanently} of ${stuckItems.length} stuck items`,
       execution_duration_ms: duration,
     });
 
@@ -144,6 +144,7 @@ Deno.serve(async (req) => {
 
     await logCronJob(supabase, {
       job_name: "recover-stuck-queue-items",
+      schedule_check_passed: false,
       error_message: error instanceof Error ? error.message : "Unknown error",
       execution_duration_ms: duration,
     });

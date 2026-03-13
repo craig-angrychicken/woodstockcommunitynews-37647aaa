@@ -126,13 +126,14 @@ Deno.serve(async (req) => {
     }
 
     // Mark as processing
-    await supabase
+    const { error: processingError } = await supabase
       .from("journalism_queue")
       .update({
         status: "processing",
         started_at: new Date().toISOString(),
       })
       .eq("id", queueItemId);
+    if (processingError) throw new Error(`Failed to mark queue item as processing: ${processingError.message}`);
 
     console.log(`📝 Processing artifact: ${queueItem.artifact.title || queueItem.artifact.name}`);
 
@@ -256,7 +257,7 @@ ${artifactData}`;
 
       console.log(`⏭️ Skipping artifact — insufficient source material: ${skipReason}`);
 
-      await supabase
+      const { error: skipError } = await supabase
         .from("journalism_queue")
         .update({
           status: "skipped",
@@ -264,6 +265,7 @@ ${artifactData}`;
           error_message: skipReason,
         })
         .eq("id", queueItemId);
+      if (skipError) throw new Error(`Failed to mark queue item as skipped: ${skipError.message}`);
 
       await updateHistoryProgress(supabase, queueItem.query_history_id);
 
@@ -362,7 +364,7 @@ ${artifactData}`;
     });
 
     // Mark queue item as completed
-    await supabase
+    const { error: completedError } = await supabase
       .from("journalism_queue")
       .update({
         status: "completed",
@@ -370,6 +372,7 @@ ${artifactData}`;
         story_id: newStory.id,
       })
       .eq("id", queueItemId);
+    if (completedError) throw new Error(`Failed to mark queue item as completed: ${completedError.message}`);
 
     // Update query history with progress
     await updateHistoryProgress(supabase, queueItem.query_history_id);

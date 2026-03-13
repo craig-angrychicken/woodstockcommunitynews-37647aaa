@@ -194,7 +194,7 @@ const AIJournalist = () => {
       const { error } = await supabase
         .from('query_history')
         .update({
-          status: 'cancelled',
+          status: 'failed',
           error_message: 'Cancelled by user',
           completed_at: new Date().toISOString()
         })
