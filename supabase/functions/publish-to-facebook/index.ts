@@ -22,7 +22,7 @@ serve(async (req) => {
     // Build post message
     const message = excerpt ? `${title}\n\n${excerpt}` : title;
 
-    // Step 1: Create the Facebook post
+    // Step 1: Create the Facebook post (comments disabled at creation time)
     const feedResponse = await fetch(
       `https://graph.facebook.com/v21.0/${PAGE_ID}/feed`,
       {
@@ -31,6 +31,7 @@ serve(async (req) => {
         body: JSON.stringify({
           message,
           link: ghostUrl,
+          comment_control: 'BLOCKED',
           access_token: PAGE_ACCESS_TOKEN,
         }),
       }
@@ -44,32 +45,9 @@ serve(async (req) => {
 
     const feedResult = await feedResponse.json();
     const postId: string = feedResult.id; // format: "{pageId}_{postId}"
-    console.log('✅ Facebook post created:', postId);
+    console.log('✅ Facebook post created (comments blocked):', postId);
 
-    // Step 2: Disable comments (non-fatal)
-    try {
-      const disableResponse = await fetch(
-        `https://graph.facebook.com/v21.0/${postId}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            comment_enabled: false,
-            access_token: PAGE_ACCESS_TOKEN,
-          }),
-        }
-      );
-      if (!disableResponse.ok) {
-        const disableError = await disableResponse.text();
-        console.warn('⚠️ Could not disable comments (non-fatal):', disableError);
-      } else {
-        console.log('✅ Comments disabled on Facebook post');
-      }
-    } catch (disableErr) {
-      console.warn('⚠️ Comment disable threw (non-fatal):', disableErr);
-    }
-
-    // Step 3: Update DB (non-fatal)
+    // Step 2: Update DB (non-fatal)
     const numericPostId = postId.includes('_') ? postId.split('_')[1] : postId;
     const facebookPostUrl = `https://www.facebook.com/${PAGE_ID}/posts/${numericPostId}`;
 
