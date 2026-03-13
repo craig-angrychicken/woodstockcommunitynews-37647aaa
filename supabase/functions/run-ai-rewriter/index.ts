@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
           ? `\n\n## Fact-Check Feedback\n${story.fact_check_notes}`
           : "";
 
-        const prompt = `You are a senior editor at a local news outlet. Your job is to improve this article based on fact-check feedback.
+        const prompt = `You are a senior editor at Woodstock Community News, a local news outlet covering Woodstock, Georgia. Your job is to improve this article based on fact-check feedback.
 
 ## Current Article
 HEADLINE: ${storyTitle}

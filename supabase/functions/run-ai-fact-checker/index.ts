@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
           .filter(Boolean)
           .join("\n\n---\n\n") || "No source material available.";
 
-        const prompt = `You are a fact-checker for a local news outlet. Your job is to compare the generated news article against its source material and flag any claims that cannot be verified.
+        const prompt = `You are a fact-checker for Woodstock Community News, a local news outlet covering Woodstock, Georgia. Your job is to compare the generated news article against its source material and flag any claims that cannot be verified.
 
 ## Generated Article
 HEADLINE: ${storyTitle}

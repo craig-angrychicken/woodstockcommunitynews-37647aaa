@@ -23,7 +23,7 @@ Never commit `.env` — it contains secrets.
 ## App Context
 
 ### Overview
-Woodstock Wire 2.0 — private admin tool for AI-generated local news.
+Woodstock Wire 2.0 — private admin tool for AI-generated local news for Woodstock, Georgia.
 
 **Stack:** React 18 + Vite + TypeScript + Tailwind + shadcn/ui (frontend); Supabase (PostgreSQL + Deno edge functions); Ghost CMS (publishing); OpenRouter (LLM access).
 
