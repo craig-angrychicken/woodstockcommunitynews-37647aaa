@@ -51,3 +51,6 @@ verify_jwt = false
 [functions.run-ai-rewriter]
 verify_jwt = false
 
+[functions.publish-to-facebook]
+verify_jwt = false
+

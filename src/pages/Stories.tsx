@@ -37,7 +37,7 @@ const Stories = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('stories')
-        .select('id, title, content, status, editor_notes, is_test, article_type, prompt_version_id, created_at, environment, ghost_url, hero_image_url, published_at, source_id, guid, featured')
+        .select('id, title, content, status, editor_notes, is_test, article_type, prompt_version_id, created_at, environment, ghost_url, hero_image_url, published_at, source_id, guid, featured, structured_metadata, facebook_post_id, facebook_post_url, facebook_posted_at')
         .order('created_at', { ascending: false });
       
       if (error) throw error;
@@ -252,23 +252,50 @@ const Stories = () => {
       if (result.success) {
         await updateStoryMutation.mutateAsync({
           id: storyToPublish.id,
-          updates: { 
+          updates: {
             status: 'published',
             published_at: new Date().toISOString(),
             ghost_url: result.url
           }
         });
-        
-        toast({
-          title: storyToPublish.ghost_url ? "Updated on Ghost!" : "Published to Ghost!",
-          description: result.url ? (
-            <a href={result.url} target="_blank" rel="noopener noreferrer" 
-               className="text-primary hover:underline">
-              View on Ghost →
-            </a>
-          ) : (storyToPublish.ghost_url ? "Story updated successfully" : "Story published successfully")
-        });
-        
+
+        // Facebook: only on first publish (not re-publish/update)
+        const isFirstPublish = !storyToPublish.ghost_url;
+        if (isFirstPublish) {
+          try {
+            const excerpt = storyToPublish.structured_metadata?.subhead || undefined;
+            const { data: fbData, error: fbError } = await supabase.functions.invoke(
+              'publish-to-facebook',
+              { body: { storyId: storyToPublish.id, ghostUrl: result.url, title: storyToPublish.title, excerpt } }
+            );
+
+            if (fbError || !fbData?.success) {
+              const reason = fbError?.message || fbData?.error || 'Unknown error';
+              toast({ title: "Published to Ghost!", description: `Facebook warning: ${reason}`, variant: "destructive" });
+            } else {
+              toast({
+                title: "Published to Ghost + Facebook!",
+                description: (
+                  <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                    View on Ghost →
+                  </a>
+                )
+              });
+            }
+          } catch (fbErr: any) {
+            toast({ title: "Published to Ghost!", description: `Facebook failed: ${fbErr.message}`, variant: "destructive" });
+          }
+        } else {
+          toast({
+            title: "Updated on Ghost!",
+            description: result.url ? (
+              <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                View on Ghost →
+              </a>
+            ) : "Story updated successfully"
+          });
+        }
+
         setShowDetailModal(false);
       }
     } catch (error: any) {
