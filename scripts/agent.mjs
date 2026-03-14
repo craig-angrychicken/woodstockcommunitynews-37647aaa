@@ -344,7 +344,7 @@ async function main() {
   let toolCallCount = 0;
 
   while (toolCallCount < MAX_TOOL_CALLS) {
-    const response = await client.messages.create({
+    const stream = client.messages.stream({
       model: "claude-sonnet-4-6",
       max_tokens: 50000,
       thinking: { type: "adaptive" },
@@ -352,6 +352,7 @@ async function main() {
       tools,
       messages,
     });
+    const response = await stream.finalMessage();
 
     // Log any text or thinking blocks
     for (const block of response.content) {
