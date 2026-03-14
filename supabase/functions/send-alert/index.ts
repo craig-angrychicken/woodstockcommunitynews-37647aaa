@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "Woodstock Wire Alerts <alerts@woodstockwire.com>",
+        from: "Woodstock Community News Alerts <alerts@woodstockcommunity.news>",
         to: [alertEmail],
         subject: `[Alert] ${functionName} failed`,
         html: `
@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
           <p><strong>Time:</strong> ${timestamp || new Date().toISOString()}</p>
           ${context ? `<p><strong>Context:</strong> <pre>${JSON.stringify(context, null, 2)}</pre></p>` : ""}
           <hr>
-          <p><em>Sent by Woodstock Wire monitoring system</em></p>
+          <p><em>Sent by Woodstock Community News monitoring system</em></p>
         `,
       }),
     });

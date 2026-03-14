@@ -1,4 +1,4 @@
-# Project: Woodstock Community News (Woodstock Wire 2.0)
+# Project: Woodstock Community News
 
 ## Supabase Deployment
 
@@ -12,7 +12,7 @@ supabase db push
 supabase functions deploy
 ```
 
-The project is already linked to `cceprnhnpqnpexmouuig` (Woodstock Wire 2.0).
+The project is already linked to `cceprnhnpqnpexmouuig` (Woodstock Community News).
 
 ## GitHub
 
@@ -23,7 +23,7 @@ Never commit `.env` — it contains secrets.
 ## App Context
 
 ### Overview
-Woodstock Wire 2.0 — private admin tool for AI-generated local news for Woodstock, Georgia and Cherokee County.
+Woodstock Community News — private admin tool for AI-generated local news for Woodstock, Georgia and Cherokee County.
 
 **Stack:** React 18 + Vite + TypeScript + Tailwind + shadcn/ui (frontend); Supabase (PostgreSQL + Deno edge functions); Ghost CMS (publishing); OpenRouter (LLM access).
 
