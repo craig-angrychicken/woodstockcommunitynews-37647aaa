@@ -346,7 +346,7 @@ async function main() {
   while (toolCallCount < MAX_TOOL_CALLS) {
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 8192,
+      max_tokens: 50000,
       thinking: { type: "adaptive" },
       system: SYSTEM_PROMPT,
       tools,
