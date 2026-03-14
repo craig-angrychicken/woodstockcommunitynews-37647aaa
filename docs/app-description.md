@@ -2,7 +2,7 @@
 
 ## What it is
 
-Woodstock Wire 2.0 is a private admin tool for AI-driven local news generation serving Woodstock, Georgia. It automates the full editorial pipeline — from scraping RSS feeds to publishing finished articles on Ghost CMS — with human review as an optional final gate.
+Woodstock Wire 2.0 is a private admin tool for AI-driven local news generation serving Woodstock, Georgia and Cherokee County. It automates the full editorial pipeline — from scraping RSS feeds to publishing finished articles on Ghost CMS — with human review as an optional final gate.
 
 ## The Problem It Solves
 
