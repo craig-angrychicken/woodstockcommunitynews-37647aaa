@@ -23,7 +23,12 @@ const AIEditor = () => {
 
   // Run tab state
   const [isRunning, setIsRunning] = useState(false);
-  const [runResult, setRunResult] = useState<{ published?: number; rejected?: number; featured?: number; skipped?: number; errors?: number } | null>(null);
+  const [runStage, setRunStage] = useState<"fact-check" | "rewrite" | "edit" | null>(null);
+  const [runResult, setRunResult] = useState<{
+    factCheck?: { checked?: number; flagged?: number; errors?: number };
+    rewrite?: { rewritten?: number; errors?: number };
+    editor?: { published?: number; rejected?: number; featured?: number; skipped?: number; errors?: number };
+  } | null>(null);
 
   // Schedule tab state
   const [editorScheduleTimes, setEditorScheduleTimes] = useState<string[]>([]);
@@ -78,22 +83,37 @@ const AIEditor = () => {
     },
   });
 
-  // Run AI Editor mutation
+  // Run full editorial pipeline mutation (fact-check → rewrite → edit)
   const runMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("run-ai-editor");
-      if (error) throw error;
-      return data;
+      // Stage 1: Fact-check
+      setRunStage("fact-check");
+      const { data: factCheckData, error: factCheckError } = await supabase.functions.invoke("run-ai-fact-checker");
+      if (factCheckError) throw new Error(`Fact-checker failed: ${factCheckError.message}`);
+
+      // Stage 2: Rewrite
+      setRunStage("rewrite");
+      const { data: rewriteData, error: rewriteError } = await supabase.functions.invoke("run-ai-rewriter");
+      if (rewriteError) throw new Error(`Rewriter failed: ${rewriteError.message}`);
+
+      // Stage 3: Editor
+      setRunStage("edit");
+      const { data: editorData, error: editorError } = await supabase.functions.invoke("run-ai-editor");
+      if (editorError) throw new Error(`Editor failed: ${editorError.message}`);
+
+      return { factCheck: factCheckData, rewrite: rewriteData, editor: editorData };
     },
     onSuccess: (data) => {
       setRunResult(data);
       setIsRunning(false);
+      setRunStage(null);
       queryClient.invalidateQueries({ queryKey: ["cron-logs-editor"] });
-      toast.success("AI Editor run complete");
+      toast.success("Editorial pipeline complete");
     },
     onError: (error: Error) => {
       setIsRunning(false);
-      toast.error(`AI Editor failed: ${error.message}`);
+      setRunStage(null);
+      toast.error(`Editorial pipeline failed: ${error.message}`);
     },
   });
 
@@ -188,7 +208,7 @@ const AIEditor = () => {
             <CardHeader>
               <CardTitle>Run AI Editor</CardTitle>
               <CardDescription>
-                Process all pending draft stories through the AI editor
+                Run the full editorial pipeline: fact-check, rewrite, then publish/reject
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -196,25 +216,51 @@ const AIEditor = () => {
                 {isRunning ? (
                   <>
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Running...
+                    {runStage === "fact-check" && "Fact-checking..."}
+                    {runStage === "rewrite" && "Rewriting..."}
+                    {runStage === "edit" && "Publishing..."}
+                    {!runStage && "Starting..."}
                   </>
                 ) : (
                   <>
                     <Sparkles className="mr-2 h-5 w-5" />
-                    Run AI Editor Now
+                    Run Editorial Pipeline
                   </>
                 )}
               </Button>
 
               {runResult && (
-                <div className="border rounded-lg p-4 space-y-2 bg-muted/30">
-                  <p className="text-sm font-medium">Last Run Results</p>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>Published: <span className="font-medium text-green-600">{runResult.published ?? 0}</span></div>
-                    <div>Featured: <span className="font-medium text-yellow-600">{runResult.featured ?? 0}</span></div>
-                    <div>Rejected: <span className="font-medium text-red-600">{runResult.rejected ?? 0}</span></div>
-                    <div>Skipped: <span className="font-medium text-muted-foreground">{runResult.skipped ?? 0}</span></div>
-                    <div>Errors: <span className="font-medium text-orange-600">{runResult.errors ?? 0}</span></div>
+                <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
+                  <p className="text-sm font-medium">Pipeline Results</p>
+
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Fact-Check</p>
+                      <div className="grid grid-cols-3 gap-2 text-sm">
+                        <div>Checked: <span className="font-medium">{runResult.factCheck?.checked ?? 0}</span></div>
+                        <div>Flagged: <span className="font-medium text-yellow-600">{runResult.factCheck?.flagged ?? 0}</span></div>
+                        <div>Errors: <span className="font-medium text-orange-600">{runResult.factCheck?.errors ?? 0}</span></div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Rewrite</p>
+                      <div className="grid grid-cols-3 gap-2 text-sm">
+                        <div>Rewritten: <span className="font-medium">{runResult.rewrite?.rewritten ?? 0}</span></div>
+                        <div>Errors: <span className="font-medium text-orange-600">{runResult.rewrite?.errors ?? 0}</span></div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Editor</p>
+                      <div className="grid grid-cols-3 gap-2 text-sm">
+                        <div>Published: <span className="font-medium text-green-600">{runResult.editor?.published ?? 0}</span></div>
+                        <div>Featured: <span className="font-medium text-yellow-600">{runResult.editor?.featured ?? 0}</span></div>
+                        <div>Rejected: <span className="font-medium text-red-600">{runResult.editor?.rejected ?? 0}</span></div>
+                        <div>Skipped: <span className="font-medium text-muted-foreground">{runResult.editor?.skipped ?? 0}</span></div>
+                        <div>Errors: <span className="font-medium text-orange-600">{runResult.editor?.errors ?? 0}</span></div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
