@@ -14,12 +14,12 @@ const Prompts = () => {
   const queryClient = useQueryClient();
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedPrompt, setSelectedPrompt] = useState<any>(null);
+  const [selectedPrompt, setSelectedPrompt] = useState<Record<string, unknown> | null>(null);
   const [promptToDelete, setPromptToDelete] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [editMode, setEditMode] = useState<"direct" | "new_version">("direct");
   const [editConfirmOpen, setEditConfirmOpen] = useState(false);
-  const [pendingEdit, setPendingEdit] = useState<{ prompt: any; mode: "direct" | "new_version" } | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<{ prompt: Record<string, unknown>; mode: "direct" | "new_version" } | null>(null);
 
   // Fetch all prompts
   const {
@@ -53,7 +53,7 @@ const Prompts = () => {
       setDeleteDialogOpen(false);
       setPromptToDelete(null);
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       console.error("Delete error:", error);
       toast.error(
         error?.message || "Failed to delete prompt. Please try again."
@@ -73,7 +73,7 @@ const Prompts = () => {
     }
   };
 
-  const handleEdit = (prompt: any, mode: "direct" | "new_version") => {
+  const handleEdit = (prompt: Record<string, unknown>, mode: "direct" | "new_version") => {
     if (mode === "direct" && prompt.is_active) {
       // Show confirmation for active prompts
       setPendingEdit({ prompt, mode });

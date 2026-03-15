@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
     const data = await response.json();
 
     // Filter to only show Google, Anthropic, OpenAI, and xAI (Grok) models
-    const filteredModels = data.data.filter((model: any) => {
+    const filteredModels = data.data.filter((model: { id: string }) => {
       const id = model.id.toLowerCase();
       return (
         id.includes('google/') ||
@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     });
 
     // Sort by provider and name
-    const sortedModels = filteredModels.sort((a: any, b: any) => {
+    const sortedModels = filteredModels.sort((a: { id: string }, b: { id: string }) => {
       const providerA = a.id.split('/')[0];
       const providerB = b.id.split('/')[0];
       if (providerA !== providerB) {

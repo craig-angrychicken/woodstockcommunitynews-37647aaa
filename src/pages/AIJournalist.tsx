@@ -251,7 +251,7 @@ const AIJournalist = () => {
       setCurrentHistoryId(historyRecord.id);
 
       // Call edge function with either date range or specific artifact IDs
-      const body: any = {
+      const body: Record<string, unknown> = {
         environment,
         promptVersionId,
         historyId: historyRecord.id
@@ -438,7 +438,7 @@ const AIJournalist = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <RadioGroup value={selectionMode} onValueChange={(v: any) => {
+              <RadioGroup value={selectionMode} onValueChange={(v: "dateRange" | "specific") => {
                 setSelectionMode(v);
                 setSelectedArtifactIds([]);
               }}>
@@ -610,7 +610,7 @@ const AIJournalist = () => {
               <CardDescription>Choose which artifacts to process</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <RadioGroup value={environment} onValueChange={(v: any) => setEnvironment(v)}>
+              <RadioGroup value={environment} onValueChange={(v: "production" | "test") => setEnvironment(v)}>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="production" id="prod" />
                   <Label htmlFor="prod" className="cursor-pointer">
@@ -634,7 +634,7 @@ const AIJournalist = () => {
               <CardDescription>Select which prompt version to use for generation</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <RadioGroup value={promptMode} onValueChange={(v: any) => setPromptMode(v)}>
+              <RadioGroup value={promptMode} onValueChange={(v: "active" | "select") => setPromptMode(v)}>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="active" id="active-prompt" />
                   <Label htmlFor="active-prompt" className="cursor-pointer">

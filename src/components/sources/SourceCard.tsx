@@ -12,7 +12,7 @@ interface SourceCardProps {
   lastFetchAt?: string;
   itemsFetched: number;
   status: string;
-  parserConfig?: any;
+  parserConfig?: Record<string, unknown>;
   onEdit: () => void;
   onPause: () => void;
   onRemove: () => void;

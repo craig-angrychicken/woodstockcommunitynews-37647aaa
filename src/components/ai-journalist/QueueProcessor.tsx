@@ -73,7 +73,7 @@ export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcess
         return;
       }
 
-      setQueueItems((data as any) || []);
+      setQueueItems((data as QueueItem[]) || []);
       setLoading(false);
     };
 

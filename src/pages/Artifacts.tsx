@@ -26,7 +26,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
-const countImages = (artifact: any): number => {
+const countImages = (artifact: Record<string, unknown>): number => {
   if (!artifact.images) return 0;
   const images = typeof artifact.images === 'string' 
     ? JSON.parse(artifact.images) 
@@ -45,7 +45,7 @@ const Artifacts = () => {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals
-  const [selectedArtifact, setSelectedArtifact] = useState<any>(null);
+  const [selectedArtifact, setSelectedArtifact] = useState<Record<string, unknown> | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
@@ -125,7 +125,7 @@ const Artifacts = () => {
       setDeleteDialogOpen(false);
       setArtifactToDelete(null);
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to delete artifact: ${error.message}`);
     }
   });
@@ -164,7 +164,7 @@ const Artifacts = () => {
       toast.success(`Successfully deleted all ${count} artifacts`);
       setDeleteAllDialogOpen(false);
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to delete all artifacts: ${error.message}`);
     }
   });
@@ -250,7 +250,7 @@ const Artifacts = () => {
     });
   };
 
-  const handleViewContent = (artifact: any) => {
+  const handleViewContent = (artifact: Record<string, unknown>) => {
     setSelectedArtifact(artifact);
     setShowDetailModal(true);
   };

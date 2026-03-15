@@ -95,7 +95,7 @@ const Models = () => {
       queryClient.invalidateQueries({ queryKey: ["ai-model-config"] });
       toast.success("Model updated successfully");
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       console.error("Error updating model:", error);
       toast.error(error?.message || "Failed to update model");
     },
@@ -112,7 +112,7 @@ const Models = () => {
   const models = modelsData?.models || [];
   
   // Group models by provider
-  const modelsByProvider = models.reduce((acc: any, model: Model) => {
+  const modelsByProvider = models.reduce((acc: Record<string, Model[]>, model: Model) => {
     const provider = model.id.split('/')[0];
     if (!acc[provider]) acc[provider] = [];
     acc[provider].push(model);
@@ -212,7 +212,7 @@ const Models = () => {
           </Card>
 
           <div className="space-y-6">
-            {Object.entries(modelsByProvider).map(([provider, providerModels]: [string, any]) => (
+            {Object.entries(modelsByProvider).map(([provider, providerModels]) => (
               <Card key={provider}>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">

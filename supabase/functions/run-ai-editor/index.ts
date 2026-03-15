@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
 
     // Also fetch pending stories (backward compat: stories created before the pipeline existed)
     const remainingSlots = MAX_STORIES_PER_RUN - (editedStories?.length || 0);
-    let pendingStories: any[] = [];
+    let pendingStories: Record<string, unknown>[] = [];
 
     if (remainingSlots > 0) {
       const { data: pending, error: pendingError } = await supabase
@@ -167,10 +167,10 @@ ${story.content || ""}`;
 
         if (isPublish) {
           // Get artifact_id and date for storage cleanup and publish date
-          const firstArtifact = (story.story_artifacts as any[])?.[0];
+          const firstArtifact = (story.story_artifacts as Array<Record<string, unknown>>)?.[0];
           const artifactId = firstArtifact?.artifact_id || null;
-          const artifactDate = firstArtifact?.artifacts?.date || null;
-          const publishedAt = artifactDate || (story as any).created_at || new Date().toISOString();
+          const artifactDate = (firstArtifact?.artifacts as Record<string, unknown> | undefined)?.date || null;
+          const publishedAt = artifactDate || (story as Record<string, unknown>).created_at || new Date().toISOString();
 
           // Invoke publish-to-ghost
           const { data: publishData, error: publishError } = await supabase.functions.invoke(
@@ -184,7 +184,7 @@ ${story.content || ""}`;
                 artifactId,
                 featured: isFeatured,
                 publishedAt,
-                structuredMetadata: (story as any).structured_metadata || null,
+                structuredMetadata: (story as Record<string, unknown>).structured_metadata || null,
               },
             }
           );

@@ -28,7 +28,7 @@ const Stories = () => {
   const [typeFilter, setTypeFilter] = useState("all");
 
   // Modals
-  const [selectedStory, setSelectedStory] = useState<any>(null);
+  const [selectedStory, setSelectedStory] = useState<Record<string, unknown> | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showArtifactsModal, setShowArtifactsModal] = useState(false);
   // Fetch stories
@@ -147,7 +147,7 @@ const Stories = () => {
 
   // Update story mutation
   const updateStoryMutation = useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: any }) => {
+    mutationFn: async ({ id, updates }: { id: string; updates: Record<string, unknown> }) => {
       const { error } = await supabase
         .from('stories')
         .update(updates)
@@ -187,7 +187,7 @@ const Stories = () => {
     }
   });
 
-  const handleView = (story: any) => {
+  const handleView = (story: Record<string, unknown>) => {
     setSelectedStory(story);
     setShowDetailModal(true);
   };
@@ -200,7 +200,7 @@ const Stories = () => {
     });
   };
 
-  const handlePublish = async (story?: any) => {
+  const handlePublish = async (story?: Record<string, unknown>) => {
     const storyToPublish = story || selectedStory;
     if (!storyToPublish) return;
     
@@ -282,8 +282,9 @@ const Stories = () => {
                 )
               });
             }
-          } catch (fbErr: any) {
-            toast({ title: "Published to Ghost!", description: `Facebook failed: ${fbErr.message}`, variant: "destructive" });
+          } catch (fbErr: unknown) {
+            const fbErrMsg = fbErr instanceof Error ? fbErr.message : String(fbErr);
+            toast({ title: "Published to Ghost!", description: `Facebook failed: ${fbErrMsg}`, variant: "destructive" });
           }
         } else {
           toast({
@@ -298,16 +299,17 @@ const Stories = () => {
 
         setShowDetailModal(false);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMsg = error instanceof Error ? error.message : "Failed to publish to Ghost";
       toast({
         title: "Publishing Failed",
-        description: error.message || "Failed to publish to Ghost",
+        description: errorMsg,
         variant: "destructive"
       });
     }
   };
 
-  const handleReject = (story?: any) => {
+  const handleReject = (story?: Record<string, unknown>) => {
     const storyToReject = story || selectedStory;
     if (!storyToReject) return;
     updateStoryMutation.mutate({
@@ -316,7 +318,7 @@ const Stories = () => {
     });
   };
 
-  const handleDelete = (story?: any) => {
+  const handleDelete = (story?: Record<string, unknown>) => {
     const storyToDelete = story || selectedStory;
     if (!storyToDelete) return;
     

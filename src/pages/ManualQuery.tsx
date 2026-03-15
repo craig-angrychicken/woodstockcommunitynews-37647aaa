@@ -551,7 +551,7 @@ const ManualQuery = () => {
               <CardDescription>Choose production or test mode</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <RadioGroup value={environment} onValueChange={(v: any) => setEnvironment(v)}>
+              <RadioGroup value={environment} onValueChange={(v: "production" | "test") => setEnvironment(v)}>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="production" id="prod" />
                   <Label htmlFor="prod" className="cursor-pointer">

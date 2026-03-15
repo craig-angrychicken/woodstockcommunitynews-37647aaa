@@ -32,12 +32,12 @@ const AIEditor = () => {
   // Prompt tab state
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedPrompt, setSelectedPrompt] = useState<any>(null);
+  const [selectedPrompt, setSelectedPrompt] = useState<Record<string, unknown> | null>(null);
   const [promptToDelete, setPromptToDelete] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [editMode, setEditMode] = useState<"direct" | "new_version">("direct");
   const [editConfirmOpen, setEditConfirmOpen] = useState(false);
-  const [pendingEdit, setPendingEdit] = useState<{ prompt: any; mode: "direct" | "new_version" } | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<{ prompt: Record<string, unknown>; mode: "direct" | "new_version" } | null>(null);
 
   // Load existing schedule
   const { data: editorSchedule } = useSchedule("ai_editor");
@@ -115,7 +115,7 @@ const AIEditor = () => {
       setDeleteDialogOpen(false);
       setPromptToDelete(null);
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error?.message || "Failed to delete prompt");
       setDeleteDialogOpen(false);
     },
@@ -148,7 +148,7 @@ const AIEditor = () => {
     },
   });
 
-  const handleEdit = (prompt: any, mode: "direct" | "new_version") => {
+  const handleEdit = (prompt: Record<string, unknown>, mode: "direct" | "new_version") => {
     if (mode === "direct" && prompt.is_active) {
       setPendingEdit({ prompt, mode });
       setEditConfirmOpen(true);

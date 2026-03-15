@@ -60,7 +60,7 @@ interface RSSItem {
   enclosure?: { url?: string };
   image?: { url?: string };
   guid?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 interface RSSFeed {
@@ -145,9 +145,9 @@ Deno.serve(async (req) => {
               console.log(`   ⏳ Waiting ${delay}ms before retry...`);
               await new Promise(resolve => setTimeout(resolve, delay));
             }
-          } catch (fetchError: any) {
-            lastError = fetchError;
-            console.error(`   ❌ Attempt ${attempt + 1} failed:`, fetchError.message);
+          } catch (fetchError: unknown) {
+            lastError = fetchError instanceof Error ? fetchError : new Error(String(fetchError));
+            console.error(`   ❌ Attempt ${attempt + 1} failed:`, lastError.message);
 
             if (attempt < maxRetries - 1) {
               const delay = retryDelays[attempt];
@@ -625,7 +625,7 @@ function parseDate(dateStr: string | undefined): Date | null {
   }
 }
 
-function extractAllImages(item: RSSItem, config?: any): string[] {
+function extractAllImages(item: RSSItem, config?: Record<string, unknown>): string[] {
   const images: string[] = [];
 
   // Get image fields from config or use defaults
@@ -639,7 +639,7 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
   // Extract images from configured fields
   for (const field of imageFields) {
     const parts = field.split('.');
-    let value: any = item;
+    let value: unknown = item;
 
     for (const part of parts) {
       value = value?.[part];
@@ -671,7 +671,7 @@ function extractAllImages(item: RSSItem, config?: any): string[] {
     console.log(`  📝 Scanning ${textFields.length} chars of text content for images...`);
 
     // Extract markdown images: ![alt](url) or ![](url)
-    const markdownImageRegex = /!\[(?:[^\]]*)\]\((https?:\/\/[^\s\)]+)\)/g;
+    const markdownImageRegex = /!\[(?:[^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
     let match;
     while ((match = markdownImageRegex.exec(textFields)) !== null) {
       console.log(`  🖼️ Found markdown image: ${match[1].substring(0, 80)}...`);

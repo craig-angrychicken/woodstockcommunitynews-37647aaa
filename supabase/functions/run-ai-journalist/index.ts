@@ -122,8 +122,8 @@ Deno.serve(async (req) => {
 
       const usedGUIDs = new Set(
         (usedArtifacts || [])
-          .map((sa: any) => sa.artifact?.guid)
-          .filter((guid: any) => guid != null)
+          .map((sa: Record<string, unknown>) => (sa.artifact as Record<string, unknown> | undefined)?.guid)
+          .filter((guid: unknown) => guid != null)
       );
 
       const beforeCount = artifacts.length;

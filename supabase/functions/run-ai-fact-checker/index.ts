@@ -64,8 +64,8 @@ Deno.serve(async (req) => {
 
       try {
         // Gather source material
-        const sourceTexts = (story.story_artifacts as any[])
-          ?.map((sa: any) => {
+        const sourceTexts = (story.story_artifacts as Array<Record<string, unknown>>)
+          ?.map((sa: Record<string, unknown>) => {
             const artifact = sa.artifacts;
             if (!artifact) return null;
             return `SOURCE: ${artifact.source?.name || "Unknown"}\nURL: ${artifact.url || "N/A"}\nTITLE: ${artifact.title || "N/A"}\nCONTENT: ${(artifact.content || "").substring(0, 3000)}`;

@@ -12,7 +12,7 @@ interface TestSourceCardProps {
   type: string;
   lastFetchAt?: string;
   itemsFetched: number;
-  parserConfig?: any;
+  parserConfig?: Record<string, unknown>;
   onActivate: () => void;
   onRemove: () => void;
   onViewTestArtifacts: () => void;

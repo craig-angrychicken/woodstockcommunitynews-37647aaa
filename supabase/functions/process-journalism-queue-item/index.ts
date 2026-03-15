@@ -1,6 +1,7 @@
 import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient, getSupabaseUrl, getServiceRoleKey } from "../_shared/supabase-client.ts";
 import { callLLM } from "../_shared/llm-client.ts";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface StructuredStoryResponse {
   headline: string;
@@ -35,15 +36,15 @@ function parseStructuredResponse(content: string): StructuredStoryResponse | nul
   }
 }
 
-async function updateHistoryProgress(supabase: any, historyId: string) {
+async function updateHistoryProgress(supabase: SupabaseClient, historyId: string) {
   const { data: queueStats } = await supabase
     .from("journalism_queue")
     .select("status")
     .eq("query_history_id", historyId);
 
-  const completed = queueStats?.filter((q: any) => q.status === "completed").length || 0;
-  const failed = queueStats?.filter((q: any) => q.status === "failed").length || 0;
-  const skipped = queueStats?.filter((q: any) => q.status === "skipped").length || 0;
+  const completed = queueStats?.filter((q: { status: string }) => q.status === "completed").length || 0;
+  const failed = queueStats?.filter((q: { status: string }) => q.status === "failed").length || 0;
+  const skipped = queueStats?.filter((q: { status: string }) => q.status === "skipped").length || 0;
   const total = queueStats?.length || 0;
 
   const terminal = completed + failed + skipped;
@@ -216,7 +217,7 @@ ${artifactData}`;
     }
 
     // Build message content with vision support
-    const messageContent: any[] = [
+    const messageContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
       { type: "text", text: fullPrompt }
     ];
 
@@ -243,7 +244,7 @@ ${artifactData}`;
     const storyContent = llmResponse.content || "No content generated";
 
     // Try to parse as structured JSON first
-    let parsed = parseStructuredResponse(storyContent);
+    const parsed = parseStructuredResponse(storyContent);
 
     // Check for skip signal (structured or legacy)
     const isSkip = parsed

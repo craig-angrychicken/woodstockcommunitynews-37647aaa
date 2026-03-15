@@ -186,7 +186,7 @@ Deno.serve(async (req) => {
 
       // Process embedding-based matches
       if (similarArtifacts && similarArtifacts.length > 1) {
-        const matchIds = similarArtifacts.map((m: any) => m.id).filter((id: string) => id !== artifact.id);
+        const matchIds = similarArtifacts.map((m: Record<string, unknown>) => m.id).filter((id: unknown) => id !== artifact.id);
 
         if (matchIds.length === 0) continue;
 

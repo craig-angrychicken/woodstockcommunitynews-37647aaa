@@ -18,10 +18,10 @@ const Sources = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [editModalOpen, setEditModalOpen] = useState(false);
-  const [selectedSource, setSelectedSource] = useState<any>(null);
+  const [selectedSource, setSelectedSource] = useState<Record<string, unknown> | null>(null);
   const [activateDialogOpen, setActivateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [sourceToActivate, setSourceToActivate] = useState<any>(null);
+  const [sourceToActivate, setSourceToActivate] = useState<Record<string, unknown> | null>(null);
   const [sourceToDelete, setSourceToDelete] = useState<string | null>(null);
 
   // Fetch active sources
@@ -98,18 +98,18 @@ const Sources = () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       toast.success("Source removed successfully");
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       console.error("Delete error:", error);
       toast.error("Failed to remove source. Please try again.");
     },
   });
 
-  const handleEdit = (source: any) => {
+  const handleEdit = (source: Record<string, unknown>) => {
     setSelectedSource(source);
     setEditModalOpen(true);
   };
 
-  const handlePause = async (source: any) => {
+  const handlePause = async (source: Record<string, unknown>) => {
     const newStatus = source.status === "active" ? "paused" : "active";
     try {
       await updateStatusMutation.mutateAsync({ id: source.id, status: newStatus });
@@ -134,7 +134,7 @@ const Sources = () => {
     }
   };
 
-  const handleActivate = (source: any) => {
+  const handleActivate = (source: Record<string, unknown>) => {
     setSourceToActivate(source);
     setActivateDialogOpen(true);
   };
