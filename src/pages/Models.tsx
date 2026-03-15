@@ -109,8 +109,8 @@ const Models = () => {
     updateModelMutation.mutate(selectedModel);
   };
 
-  const models = modelsData?.models || [];
-  
+  const models: Model[] = modelsData?.models || [];
+
   // Group models by provider
   const modelsByProvider = models.reduce((acc: Record<string, Model[]>, model: Model) => {
     const provider = model.id.split('/')[0];
@@ -212,7 +212,7 @@ const Models = () => {
           </Card>
 
           <div className="space-y-6">
-            {Object.entries(modelsByProvider).map(([provider, providerModels]) => (
+            {(Object.entries(modelsByProvider) as [string, Model[]][]).map(([provider, providerModels]) => (
               <Card key={provider}>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">

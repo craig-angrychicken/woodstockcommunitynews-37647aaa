@@ -12,16 +12,17 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import { Database, Trash2 } from "lucide-react";
+import { Database } from "lucide-react";
+import type { Tables } from "@/integrations/supabase/types";
 
 const Sources = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [editModalOpen, setEditModalOpen] = useState(false);
-  const [selectedSource, setSelectedSource] = useState<Record<string, unknown> | null>(null);
+  const [selectedSource, setSelectedSource] = useState<Tables<"sources"> | null>(null);
   const [activateDialogOpen, setActivateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [sourceToActivate, setSourceToActivate] = useState<Record<string, unknown> | null>(null);
+  const [sourceToActivate, setSourceToActivate] = useState<Tables<"sources"> | null>(null);
   const [sourceToDelete, setSourceToDelete] = useState<string | null>(null);
 
   // Fetch active sources
@@ -104,12 +105,12 @@ const Sources = () => {
     },
   });
 
-  const handleEdit = (source: Record<string, unknown>) => {
+  const handleEdit = (source: Tables<"sources">) => {
     setSelectedSource(source);
     setEditModalOpen(true);
   };
 
-  const handlePause = async (source: Record<string, unknown>) => {
+  const handlePause = async (source: Tables<"sources">) => {
     const newStatus = source.status === "active" ? "paused" : "active";
     try {
       await updateStatusMutation.mutateAsync({ id: source.id, status: newStatus });
@@ -134,7 +135,7 @@ const Sources = () => {
     }
   };
 
-  const handleActivate = (source: Record<string, unknown>) => {
+  const handleActivate = (source: Tables<"sources">) => {
     setSourceToActivate(source);
     setActivateDialogOpen(true);
   };
@@ -198,12 +199,12 @@ const Sources = () => {
                   key={source.id}
                   id={source.id}
                   name={source.name}
-                  url={source.url}
+                  url={source.url ?? undefined}
                   type={source.type}
-                  lastFetchAt={source.last_fetch_at}
+                  lastFetchAt={source.last_fetch_at ?? undefined}
                   itemsFetched={source.items_fetched || 0}
                   status={source.status}
-                  parserConfig={source.parser_config}
+                  parserConfig={source.parser_config as Record<string, unknown> | undefined}
                   onEdit={() => handleEdit(source)}
                   onPause={() => handlePause(source)}
                   onRemove={() => handleRemove(source.id)}
@@ -238,11 +239,11 @@ const Sources = () => {
                   key={source.id}
                   id={source.id}
                   name={source.name}
-                  url={source.url}
+                  url={source.url ?? undefined}
                   type={source.type}
-                  lastFetchAt={source.last_fetch_at}
+                  lastFetchAt={source.last_fetch_at ?? undefined}
                   itemsFetched={source.items_fetched || 0}
-                  parserConfig={source.parser_config}
+                  parserConfig={source.parser_config as Record<string, unknown> | undefined}
                   onActivate={() => handleActivate(source)}
                   onRemove={() => handleRemove(source.id)}
                   onViewTestArtifacts={() => handleViewTestArtifacts(source.id)}
@@ -271,7 +272,7 @@ const Sources = () => {
         <EditSourceModal
           open={editModalOpen}
           onOpenChange={setEditModalOpen}
-          source={selectedSource}
+          source={{ id: selectedSource.id, name: selectedSource.name, url: selectedSource.url ?? undefined, type: selectedSource.type }}
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ["sources"] });
           }}

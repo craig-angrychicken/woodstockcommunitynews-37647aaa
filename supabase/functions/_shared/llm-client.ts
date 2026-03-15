@@ -22,6 +22,38 @@ export interface LLMResponse {
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [2000, 4000, 8000];
 
+/**
+ * Generate a 384-dimensional embedding vector for a text string using OpenRouter.
+ * Uses text-embedding-3-small with dimensions=384 to match the existing vector(384) column.
+ */
+export async function generateEmbedding(text: string): Promise<number[]> {
+  const apiKey = Deno.env.get("OPENROUTER_API_KEY");
+  if (!apiKey) {
+    throw new Error("OPENROUTER_API_KEY not configured");
+  }
+
+  const response = await fetch("https://openrouter.ai/api/v1/embeddings", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "openai/text-embedding-3-small",
+      input: text,
+      dimensions: 384,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Embedding API error ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.data[0].embedding;
+}
+
 export async function callLLM(options: LLMRequestOptions): Promise<LLMResponse> {
   const {
     prompt,

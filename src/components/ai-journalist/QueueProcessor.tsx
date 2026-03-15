@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, CheckCircle, XCircle, Clock, X } from "lucide-react";
+import { Loader2, CheckCircle, XCircle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 
@@ -28,7 +28,7 @@ interface QueueProcessorProps {
 
 export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcessorProps) => {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [historyDetails, setHistoryDetails] = useState<{
     created_at: string;
     completed_at: string | null;

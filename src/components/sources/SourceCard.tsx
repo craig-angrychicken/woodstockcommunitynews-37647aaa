@@ -48,7 +48,7 @@ export const SourceCard = ({
 
   const getHealthStatus = () => {
     if (parserConfig) {
-      const confidence = parserConfig.confidence || 0;
+      const confidence = (parserConfig.confidence as number) || 0;
       if (confidence >= 80) return { color: "bg-green-500", label: "Healthy" };
       if (confidence >= 50) return { color: "bg-yellow-500", label: "Moderate" };
       return { color: "bg-red-500", label: "Low Confidence" };

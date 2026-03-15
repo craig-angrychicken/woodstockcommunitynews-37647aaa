@@ -26,10 +26,26 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
-const countImages = (artifact: Record<string, unknown>): number => {
+type ArtifactRow = {
+  id: string;
+  name: string;
+  title: string | null;
+  content: string | null;
+  guid: string | null;
+  date: string | null;
+  source_id: string | null;
+  size_mb: number;
+  type: string;
+  url: string | null;
+  images: unknown;
+  sources: { name: string } | null;
+  [key: string]: unknown;
+};
+
+const countImages = (artifact: ArtifactRow): number => {
   if (!artifact.images) return 0;
-  const images = typeof artifact.images === 'string' 
-    ? JSON.parse(artifact.images) 
+  const images = typeof artifact.images === 'string'
+    ? JSON.parse(artifact.images)
     : artifact.images;
   return Array.isArray(images) ? images.length : 0;
 };
@@ -45,7 +61,7 @@ const Artifacts = () => {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals
-  const [selectedArtifact, setSelectedArtifact] = useState<Record<string, unknown> | null>(null);
+  const [selectedArtifact, setSelectedArtifact] = useState<ArtifactRow | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
@@ -104,7 +120,7 @@ const Artifacts = () => {
       const { data, error } = await supabase
         .from('story_artifacts')
         .select('stories(id, title)')
-        .eq('artifact_id', selectedArtifact.id);
+        .eq('artifact_id', selectedArtifact!.id);
 
       if (error) throw error;
       return data.map(sa => sa.stories).filter(Boolean);
@@ -189,7 +205,7 @@ const Artifacts = () => {
       const days = parseInt(dateRangeFilter);
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - days);
-      filtered = filtered.filter(a => new Date(a.date) >= cutoffDate);
+      filtered = filtered.filter(a => a.date ? new Date(a.date) >= cutoffDate : false);
     }
 
     // Source filter
@@ -250,7 +266,7 @@ const Artifacts = () => {
     });
   };
 
-  const handleViewContent = (artifact: Record<string, unknown>) => {
+  const handleViewContent = (artifact: ArtifactRow) => {
     setSelectedArtifact(artifact);
     setShowDetailModal(true);
   };
@@ -398,7 +414,7 @@ const Artifacts = () => {
                       {artifacts.map(artifact => (
                         <ArtifactCard
                           key={artifact.id}
-                          artifact={artifact}
+                          artifact={{ ...artifact, guid: artifact.guid ?? '', date: artifact.date ?? '', source_id: artifact.source_id ?? '' }}
                           sourceName={sourceName}
                           isTest={false} // TODO: Determine from related stories
                           storiesCount={artifactUsage.get(artifact.id) || 0}
@@ -419,13 +435,13 @@ const Artifacts = () => {
 
       {/* Artifact Detail Modal */}
       <ArtifactDetailModal
-        artifact={selectedArtifact}
-        sourceName={selectedArtifact?.sources?.name || 'Unknown'}
+        artifact={selectedArtifact ? { ...selectedArtifact, guid: selectedArtifact.guid ?? '', date: selectedArtifact.date ?? '' } : null}
+        sourceName={(selectedArtifact?.sources as { name: string } | null)?.name || 'Unknown'}
         isTest={false} // TODO: Determine from related stories
         stories={artifactStories || []}
         open={showDetailModal}
         onClose={() => setShowDetailModal(false)}
-        onDelete={() => handleDelete(selectedArtifact?.id)}
+        onDelete={() => selectedArtifact && handleDelete(selectedArtifact.id)}
       />
 
       {/* Delete Confirmation Dialog */}

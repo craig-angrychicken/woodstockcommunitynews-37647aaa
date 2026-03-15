@@ -257,9 +257,9 @@ const Prompts = () => {
       <EditPromptModal
         open={editModalOpen}
         onOpenChange={setEditModalOpen}
-        promptId={isCreating ? null : selectedPrompt?.id}
-        currentContent={selectedPrompt?.content || ""}
-        currentVersionName={selectedPrompt?.version_name || ""}
+        promptId={isCreating ? null : selectedPrompt?.id as string | undefined}
+        currentContent={(selectedPrompt?.content as string) || ""}
+        currentVersionName={(selectedPrompt?.version_name as string) || ""}
         isTestDraft={false}
         editMode={editMode}
         onSuccess={() => {

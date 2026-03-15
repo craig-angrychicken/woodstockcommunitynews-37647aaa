@@ -415,10 +415,10 @@ const AIEditor = () => {
       <EditPromptModal
         open={editModalOpen}
         onOpenChange={setEditModalOpen}
-        promptId={isCreating ? null : selectedPrompt?.id}
+        promptId={isCreating ? null : selectedPrompt?.id as string | undefined}
         promptType="editor"
-        currentContent={selectedPrompt?.content || ""}
-        currentVersionName={selectedPrompt?.version_name || ""}
+        currentContent={(selectedPrompt?.content as string) || ""}
+        currentVersionName={(selectedPrompt?.version_name as string) || ""}
         isTestDraft={false}
         editMode={editMode}
         onSuccess={() => {

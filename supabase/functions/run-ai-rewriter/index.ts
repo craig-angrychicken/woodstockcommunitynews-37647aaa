@@ -100,9 +100,13 @@ If the article is already well-written and no fact-check issues were found, retu
 
         // Extract new title (first line)
         const lines = rewrittenContent.split("\n").filter((l: string) => l.trim());
-        const newTitle = lines[0]
+        const rawTitle = lines[0] || "";
+        const newTitle = rawTitle
           .replace(/^#+\s*/, "")
           .replace(/^HEADLINE:\s*/i, "")
+          .replace(/^TITLE:\s*/i, "")
+          .replace(/^\*\*(.+)\*\*$/, "$1")
+          .replace(/^["'](.+)["']$/, "$1")
           .trim() || storyTitle;
         const newContent = lines.slice(1).join("\n").trim();
 

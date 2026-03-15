@@ -105,7 +105,8 @@ Respond in this format:
         const factCheckResult = llmResponse.content.trim();
         console.log(`📋 Fact-check result for "${storyTitle}": ${factCheckResult.substring(0, 200)}`);
 
-        const hasFlags = factCheckResult.includes("FLAG:") || factCheckResult.includes("CONCERNS");
+        const upperResult = factCheckResult.toUpperCase();
+        const hasFlags = upperResult.includes("FLAG:") || upperResult.includes("CONCERNS");
 
         // Store fact-check notes and advance status
         await supabase

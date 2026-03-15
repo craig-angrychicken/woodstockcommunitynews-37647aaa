@@ -1,15 +1,6 @@
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
-interface GhostPostData {
-  title: string;
-  html: string;
-  status?: "draft" | "published";
-  tags?: string[];
-  featured?: boolean;
-  custom_excerpt?: string;
-}
-
 /**
  * Publishes a story to Ghost CMS
  * @param storyContent - The HTML content of the story

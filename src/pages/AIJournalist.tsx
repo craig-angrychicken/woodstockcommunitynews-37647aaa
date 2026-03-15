@@ -8,7 +8,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
@@ -181,12 +180,6 @@ const AIJournalist = () => {
     () => promptVersions?.find(p => p.is_active),
     [promptVersions]
   );
-
-  const costEstimate = useMemo(() => {
-    const estimatedStories = (artifactsCount || 0) / 3;
-    const costPerStory = 0.05; // Rough cost estimate
-    return (estimatedStories * costPerStory).toFixed(2);
-  }, [artifactsCount]);
 
   // Cancel mutation
   const cancelMutation = useMutation({
@@ -585,7 +578,7 @@ const AIJournalist = () => {
                                   {artifact.title || artifact.name}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {format(new Date(artifact.date), "MMM d, yyyy")}
+                                  {artifact.date ? format(new Date(artifact.date), "MMM d, yyyy") : "No date"}
                                 </p>
                               </div>
                             </Label>

@@ -46,9 +46,7 @@ Deno.serve(async (req) => {
       throw new Error("No model configured");
     }
 
-    // Step 3: Fetch edited production stories (or pending for backward compat)
-    // The multi-stage pipeline flow is: pending → fact_checked → edited → published/rejected
-    // Editor processes 'edited' stories first, then falls back to 'pending' for backward compat
+    // Step 3: Fetch edited production stories (excludes those with 3+ failed publish attempts)
     const { data: editedStories, error: editedError } = await supabase
       .from("stories")
       .select(`
@@ -58,11 +56,13 @@ Deno.serve(async (req) => {
         hero_image_url,
         created_at,
         structured_metadata,
+        publish_attempts,
         story_artifacts(artifact_id, artifacts(date))
       `)
       .eq("status", "edited")
       .eq("environment", "production")
       .eq("is_test", false)
+      .lt("publish_attempts", 3)
       .order("created_at", { ascending: true })
       .limit(MAX_STORIES_PER_RUN);
 
@@ -70,43 +70,7 @@ Deno.serve(async (req) => {
       throw new Error(`Failed to fetch edited stories: ${editedError.message}`);
     }
 
-    // Also fetch pending stories (backward compat: stories created before the pipeline existed)
-    const remainingSlots = MAX_STORIES_PER_RUN - (editedStories?.length || 0);
-    let pendingStories: Record<string, unknown>[] = [];
-
-    if (remainingSlots > 0) {
-      const { data: pending, error: pendingError } = await supabase
-        .from("stories")
-        .select(`
-          id,
-          title,
-          content,
-          hero_image_url,
-          created_at,
-          structured_metadata,
-          story_artifacts(artifact_id, artifacts(date))
-        `)
-        .eq("status", "pending")
-        .eq("environment", "production")
-        .eq("is_test", false)
-        .order("created_at", { ascending: true })
-        .limit(remainingSlots);
-
-      if (pendingError) {
-        console.warn("⚠️ Failed to fetch pending stories:", pendingError.message);
-      } else {
-        pendingStories = pending || [];
-      }
-    }
-
-    const stories = [...(editedStories || []), ...pendingStories];
-    const storiesError = null;
-
-    if (storiesError) {
-      throw new Error(`Failed to fetch pending stories: ${storiesError.message}`);
-    }
-
-    const storyList = stories || [];
+    const storyList = editedStories || [];
     console.log(`📚 Found ${storyList.length} pending stories to evaluate`);
 
     // Query recent featured count for context
@@ -191,9 +155,14 @@ ${story.content || ""}`;
 
           if (publishError || !publishData?.success) {
             const errMsg = publishError?.message || publishData?.error || "Unknown publish error";
-            console.error(`❌ Publish failed for story ${story.id}: ${errMsg}`);
+            const attempts = ((story as Record<string, unknown>).publish_attempts as number || 0) + 1;
+            console.error(`❌ Publish failed for story ${story.id} (attempt ${attempts}/3): ${errMsg}`);
+            await supabase
+              .from("stories")
+              .update({ publish_attempts: attempts })
+              .eq("id", story.id);
             summary.errors++;
-            continue; // Leave as pending on publish failure
+            continue;
           }
 
           // Update story status, ghost_url, and published_at in DB

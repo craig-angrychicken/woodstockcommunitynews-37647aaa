@@ -23,6 +23,14 @@ import { ScheduleTimeSelector } from "@/components/scheduling/ScheduleTimeSelect
 import { SaveScheduleButton } from "@/components/scheduling/SaveScheduleButton";
 import { useSchedule } from "@/hooks/useSchedules";
 
+// Extended query_history fields that exist at runtime but not in generated Supabase types
+interface QueryHistoryExt {
+  sources_processed?: number;
+  sources_total?: number;
+  sources_failed?: number;
+  current_source_name?: string;
+}
+
 const ManualQuery = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -32,8 +40,8 @@ const ManualQuery = () => {
   const [dateTo, setDateTo] = useState<Date>(new Date());
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [environment, setEnvironment] = useState<"production" | "test">("test");
-  const [promptMode, setPromptMode] = useState<"active" | "select">("active");
-  const [selectedPromptVersion, setSelectedPromptVersion] = useState<string>("");
+  const [promptMode] = useState<"active" | "select">("active");
+  const [selectedPromptVersion] = useState<string>("");
   
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
@@ -102,14 +110,6 @@ const ManualQuery = () => {
     [promptVersions]
   );
 
-  const costEstimate = useMemo(() => {
-    const days = Math.ceil((dateTo.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24));
-    const sourcesCount = selectedSources.length;
-    const estimatedArticles = days * sourcesCount * 2; // Rough estimate
-    const costPerArticle = 0.02; // Rough cost estimate
-    return (estimatedArticles * costPerArticle).toFixed(2);
-  }, [dateFrom, dateTo, selectedSources]);
-
   // Track current running history ID
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
 
@@ -136,7 +136,7 @@ const ManualQuery = () => {
         if (data.status === 'completed') {
           toast({
             title: "Fetch Complete!",
-            description: `${data.artifacts_count || 0} artifacts found across ${data.sources_processed || 0} sources.`,
+            description: `${data.artifacts_count || 0} artifacts found across ${(data as QueryHistoryExt).sources_processed || 0} sources.`,
           });
         } else if (data.status === 'failed') {
           toast({
@@ -340,8 +340,8 @@ const ManualQuery = () => {
                 </CardTitle>
                 <CardDescription>
                   {displayQuery.status === 'running'
-                    ? displayQuery.current_source_name
-                      ? `Currently processing: ${displayQuery.current_source_name}`
+                    ? (displayQuery as QueryHistoryExt).current_source_name
+                      ? `Currently processing: ${(displayQuery as QueryHistoryExt).current_source_name}`
                       : 'Fetching sources...'
                     : displayQuery.status === 'completed'
                     ? `Completed on ${formatUTCtoEST(displayQuery.completed_at || displayQuery.created_at, 'MMM d, yyyy h:mm a')}`
@@ -363,20 +363,20 @@ const ManualQuery = () => {
                   <div className="flex justify-between text-sm">
                     <span>Sources Progress</span>
                     <span className="text-muted-foreground">
-                      {displayQuery.sources_processed || 0} / {displayQuery.sources_total || 0}
+                      {(displayQuery as QueryHistoryExt).sources_processed || 0} / {(displayQuery as QueryHistoryExt).sources_total || 0}
                     </span>
                   </div>
-                  <Progress 
-                    value={displayQuery.sources_total 
-                      ? ((displayQuery.sources_processed || 0) / displayQuery.sources_total) * 100 
+                  <Progress
+                    value={(displayQuery as QueryHistoryExt).sources_total
+                      ? (((displayQuery as QueryHistoryExt).sources_processed || 0) / (displayQuery as QueryHistoryExt).sources_total!) * 100
                       : 0
-                    } 
+                    }
                   />
                 </div>
                 
-                {displayQuery.sources_failed > 0 && (
+                {((displayQuery as QueryHistoryExt).sources_failed || 0) > 0 && (
                   <div className="text-sm text-yellow-600 dark:text-yellow-500">
-                    ⚠️ {displayQuery.sources_failed} source(s) failed to process
+                    ⚠️ {(displayQuery as QueryHistoryExt).sources_failed} source(s) failed to process
                   </div>
                 )}
                 
@@ -654,14 +654,14 @@ const ManualQuery = () => {
                           <div className="text-xs space-y-1 text-muted-foreground">
                             <div>Environment: {query.environment}</div>
                             <div>Prompt: {query.prompt_versions?.version_name}</div>
-                            {query.status === 'running' && query.sources_total > 0 && (
+                            {query.status === 'running' && ((query as QueryHistoryExt).sources_total || 0) > 0 && (
                               <div className="text-primary font-medium">
-                                Progress: {query.sources_processed}/{query.sources_total} sources
+                                Progress: {(query as QueryHistoryExt).sources_processed}/{(query as QueryHistoryExt).sources_total} sources
                               </div>
                             )}
                             <div>Results: {query.artifacts_count || 0} artifacts</div>
-                            {query.sources_failed > 0 && (
-                              <div className="text-yellow-600">⚠️ {query.sources_failed} failed</div>
+                            {((query as QueryHistoryExt).sources_failed || 0) > 0 && (
+                              <div className="text-yellow-600">⚠️ {(query as QueryHistoryExt).sources_failed} failed</div>
                             )}
                           </div>
                         </div>

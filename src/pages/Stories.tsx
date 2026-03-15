@@ -4,7 +4,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { StoryCard } from "@/components/stories/StoryCard";
 import { StoryDetailModal } from "@/components/stories/StoryDetailModal";
 import { ArtifactsModal } from "@/components/stories/ArtifactsModal";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -15,6 +14,25 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { publishToGhost } from "@/lib/ghost-api";
+
+interface Story {
+  id: string;
+  title: string;
+  content: string | null;
+  status: string;
+  editor_notes: string | null;
+  is_test: boolean | null;
+  article_type: string | null;
+  prompt_version_id: string | null;
+  created_at: string;
+  environment: string | null;
+  ghost_url: string | null;
+  hero_image_url: string | null;
+  published_at: string | null;
+  source_id: string | null;
+  guid: string | null;
+  featured: boolean;
+}
 
 const Stories = () => {
   const { toast } = useToast();
@@ -28,7 +46,7 @@ const Stories = () => {
   const [typeFilter, setTypeFilter] = useState("all");
 
   // Modals
-  const [selectedStory, setSelectedStory] = useState<Record<string, unknown> | null>(null);
+  const [selectedStory, setSelectedStory] = useState<Story | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showArtifactsModal, setShowArtifactsModal] = useState(false);
   // Fetch stories
@@ -37,7 +55,7 @@ const Stories = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('stories')
-        .select('id, title, content, status, editor_notes, is_test, article_type, prompt_version_id, created_at, environment, ghost_url, hero_image_url, published_at, source_id, guid, featured, structured_metadata, facebook_post_id, facebook_post_url, facebook_posted_at')
+        .select('id, title, content, status, editor_notes, is_test, article_type, prompt_version_id, created_at, environment, ghost_url, hero_image_url, published_at, source_id, guid, featured')
         .order('created_at', { ascending: false });
       
       if (error) throw error;
@@ -83,7 +101,7 @@ const Stories = () => {
       const { data: junctionData, error: junctionError } = await supabase
         .from('story_artifacts')
         .select('artifact_id')
-        .eq('story_id', selectedStory.id);
+        .eq('story_id', selectedStory!.id);
       
       if (junctionError) throw junctionError;
       
@@ -187,7 +205,7 @@ const Stories = () => {
     }
   });
 
-  const handleView = (story: Record<string, unknown>) => {
+  const handleView = (story: Story) => {
     setSelectedStory(story);
     setShowDetailModal(true);
   };
@@ -200,7 +218,7 @@ const Stories = () => {
     });
   };
 
-  const handlePublish = async (story?: Record<string, unknown>) => {
+  const handlePublish = async (story?: Story) => {
     const storyToPublish = story || selectedStory;
     if (!storyToPublish) return;
     
@@ -218,8 +236,8 @@ const Stories = () => {
       
       if (artifactsError) throw artifactsError;
       
-      let artifactDate = null;
-      let firstArtifactId = null;
+      let artifactDate: string | null = null;
+      let firstArtifactId: string | null = null;
       if (storyArtifacts && storyArtifacts.length > 0) {
         const artifactIds = storyArtifacts.map(sa => sa.artifact_id);
         firstArtifactId = artifactIds[0]; // Store first artifact ID for cleanup
@@ -236,7 +254,7 @@ const Stories = () => {
       }
       
       const result = await publishToGhost(
-        storyToPublish.content,
+        storyToPublish.content || '',
         storyToPublish.title,
         {
           status: 'published',
@@ -263,7 +281,7 @@ const Stories = () => {
         const isFirstPublish = !storyToPublish.ghost_url;
         if (isFirstPublish) {
           try {
-            const excerpt = storyToPublish.structured_metadata?.subhead || undefined;
+            const excerpt = undefined;
             const { data: fbData, error: fbError } = await supabase.functions.invoke(
               'publish-to-facebook',
               { body: { storyId: storyToPublish.id, ghostUrl: result.url, title: storyToPublish.title, excerpt } }
@@ -309,7 +327,7 @@ const Stories = () => {
     }
   };
 
-  const handleReject = (story?: Record<string, unknown>) => {
+  const handleReject = (story?: Story) => {
     const storyToReject = story || selectedStory;
     if (!storyToReject) return;
     updateStoryMutation.mutate({
@@ -318,7 +336,7 @@ const Stories = () => {
     });
   };
 
-  const handleDelete = (story?: Record<string, unknown>) => {
+  const handleDelete = (story?: Story) => {
     const storyToDelete = story || selectedStory;
     if (!storyToDelete) return;
     
@@ -441,7 +459,7 @@ const Stories = () => {
           {filteredStories.map(story => (
             <StoryCard
               key={story.id}
-              story={story}
+              story={{ ...story, is_test: story.is_test ?? false, article_type: story.article_type ?? '', environment: story.environment ?? '' }}
               sourceCount={storySourceCounts.get(story.id) || 0}
               onView={() => handleView(story)}
               onEdit={() => handleView(story)}
@@ -455,7 +473,7 @@ const Stories = () => {
 
       {/* Story Detail Modal */}
       <StoryDetailModal
-        story={selectedStory}
+        story={selectedStory ? { ...selectedStory, is_test: selectedStory.is_test ?? false, article_type: selectedStory.article_type ?? '', environment: selectedStory.environment ?? '', guid: selectedStory.guid ?? '' } : null}
         open={showDetailModal}
         onClose={() => setShowDetailModal(false)}
         onSave={handleSaveContent}
@@ -467,7 +485,7 @@ const Stories = () => {
 
       {/* Artifacts Modal */}
       <ArtifactsModal
-        artifacts={storyArtifacts || []}
+        artifacts={(storyArtifacts || []).map(a => ({ id: a.id, title: a.title, name: a.name, date: a.date ?? '', guid: a.guid ?? '', source_name: a.source_name }))}
         open={showArtifactsModal}
         onClose={() => setShowArtifactsModal(false)}
       />
