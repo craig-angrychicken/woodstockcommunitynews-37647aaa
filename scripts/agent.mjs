@@ -16,8 +16,7 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const QUEUE_PROCESSOR_SECRET = process.env.QUEUE_PROCESSOR_SECRET;
 const SUPABASE_FUNCTIONS_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1`;
 const MAX_TOOL_CALLS = 20;
-const IS_DAILY_REPORT =
-  new Date().getUTCHours() === 3 || process.env.FORCE_REPORT === "true";
+const IS_DAILY_REPORT = process.env.FORCE_REPORT === "true";
 
 const ALERT_EMAIL = "craig@angrychicken.co";
 const FROM_EMAIL = "Woodstock Community News Monitor <alerts@woodstockcommunity.news>";

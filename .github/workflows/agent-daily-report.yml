@@ -1,15 +1,18 @@
-name: Pipeline Monitor Agent
+name: Pipeline Monitor — Daily Report
 
 on:
   schedule:
-    - cron: '23 10 * * *'   # 6:23am ET  — monitoring
-    - cron: '47 17 * * *'   # 1:47pm ET  — monitoring
-    - cron: '52 0 * * *'    # 8:52pm ET  — monitoring
+    - cron: '37 3 * * *'   # 11:37pm ET — daily report
   workflow_dispatch:
+    inputs:
+      force_report:
+        description: 'Force executive briefing email'
+        type: boolean
+        default: true
 
 jobs:
-  monitor:
-    name: AI Pipeline Monitor
+  daily-report:
+    name: AI Daily Report
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +24,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Run pipeline monitor agent
+      - name: Run pipeline monitor agent (daily report)
         run: node scripts/agent.mjs
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -30,4 +33,4 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           QUEUE_PROCESSOR_SECRET: ${{ secrets.QUEUE_PROCESSOR_SECRET }}
-          FORCE_REPORT: 'false'
+          FORCE_REPORT: ${{ github.event.inputs.force_report || 'true' }}
