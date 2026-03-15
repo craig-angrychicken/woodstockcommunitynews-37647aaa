@@ -28,7 +28,7 @@ Deno.serve(async (req) => {
 
     const modelConfig = modelSettings.value as { model_name: string; model_provider: string };
 
-    // Step 2: Fetch fact_checked stories
+    // Step 2: Fetch fact_checked stories with their source artifacts (for images)
     const { data: stories, error: storiesError } = await supabase
       .from("stories")
       .select(`
@@ -36,7 +36,8 @@ Deno.serve(async (req) => {
         title,
         content,
         fact_check_notes,
-        structured_metadata
+        structured_metadata,
+        story_artifacts(artifact_id, artifacts(hero_image_url, images))
       `)
       .eq("status", "fact_checked")
       .eq("environment", "production")
@@ -68,7 +69,26 @@ Deno.serve(async (req) => {
           ? `\n\n## Fact-Check Feedback\n${story.fact_check_notes}`
           : "";
 
-        const prompt = `You are a senior editor at Woodstock Community News, a local news outlet covering Woodstock, Georgia and Cherokee County. Your job is to improve this article based on fact-check feedback.
+        // Collect images from source artifacts
+        const imageUrls: string[] = [];
+        for (const sa of (story.story_artifacts as Array<Record<string, unknown>>) || []) {
+          const artifact = sa.artifacts;
+          if (!artifact) continue;
+          if (artifact.hero_image_url?.includes('supabase.co/storage')) {
+            imageUrls.push(artifact.hero_image_url);
+          }
+          for (const img of artifact.images || []) {
+            if (img && typeof img === 'object' && img.stored_url && !img.download_failed) {
+              imageUrls.push(img.stored_url);
+            }
+          }
+        }
+
+        if (imageUrls.length > 0) {
+          console.log(`📷 Including ${imageUrls.length} source image(s) for rewriting context`);
+        }
+
+        const promptText = `You are a senior editor at Woodstock Community News, a local news outlet covering Woodstock, Georgia and Cherokee County. Your job is to improve this article based on fact-check feedback.
 
 ## Current Article
 HEADLINE: ${storyTitle}
@@ -77,16 +97,26 @@ ${story.content || ""}
 ${factCheckFeedback}
 
 ## Instructions
-1. If the fact-checker flagged any unverified claims, REMOVE them or add hedging language ("reportedly", "according to")
-2. Improve the headline if it's weak or clickbait-y
-3. Tighten the prose — remove redundant sentences, improve flow
-4. Ensure AP style consistency
-5. Keep the article factual and professional
+1. Source material includes BOTH text and attached images. Details visible in images (dates, times, locations, names, addresses, event details on flyers/posters, etc.) are VALID and should be RETAINED even if the fact-checker flagged them.
+2. Only remove or hedge claims that are truly unsupported by ANY source material (text or images)
+3. Improve the headline if it's weak or clickbait-y
+4. Tighten the prose — remove redundant sentences, improve flow
+5. Ensure AP style consistency
+6. Keep the article factual and professional
 
 ## Output Format
 Respond with the improved article in the SAME format as the input. Start with the headline on the first line, then the article body. Keep all existing structural markers (SUBHEAD:, BYLINE:, SOURCE:) if present.
 
 If the article is already well-written and no fact-check issues were found, return it mostly unchanged with only minor polish.`;
+
+        // Build multimodal prompt if images are available
+        const prompt: string | Array<{ type: string; text?: string; image_url?: { url: string } }> =
+          imageUrls.length > 0
+            ? [
+                { type: "text", text: promptText },
+                ...imageUrls.map(url => ({ type: "image_url" as const, image_url: { url } })),
+              ]
+            : promptText;
 
         const llmResponse = await callLLM({
           prompt,

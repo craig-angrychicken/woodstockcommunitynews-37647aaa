@@ -4,6 +4,9 @@ import { createSupabaseClient } from "../_shared/supabase-client.ts";
 // UUID v5 namespace for generating deterministic UUIDs
 const NAMESPACE_UUID = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
 
+// If RSS content is below this threshold, attempt to fetch the full article from the URL
+const CONTENT_ENRICHMENT_THRESHOLD = 500;
+
 /**
  * Normalizes any GUID format to a valid UUID string
  * - If already UUID format: returns as-is
@@ -407,6 +410,18 @@ Deno.serve(async (req) => {
 
             content = cleanText(content);
 
+            // Enrich thin RSS content by fetching the full article from the URL
+            if (content.length < CONTENT_ENRICHMENT_THRESHOLD && link) {
+              console.log(`📝 RSS content is thin (${content.length} chars), attempting enrichment from: ${link}`);
+              const enrichedText = await fetchArticleText(link);
+              if (enrichedText) {
+                console.log(`✅ Enriched content: ${content.length} → ${enrichedText.length} chars`);
+                content = enrichedText;
+              } else {
+                console.log(`⚠️ Enrichment failed or returned insufficient content, keeping original`);
+              }
+            }
+
             // Upsert into artifacts table with Storage-hosted images (updates if GUID exists)
             const { error: upsertError } = await supabase
               .from('artifacts')
@@ -732,6 +747,90 @@ function extractAllImages(item: RSSItem, config?: Record<string, unknown>): stri
   const uniqueImages = [...new Set(validImages)];
   console.log(`  📸 Total extracted: ${uniqueImages.length} unique image(s)`);
   return uniqueImages;
+}
+
+/**
+ * Fetch the full article text from a URL when RSS content is thin.
+ * Extracts main content from <article>, <main>, or largest content block.
+ */
+async function fetchArticleText(url: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.warn(`⚠️ Enrichment fetch returned ${response.status} for: ${url}`);
+      return null;
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('text/html') && !contentType.includes('application/xhtml')) {
+      return null;
+    }
+
+    const html = await response.text();
+
+    // Try to extract content from semantic elements in priority order
+    let extracted = '';
+    const contentSelectors = ['article', 'main', '[role="main"]'];
+
+    for (const selector of contentSelectors) {
+      const regex = new RegExp(`<${selector}[^>]*>([\\s\\S]*?)<\\/${selector}>`, 'i');
+      const match = html.match(regex);
+      if (match && match[1]) {
+        extracted = match[1];
+        break;
+      }
+    }
+
+    // Fallback: find the largest <div> with substantial paragraph content
+    if (!extracted) {
+      const paragraphs: string[] = [];
+      const pRegex = /<p[^>]*>([\s\S]*?)<\/p>/gi;
+      let pMatch;
+      while ((pMatch = pRegex.exec(html)) !== null) {
+        const text = pMatch[1].replace(/<[^>]+>/g, '').trim();
+        if (text.length > 40) {
+          paragraphs.push(text);
+        }
+      }
+      if (paragraphs.length >= 2) {
+        extracted = paragraphs.join('\n\n');
+      }
+    }
+
+    if (!extracted) return null;
+
+    // Strip HTML tags and clean up
+    const text = extracted
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Only return if substantially more content than what we had
+    if (text.length < CONTENT_ENRICHMENT_THRESHOLD) return null;
+
+    return text;
+  } catch (err) {
+    console.warn(`⚠️ Content enrichment failed for ${url}:`, err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 function cleanText(text: string): string {

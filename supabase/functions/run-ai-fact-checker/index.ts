@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
         id,
         title,
         content,
-        story_artifacts(artifact_id, artifacts(title, content, url, source:sources(name)))
+        story_artifacts(artifact_id, artifacts(title, content, url, hero_image_url, images, source:sources(name)))
       `)
       .eq("status", "pending")
       .eq("environment", "production")
@@ -63,17 +63,29 @@ Deno.serve(async (req) => {
       console.log(`\n🔍 Fact-checking: "${storyTitle}" (${story.id})`);
 
       try {
-        // Gather source material
+        // Gather source material and images
+        const imageUrls: string[] = [];
         const sourceTexts = (story.story_artifacts as Array<Record<string, unknown>>)
           ?.map((sa: Record<string, unknown>) => {
             const artifact = sa.artifacts;
             if (!artifact) return null;
+
+            // Collect images from this artifact for multimodal fact-checking
+            if (artifact.hero_image_url?.includes('supabase.co/storage')) {
+              imageUrls.push(artifact.hero_image_url);
+            }
+            for (const img of artifact.images || []) {
+              if (img && typeof img === 'object' && img.stored_url && !img.download_failed) {
+                imageUrls.push(img.stored_url);
+              }
+            }
+
             return `SOURCE: ${artifact.source?.name || "Unknown"}\nURL: ${artifact.url || "N/A"}\nTITLE: ${artifact.title || "N/A"}\nCONTENT: ${(artifact.content || "").substring(0, 3000)}`;
           })
           .filter(Boolean)
           .join("\n\n---\n\n") || "No source material available.";
 
-        const prompt = `You are a fact-checker for Woodstock Community News, a local news outlet covering Woodstock, Georgia and Cherokee County. Your job is to compare the generated news article against its source material and flag any claims that cannot be verified.
+        const promptText = `You are a fact-checker for Woodstock Community News, a local news outlet covering Woodstock, Georgia and Cherokee County. Your job is to compare the generated news article against its source material and flag any claims that cannot be verified.
 
 ## Generated Article
 HEADLINE: ${storyTitle}
@@ -84,15 +96,29 @@ ${story.content || ""}
 ${sourceTexts}
 
 ## Instructions
-1. Compare every factual claim in the article against the source material
-2. Flag any claims, statistics, quotes, names, or details that are NOT present in or supported by the source material
-3. Note any embellishments or additions beyond what the sources contain
-4. If all claims are supported, say so
+1. Compare every factual claim in the article against the source material — this includes BOTH the text above AND any attached images
+2. Source material includes text AND attached images. Details visible in images (dates, times, locations, names, addresses, event details on flyers/posters, etc.) are VALID source material. Do NOT flag claims that are supported by information visible in an image.
+3. Flag any claims, statistics, quotes, names, or details that are NOT present in or supported by the source material (text or images)
+4. Note any embellishments or additions beyond what the sources contain
+5. If all claims are supported, say so
 
 Respond in this format:
 - If issues found: List each issue on a separate line, starting with "FLAG: "
 - If all claims verified: "VERIFIED: All claims in the article are supported by the source material."
 - End with a summary line: "OVERALL: [PASS/CONCERNS]"`;
+
+        // Build multimodal prompt if images are available
+        const prompt: string | Array<{ type: string; text?: string; image_url?: { url: string } }> =
+          imageUrls.length > 0
+            ? [
+                { type: "text", text: promptText },
+                ...imageUrls.map(url => ({ type: "image_url" as const, image_url: { url } })),
+              ]
+            : promptText;
+
+        if (imageUrls.length > 0) {
+          console.log(`📷 Including ${imageUrls.length} source image(s) for fact-checking`);
+        }
 
         const llmResponse = await callLLM({
           prompt,
