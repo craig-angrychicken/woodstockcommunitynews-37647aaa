@@ -17,7 +17,7 @@ export const CronJobMonitor = () => {
     <div className="space-y-6">
       {/* Stats Overview */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">Total Runs (24h)</CardTitle>
@@ -66,6 +66,27 @@ export const CronJobMonitor = () => {
                 {stats.lastJournalismRun && (
                   <div>Story: {formatDistanceToNow(new Date(stats.lastJournalismRun), { addSuffix: true })}</div>
                 )}
+                {stats.lastEditorRun && (
+                  <div>Editor: {formatDistanceToNow(new Date(stats.lastEditorRun), { addSuffix: true })}</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Editor / Facebook</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.editorRuns}</div>
+              <p className="text-xs text-muted-foreground">
+                editor runs (24h)
+              </p>
+              <div className="text-xs space-y-1 mt-2">
+                <div className="text-success">FB posted: {stats.facebookPosted}</div>
+                {stats.facebookMissing > 0 && (
+                  <div className="text-warning">FB missing: {stats.facebookMissing}</div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -99,7 +120,9 @@ export const CronJobMonitor = () => {
                           <AlertCircle className="h-4 w-4 text-warning" />
                         )}
                         <span className="font-medium">
-                          {log.job_name === "scheduled-fetch-artifacts" ? "Artifact Fetch" : "AI Journalism"}
+                          {log.job_name === "scheduled-fetch-artifacts" ? "Artifact Fetch"
+                            : log.job_name === "run-editor" ? "AI Editor"
+                            : "AI Journalism"}
                         </span>
                         <Badge variant={log.schedule_check_passed ? "default" : "outline"}>
                           {log.schedule_check_passed ? "Executed" : "Skipped"}

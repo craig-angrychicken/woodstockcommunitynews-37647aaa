@@ -12,7 +12,7 @@ Deno.serve(async (req) => {
 
   const supabase = createSupabaseClient();
 
-  const summary = { published: 0, rejected: 0, featured: 0, skipped: 0, errors: 0 };
+  const summary = { published: 0, rejected: 0, featured: 0, skipped: 0, errors: 0, facebook_posted: 0, facebook_failed: 0 };
 
   try {
     // Step 1: Fetch active editor prompt
@@ -179,6 +179,24 @@ ${story.content || ""}`;
           console.log(`${isFeatured ? "⭐" : "✅"} Published${isFeatured ? " (featured)" : ""}: "${storyTitle}" → ${publishData.url}`);
           summary.published++;
           if (isFeatured) summary.featured++;
+
+          // Facebook: post link to page (non-fatal)
+          try {
+            const { data: fbData, error: fbError } = await supabase.functions.invoke(
+              "publish-to-facebook",
+              { body: { storyId: story.id, ghostUrl: publishData.url, title: storyTitle } }
+            );
+            if (fbError || !fbData?.success) {
+              console.warn(`⚠️ Facebook failed for "${storyTitle}": ${fbError?.message || fbData?.error}`);
+              summary.facebook_failed++;
+            } else {
+              console.log(`📘 Facebook posted: "${storyTitle}" → ${fbData.url}`);
+              summary.facebook_posted++;
+            }
+          } catch (fbErr) {
+            console.warn(`⚠️ Facebook threw for "${storyTitle}":`, fbErr);
+            summary.facebook_failed++;
+          }
         } else if (upperVerdict.startsWith("REJECT:")) {
           const reason = verdict.slice(7).trim();
 

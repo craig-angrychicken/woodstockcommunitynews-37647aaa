@@ -72,11 +72,26 @@ export const useCronJobStats = () => {
       // Calculate stats
       const artifactFetchLogs = logs.filter(l => l.job_name === "scheduled-fetch-artifacts");
       const journalismLogs = logs.filter(l => l.job_name === "scheduled-run-journalism");
-      
+      const editorLogs = logs.filter(l => l.job_name === "run-editor");
+
+      // Facebook stats: count published stories with/without Facebook posts
+      const { count: fbPostedCount } = await supabase
+        .from("stories")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "published")
+        .not("facebook_posted_at", "is", null);
+
+      const { count: fbMissingCount } = await supabase
+        .from("stories")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "published")
+        .is("facebook_posted_at", null);
+
       return {
         totalRuns: logs.length,
         artifactFetchRuns: artifactFetchLogs.length,
         journalismRuns: journalismLogs.length,
+        editorRuns: editorLogs.length,
         successfulRuns: logs.filter(l => l.schedule_check_passed && !l.error_message).length,
         failedRuns: logs.filter(l => l.error_message).length,
         skippedRuns: logs.filter(l => !l.schedule_check_passed && !l.error_message).length,
@@ -84,6 +99,9 @@ export const useCronJobStats = () => {
         totalStories: journalismLogs.reduce((sum, l) => sum + (l.stories_count || 0), 0),
         lastArtifactFetch: artifactFetchLogs.find(l => l.schedule_check_passed)?.triggered_at,
         lastJournalismRun: journalismLogs.find(l => l.schedule_check_passed)?.triggered_at,
+        lastEditorRun: editorLogs.find(l => l.schedule_check_passed)?.triggered_at,
+        facebookPosted: fbPostedCount || 0,
+        facebookMissing: fbMissingCount || 0,
       };
     },
     refetchInterval: 60000, // Refresh every minute
