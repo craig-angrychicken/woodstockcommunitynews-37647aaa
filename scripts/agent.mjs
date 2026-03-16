@@ -62,7 +62,7 @@ const tools = [
   {
     name: "call_edge_function",
     description:
-      "Invoke a Supabase edge function to perform a corrective action on the pipeline. Only call each function once per session. Whitelisted functions: recover-stuck-queue-items, run-ai-fact-checker, run-ai-rewriter, run-ai-editor, scheduled-fetch-artifacts.",
+      "Invoke a Supabase edge function to perform a corrective action on the pipeline. Only call each function once per session. Whitelisted functions: recover-stuck-queue-items, run-ai-fact-checker, run-ai-rewriter, run-ai-editor, scheduled-fetch-artifacts, cluster-artifacts.",
     input_schema: {
       type: "object",
       properties: {
@@ -74,6 +74,7 @@ const tools = [
             "run-ai-rewriter",
             "run-ai-editor",
             "scheduled-fetch-artifacts",
+            "cluster-artifacts",
           ],
           description: "The edge function to invoke.",
         },
@@ -161,10 +162,14 @@ async function callEdgeFunction({ function_name, reason }) {
     if (function_name === "recover-stuck-queue-items" && QUEUE_PROCESSOR_SECRET) {
       headers["x-internal-secret"] = QUEUE_PROCESSOR_SECRET;
     }
+    const bodyPayload = {};
+    if (function_name === "scheduled-fetch-artifacts") {
+      bodyPayload.force = true;
+    }
     const res = await fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify({}),
+      body: JSON.stringify(bodyPayload),
     });
     const text = await res.text();
     let body;
@@ -249,17 +254,20 @@ This is a ${IS_DAILY_REPORT ? "DAILY REPORT run" : "MONITORING run"}.
 ## Your Mission
 Check pipeline health, diagnose issues, take corrective actions, and${IS_DAILY_REPORT ? " send the executive briefing email" : " send an email only for CRITICAL issues (pipeline fully stopped)"}.
 
-## Pipeline Architecture (5 Stages)
+## Pipeline Architecture (6 Stages)
 
 | Stage | Tables | Stuck threshold | Critical threshold | Repair function |
 |-------|--------|----------------|-------------------|-----------------|
 | Artifact Fetching | artifacts, query_history | No fetch in 8h | No fetch in 16h | scheduled-fetch-artifacts |
+| Clustering | artifacts (cluster_id) | No run in 2h | No run in 4h | cluster-artifacts |
 | Story Generation | journalism_queue | processing > 10min | > 30min or >20% failed | recover-stuck-queue-items |
 | Fact-checking | stories (pending) | >4h in pending | >8h in pending | run-ai-fact-checker |
 | Rewriting | stories (fact_checked) | >4h | >8h | run-ai-rewriter |
 | Editorial/Publish | stories (edited) | >4h | >8h | run-ai-editor |
 
-## Mandatory Health Check Queries (run ALL 8 before deciding anything)
+## Mandatory Health Check Queries (run ALL 9 before deciding anything)
+
+IMPORTANT: There are exactly NINE (9) queries below, numbered 1–9. You MUST run every single one. A common mistake is stopping at query 8 and forgetting query 9 (clustering health). Do not do this.
 
 1. Artifact volume (24h / 8h):
 SELECT COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') AS artifacts_24h,
@@ -301,10 +309,24 @@ ORDER BY triggered_at DESC LIMIT 20;
 SELECT name, status, last_fetch_at, items_fetched FROM sources
 WHERE status = 'active' ORDER BY last_fetch_at DESC NULLS LAST LIMIT 20;
 
+9. Clustering health:
+SELECT
+  COUNT(*) FILTER (WHERE cluster_id IS NULL AND is_test = false) AS unclustered,
+  COUNT(*) FILTER (WHERE cluster_id IS NOT NULL AND is_test = false) AS clustered,
+  COUNT(*) FILTER (WHERE is_test = false) AS total,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE cluster_id IS NOT NULL AND is_test = false)
+    / NULLIF(COUNT(*) FILTER (WHERE is_test = false), 0), 1) AS pct_clustered,
+  (SELECT MAX(end_time) FROM cron.job_run_details
+   WHERE jobname = 'cluster-artifacts' AND status = 'succeeded') AS last_successful_cluster_run
+FROM artifacts;
+
 ## Behavioral Rules
-- Run ALL 8 queries before making any decision or taking action.
+- Run ALL 9 queries before making any decision or taking action.
 - Call each repair function at most ONCE per session (enforced by the tool).
 - Be conservative — prefer "the pg_cron watchdog will handle minor issues" over unnecessary function calls.
+- Clustering warning: last_successful_cluster_run > 2h ago.
+- Clustering critical: last_successful_cluster_run > 4h ago → call cluster-artifacts.
+- Note: high unclustered count alone is NOT alarming (unique content stays unclustered by design); focus on whether the cron job is running.
 - On MONITORING runs: only send email if the pipeline is CRITICALLY broken (all artifact fetching stopped, or all story generation stopped for >8h).
 - On DAILY REPORT runs: ALWAYS send the briefing email, even if everything is healthy.
 - Never call run-ai-journalist — it requires complex parameters that must be set manually.
@@ -312,9 +334,10 @@ WHERE status = 'active' ORDER BY last_fetch_at DESC NULLS LAST LIMIT 20;
 ## Executive Briefing Email Format
 Build a polished HTML email with inline CSS using this structure:
 1. Header — "Woodstock Community News Daily Briefing" + date ET, background #1a1a2e, white text
-2. Pipeline Status — green/yellow/red badge for each of the 5 stages:
+2. Pipeline Status — green/yellow/red badge for each of the 6 stages:
    • Healthy = #4caf50  • Warning = #f5a623  • Critical = #e94560
-3. Today's Numbers — 4 stat boxes: Artifacts Fetched (24h), Stories Generated (24h), Published (24h), Rejected (24h)
+   Stages: Artifact Fetching, Clustering, Story Generation, Fact-checking, Rewriting, Editorial/Publish
+3. Today's Numbers — 5 stat boxes: Artifacts Fetched (24h), Cluster Rate (pct_clustered of total), Stories Generated (24h), Published (24h), Rejected (24h)
 4. Published Stories — list with titles and Ghost URLs (only if published today)
 5. Issues & Corrective Actions — amber (#f5a623) callout block (only if issues found/actions taken)
 6. Footer — UTC timestamp + "Generated by Woodstock Community News Pipeline Monitor"

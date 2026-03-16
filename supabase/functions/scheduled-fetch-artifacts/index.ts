@@ -85,6 +85,10 @@ Deno.serve(async (req) => {
 
     const currentTimeEST = `${estHours.toString().padStart(2, '0')}:${etMinutes.toString().padStart(2, '0')}`;
 
+    // Allow force bypass (used by pipeline monitor agent for corrective actions)
+    const body = await req.json().catch(() => ({}));
+    const forceRun = body?.force === true;
+
     // Check if current time matches any scheduled time (within 5 minutes tolerance)
     const isScheduledTime = schedule.scheduled_times?.some((scheduledTime: string) => {
       const [schedHour, schedMin] = scheduledTime.split(':').map(Number);
@@ -94,7 +98,7 @@ Deno.serve(async (req) => {
       return diff <= 5; // 5 minute tolerance
     });
 
-    if (!isScheduledTime) {
+    if (!isScheduledTime && !forceRun) {
       console.log(`⏭️ Skipping run - current time ${currentTimeEST} EST is not a scheduled time`);
       const duration = Date.now() - startTime;
       await logCronJob(supabase, {
