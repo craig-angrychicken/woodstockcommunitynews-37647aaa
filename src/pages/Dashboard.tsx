@@ -11,11 +11,13 @@ import {
   HardDrive,
   TrendingUp,
   Calendar,
-  Activity
+  Activity,
+  Ban
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CronJobMonitor } from "@/components/monitoring/CronJobMonitor";
+import { SkipsRejectionsPanel } from "@/components/monitoring/SkipsRejectionsPanel";
 
 const Dashboard = () => {
   // Fetch stats
@@ -309,6 +311,15 @@ const Dashboard = () => {
           System Health
         </h2>
         <CronJobMonitor />
+      </section>
+
+      {/* Skips & Rejections */}
+      <section>
+        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          <Ban className="h-5 w-5" />
+          Skips & Rejections
+        </h2>
+        <SkipsRejectionsPanel />
       </section>
 
       {/* Recent Activity */}
