@@ -98,8 +98,8 @@ ${sourceTexts}
 ## Instructions
 1. Compare every factual claim in the article against the source material — this includes BOTH the text above AND any attached images
 2. Source material includes text AND attached images. Details visible in images (dates, times, locations, names, addresses, event details on flyers/posters, etc.) are VALID source material. Do NOT flag claims that are supported by information visible in an image.
-3. Flag any claims, statistics, quotes, names, or details that are NOT present in or supported by the source material (text or images)
-4. Note any embellishments or additions beyond what the sources contain
+3. Flag any fabricated quotes, invented statistics, made-up partnerships, or specific claims that appear factually incorrect. Well-known public facts used as brief context (e.g., what an organization does, where a venue is located) are acceptable enrichment and should NOT be flagged unless you believe they are factually wrong.
+4. Note any speculative or editorial embellishments. Brief factual context drawn from general knowledge is acceptable and should not be flagged.
 5. If all claims are supported, say so
 
 Respond in this format:
