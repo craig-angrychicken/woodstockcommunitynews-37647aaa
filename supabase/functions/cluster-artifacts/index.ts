@@ -1,6 +1,7 @@
 import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase-client.ts";
 import { generateEmbedding } from "../_shared/llm-client.ts";
+import { checkScheduleGate } from "../_shared/schedule-gate.ts";
 
 const SIMILARITY_THRESHOLD = 0.85;
 
@@ -13,8 +14,13 @@ Deno.serve(async (req) => {
   const supabase = createSupabaseClient();
 
   try {
-    const body = await req.json().catch(() => ({}));
-    const { dateFrom, dateTo } = body;
+    // Active-hours gate (piggybacks on artifact_fetch schedule's is_enabled and active hours)
+    const gateResult = await checkScheduleGate(
+      supabase, "artifact_fetch", "cluster-artifacts", req, Date.now(),
+    );
+    if (gateResult instanceof Response) return gateResult;
+
+    const { dateFrom, dateTo } = gateResult.body;
 
     // Fetch unclustered artifacts (no cluster_id)
     let query = supabase

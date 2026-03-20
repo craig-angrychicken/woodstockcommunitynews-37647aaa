@@ -1,6 +1,7 @@
 import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase-client.ts";
 import { logCronJob } from "../_shared/cron-logger.ts";
+import { checkScheduleGate } from "../_shared/schedule-gate.ts";
 
 Deno.serve(async (req) => {
   const corsResponse = handleCorsPrelight(req);
@@ -14,105 +15,44 @@ Deno.serve(async (req) => {
   const supabase = createSupabaseClient();
 
   try {
-    // Check if AI journalism scheduling is enabled
-    const { data: schedule, error: scheduleError } = await supabase
-      .from("schedules")
-      .select("*")
-      .eq("schedule_type", "ai_journalism")
-      .maybeSingle();
+    // Active-hours gate (replaces old specific-time matching)
+    const gateResult = await checkScheduleGate(
+      supabase, "ai_journalism", "scheduled-run-journalism", req, startTime,
+    );
+    if (gateResult instanceof Response) return gateResult;
 
-    if (scheduleError) {
-      console.error("❌ Error fetching schedule:", scheduleError);
+    const { schedule, currentTimeET } = gateResult;
+
+    console.log(`✅ Schedule gate passed (${currentTimeET} ET) - checking for overlap`);
+
+    // Overlap guard: skip if a previous automated journalism run is still active
+    const { data: runningRuns, error: overlapError } = await supabase
+      .from("query_history")
+      .select("id, created_at")
+      .eq("status", "running")
+      .eq("run_stages", "automated")
+      .not("prompt_version_id", "is", null);
+
+    if (overlapError) {
+      console.warn("⚠️ Could not check for overlap:", overlapError.message);
+    } else if (runningRuns && runningRuns.length > 0) {
+      console.log(`⏭️ Skipping — ${runningRuns.length} automated journalism run(s) still active`);
       const duration = Date.now() - startTime;
       await logCronJob(supabase, {
         job_name: "scheduled-run-journalism",
-        schedule_check_passed: false,
-        reason: "Failed to fetch schedule from database",
-        error_message: scheduleError.message,
-        execution_duration_ms: duration,
-      });
-      throw new Error(`Failed to fetch schedule: ${scheduleError.message}`);
-    }
-
-    if (!schedule) {
-      console.log("⚠️ No schedule configured for AI journalism");
-      const duration = Date.now() - startTime;
-      await logCronJob(supabase, {
-        job_name: "scheduled-run-journalism",
-        schedule_check_passed: false,
-        reason: "No schedule configured",
-        execution_duration_ms: duration,
-      });
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: "No schedule configured. Please configure a schedule in the UI."
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-      );
-    }
-
-    if (!schedule.is_enabled) {
-      console.log("⏸️ AI journalism scheduling is disabled");
-      const duration = Date.now() - startTime;
-      await logCronJob(supabase, {
-        job_name: "scheduled-run-journalism",
-        schedule_check_passed: false,
-        schedule_enabled: false,
-        scheduled_times: schedule.scheduled_times,
-        reason: "Schedule is disabled",
-        execution_duration_ms: duration,
-      });
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: "Scheduling is disabled. Enable it in the UI to run scheduled journalism."
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-      );
-    }
-
-    // Calculate current time in ET (handles EST/EDT automatically)
-    const etTimeStr = now.toLocaleString('en-US', {
-      timeZone: 'America/New_York',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-    const [etHStr, etMStr] = etTimeStr.split(':');
-    const estHours = parseInt(etHStr) % 24;
-    const etMinutes = parseInt(etMStr);
-
-    const currentTimeEST = `${estHours.toString().padStart(2, '0')}:${etMinutes.toString().padStart(2, '0')}`;
-
-    // Check if current time matches any scheduled time (within 5 minutes tolerance)
-    const isScheduledTime = schedule.scheduled_times?.some((scheduledTime: string) => {
-      const [schedHour, schedMin] = scheduledTime.split(':').map(Number);
-      const schedMinutes = schedHour * 60 + schedMin;
-      const currentMinutes = estHours * 60 + etMinutes;
-      const diff = Math.abs(currentMinutes - schedMinutes);
-      return diff <= 5; // 5 minute tolerance
-    });
-
-    if (!isScheduledTime) {
-      console.log(`⏭️ Skipping run - current time ${currentTimeEST} EST is not a scheduled time`);
-      const duration = Date.now() - startTime;
-      await logCronJob(supabase, {
-        job_name: "scheduled-run-journalism",
-        schedule_check_passed: false,
+        schedule_check_passed: true,
         schedule_enabled: true,
-        scheduled_times: schedule.scheduled_times,
-        time_checked: currentTimeEST,
-        reason: `Not scheduled for this time (scheduled: ${schedule.scheduled_times?.join(', ')})`,
+        time_checked: currentTimeET,
+        reason: `Skipped: ${runningRuns.length} run(s) still active (ids: ${runningRuns.map(r => r.id).join(", ")})`,
         execution_duration_ms: duration,
       });
       return new Response(
-        JSON.stringify({ success: false, message: "Not a scheduled run time" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+        JSON.stringify({ success: false, message: "Previous run still active, skipping" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 },
       );
     }
 
-    console.log(`✅ Schedule is enabled and time matches (${currentTimeEST} EST) - running AI journalism`);
+    console.log(`✅ No overlap detected — running AI journalism`);
 
     // Fetch the active journalism prompt
     const { data: activePrompt, error: promptError } = await supabase
@@ -200,7 +140,7 @@ Deno.serve(async (req) => {
       job_name: "scheduled-run-journalism",
       schedule_check_passed: true,
       schedule_enabled: true,
-      scheduled_times: schedule.scheduled_times,
+      time_checked: currentTimeET,
       query_history_id: historyRecord.id,
       reason: "Successfully started journalism processing",
       execution_duration_ms: duration,

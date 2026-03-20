@@ -329,6 +329,8 @@ export type Database = {
       }
       schedules: {
         Row: {
+          active_hour_end: number | null
+          active_hour_start: number | null
           created_at: string | null
           id: string
           is_enabled: boolean | null
@@ -337,6 +339,8 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          active_hour_end?: number | null
+          active_hour_start?: number | null
           created_at?: string | null
           id?: string
           is_enabled?: boolean | null
@@ -345,6 +349,8 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          active_hour_end?: number | null
+          active_hour_start?: number | null
           created_at?: string | null
           id?: string
           is_enabled?: boolean | null

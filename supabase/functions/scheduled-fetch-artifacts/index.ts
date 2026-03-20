@@ -1,6 +1,7 @@
 import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase-client.ts";
 import { logCronJob } from "../_shared/cron-logger.ts";
+import { checkScheduleGate } from "../_shared/schedule-gate.ts";
 
 Deno.serve(async (req) => {
   const corsResponse = handleCorsPrelight(req);
@@ -14,109 +15,15 @@ Deno.serve(async (req) => {
   const supabase = createSupabaseClient();
 
   try {
-    // Check if artifact fetching scheduling is enabled
-    const { data: schedule, error: scheduleError } = await supabase
-      .from("schedules")
-      .select("*")
-      .eq("schedule_type", "artifact_fetch")
-      .maybeSingle();
+    // Active-hours gate (replaces old specific-time matching)
+    const gateResult = await checkScheduleGate(
+      supabase, "artifact_fetch", "scheduled-fetch-artifacts", req, startTime,
+    );
+    if (gateResult instanceof Response) return gateResult;
 
-    if (scheduleError) {
-      console.error("❌ Error fetching schedule:", scheduleError);
-      const duration = Date.now() - startTime;
-      await logCronJob(supabase, {
-        job_name: "scheduled-fetch-artifacts",
-        schedule_check_passed: false,
-        reason: "Failed to fetch schedule from database",
-        error_message: scheduleError.message,
-        execution_duration_ms: duration,
-      });
-      throw new Error(`Failed to fetch schedule: ${scheduleError.message}`);
-    }
+    const { schedule, currentTimeET } = gateResult;
 
-    if (!schedule) {
-      console.log("⚠️ No schedule configured for artifact fetching");
-      const duration = Date.now() - startTime;
-      await logCronJob(supabase, {
-        job_name: "scheduled-fetch-artifacts",
-        schedule_check_passed: false,
-        reason: "No schedule configured",
-        execution_duration_ms: duration,
-      });
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: "No schedule configured. Please configure a schedule in the UI."
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-      );
-    }
-
-    if (!schedule.is_enabled) {
-      console.log("⏸️ Artifact fetching scheduling is disabled");
-      const duration = Date.now() - startTime;
-      await logCronJob(supabase, {
-        job_name: "scheduled-fetch-artifacts",
-        schedule_check_passed: false,
-        schedule_enabled: false,
-        scheduled_times: schedule.scheduled_times,
-        reason: "Schedule is disabled",
-        execution_duration_ms: duration,
-      });
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: "Scheduling is disabled. Enable it in the UI to run scheduled fetching."
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-      );
-    }
-
-    // Calculate current time in ET (handles EST/EDT automatically)
-    const etTimeStr = now.toLocaleString('en-US', {
-      timeZone: 'America/New_York',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-    const [etHStr, etMStr] = etTimeStr.split(':');
-    const estHours = parseInt(etHStr) % 24;
-    const etMinutes = parseInt(etMStr);
-
-    const currentTimeEST = `${estHours.toString().padStart(2, '0')}:${etMinutes.toString().padStart(2, '0')}`;
-
-    // Allow force bypass (used by pipeline monitor agent for corrective actions)
-    const body = await req.json().catch(() => ({}));
-    const forceRun = body?.force === true;
-
-    // Check if current time matches any scheduled time (within 5 minutes tolerance)
-    const isScheduledTime = schedule.scheduled_times?.some((scheduledTime: string) => {
-      const [schedHour, schedMin] = scheduledTime.split(':').map(Number);
-      const schedMinutes = schedHour * 60 + schedMin;
-      const currentMinutes = estHours * 60 + etMinutes;
-      const diff = Math.abs(currentMinutes - schedMinutes);
-      return diff <= 5; // 5 minute tolerance
-    });
-
-    if (!isScheduledTime && !forceRun) {
-      console.log(`⏭️ Skipping run - current time ${currentTimeEST} EST is not a scheduled time`);
-      const duration = Date.now() - startTime;
-      await logCronJob(supabase, {
-        job_name: "scheduled-fetch-artifacts",
-        schedule_check_passed: false,
-        schedule_enabled: true,
-        scheduled_times: schedule.scheduled_times,
-        time_checked: currentTimeEST,
-        reason: `Not scheduled for this time (scheduled: ${schedule.scheduled_times.join(', ')})`,
-        execution_duration_ms: duration,
-      });
-      return new Response(
-        JSON.stringify({ success: false, message: "Not a scheduled run time" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-      );
-    }
-
-    console.log(`✅ Schedule is enabled and time matches (${currentTimeEST} EST) - running artifact fetch`);
+    console.log(`✅ Schedule gate passed (${currentTimeET} ET) - running artifact fetch`);
 
     // Fetch all active RSS Feed sources
     const { data: sources, error: sourcesError } = await supabase
@@ -136,9 +43,9 @@ Deno.serve(async (req) => {
         job_name: "scheduled-fetch-artifacts",
         schedule_check_passed: true,
         schedule_enabled: true,
-        scheduled_times: schedule.scheduled_times,
         sources_count: 0,
         artifacts_count: 0,
+        time_checked: currentTimeET,
         reason: "No active RSS feed sources found",
         execution_duration_ms: duration,
       });
@@ -263,8 +170,7 @@ Deno.serve(async (req) => {
       job_name: "scheduled-fetch-artifacts",
       schedule_check_passed: true,
       schedule_enabled: true,
-      scheduled_times: schedule.scheduled_times,
-      time_checked: currentTimeEST,
+      time_checked: currentTimeET,
       sources_count: sources.length,
       artifacts_count: totalArtifactsCount,
       query_history_id: historyEntry.id,

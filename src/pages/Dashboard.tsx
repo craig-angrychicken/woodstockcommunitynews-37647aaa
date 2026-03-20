@@ -87,9 +87,9 @@ const Dashboard = () => {
     }
   });
 
-  // Calculate next auto-run in EST
+  // Calculate next auto-run based on active-hours schedule (every 15 min within active hours)
   const calculateNextRun = () => {
-    if (!schedule?.scheduled_times || !Array.isArray(schedule.scheduled_times) || !schedule.is_enabled) {
+    if (!schedule?.is_enabled) {
       return null;
     }
 
@@ -111,41 +111,38 @@ const Dashboard = () => {
     const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
     const ET_OFFSET_HOURS = (new Date(etStr).getTime() - new Date(utcStr).getTime()) / (60 * 60 * 1000);
 
+    const activeStart = (schedule as Record<string, unknown>).active_hour_start as number ?? 6;
+    const activeEnd = (schedule as Record<string, unknown>).active_hour_end as number ?? 22;
     const currentTimeMinutes = etHours * 60 + etMinutes;
 
-    // Parse scheduled times (e.g., ["06:00", "12:00", "18:00"])
-    const scheduledTimesMinutes = (schedule.scheduled_times as string[])
-      .map(time => {
-        const [hours, minutes] = time.split(':').map(Number);
-        return hours * 60 + minutes;
-      })
-      .sort((a, b) => a - b);
+    // Next 15-minute mark within active hours
+    const nextMinuteMark = Math.ceil((etMinutes + 1) / 15) * 15;
+    let nextHourET = etHours;
+    let nextMinET = nextMinuteMark;
 
-    // Find next run today (in EST)
-    const nextTodayTime = scheduledTimesMinutes.find(t => t > currentTimeMinutes);
-    
-    if (nextTodayTime) {
-      // Next run is today in EST
-      const nextRunUTC = new Date(now);
-      const nextRunHourEST = Math.floor(nextTodayTime / 60);
-      const nextRunMinuteEST = nextTodayTime % 60;
-      
-      // Convert ET time back to UTC for the Date object
-      nextRunUTC.setUTCHours(nextRunHourEST - Math.round(ET_OFFSET_HOURS), nextRunMinuteEST, 0, 0);
-      
-      return { date: nextRunUTC, isToday: true };
-    } else {
-      // Next run is tomorrow in EST
-      const nextRunUTC = new Date(now);
-      const firstTimeEST = Math.floor(scheduledTimesMinutes[0] / 60);
-      const firstMinuteEST = scheduledTimesMinutes[0] % 60;
-      
-      // Convert ET time back to UTC for the Date object (tomorrow in ET)
-      nextRunUTC.setUTCHours(firstTimeEST - Math.round(ET_OFFSET_HOURS), firstMinuteEST, 0, 0);
-      nextRunUTC.setUTCDate(nextRunUTC.getUTCDate() + 1);
-      
-      return { date: nextRunUTC, isToday: false };
+    if (nextMinET >= 60) {
+      nextMinET = 0;
+      nextHourET += 1;
     }
+
+    // If we're past active hours today, jump to start of active hours tomorrow
+    let isToday = true;
+    if (nextHourET >= activeEnd) {
+      nextHourET = activeStart;
+      nextMinET = 0;
+      isToday = false;
+    } else if (nextHourET < activeStart) {
+      nextHourET = activeStart;
+      nextMinET = 0;
+    }
+
+    const nextRunUTC = new Date(now);
+    nextRunUTC.setUTCHours(nextHourET - Math.round(ET_OFFSET_HOURS), nextMinET, 0, 0);
+    if (!isToday) {
+      nextRunUTC.setUTCDate(nextRunUTC.getUTCDate() + 1);
+    }
+
+    return { date: nextRunUTC, isToday };
   };
 
   const nextRun = calculateNextRun();
