@@ -33,7 +33,7 @@ export const useSkippedArtifacts = (days = 7) => {
 
       if (error) throw error;
 
-      return (data || []).map((row: any) => ({
+      return (data || []).map((row: { artifact?: { title?: string; url?: string } | null; error_message: string | null; completed_at: string }) => ({
         title: row.artifact?.title || null,
         skip_reason: row.error_message,
         url: row.artifact?.url || null,
@@ -60,7 +60,7 @@ export const useRejectedStories = (days = 7) => {
 
       if (error) throw error;
 
-      return (data || []).map((row: any) => ({
+      return (data || []).map((row: { title: string; editor_notes: string | null; updated_at: string }) => ({
         title: row.title,
         rejection_reason: row.editor_notes,
         updated_at: row.updated_at,
