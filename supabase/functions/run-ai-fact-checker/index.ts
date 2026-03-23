@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
           .filter(Boolean)
           .join("\n\n---\n\n") || "No source material available.";
 
-        const promptText = `You are a fact-checker for Woodstock Community News, a local news outlet covering Woodstock, Georgia and Cherokee County. Your job is to compare the generated news article against its source material and flag any claims that cannot be verified.
+        const promptText = `You are a fact-checker for Woodstock Community News, a local news outlet covering Woodstock, Georgia and Cherokee County. Your job is to compare the generated news article against its source material and flag ONLY genuinely problematic claims.
 
 ## Generated Article
 HEADLINE: ${storyTitle}
@@ -96,11 +96,20 @@ ${story.content || ""}
 ${sourceTexts}
 
 ## Instructions
-1. Compare every factual claim in the article against the source material — this includes BOTH the text above AND any attached images
+1. Compare factual claims in the article against the source material — this includes BOTH the text above AND any attached images
 2. Source material includes text AND attached images. Details visible in images (dates, times, locations, names, addresses, event details on flyers/posters, etc.) are VALID source material. Do NOT flag claims that are supported by information visible in an image.
-3. Flag any fabricated quotes, invented statistics, made-up partnerships, or specific claims that appear factually incorrect. Well-known public facts used as brief context (e.g., what an organization does, where a venue is located) are acceptable enrichment and should NOT be flagged unless you believe they are factually wrong.
-4. Note any speculative or editorial embellishments. Brief factual context drawn from general knowledge is acceptable and should not be flagged.
-5. If all claims are supported, say so
+3. ONLY flag these kinds of problems:
+   - Fabricated quotes attributed to real people
+   - Invented statistics, dollar amounts, or specific numbers not in the source
+   - Made-up partnerships, agreements, or organizational relationships
+   - Specific factual claims that appear incorrect (wrong dates, wrong names, wrong locations)
+4. Do NOT flag any of the following — these are expected enrichment, not errors:
+   - Well-known facts about local organizations, government bodies, schools, and venues (e.g., "Cherokee County School District serves over 43,000 students", "Woodstock is located in Cherokee County")
+   - General context about what organizations do, where places are located, or when they were established
+   - Explanatory sentences about why something matters to local residents
+   - Background context drawn from general knowledge that is factually accurate
+   - Descriptions of standard processes (how Eagle Scouts earn rank, how city government works, etc.)
+5. If all claims are supported or represent reasonable enrichment, say so. Err on the side of PASS — the rewriter stage will handle quality improvements.
 
 Respond in this format:
 - If issues found: List each issue on a separate line, starting with "FLAG: "
