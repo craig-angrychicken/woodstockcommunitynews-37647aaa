@@ -131,6 +131,23 @@ Deno.serve(async (req) => {
       const afterCount = artifacts.length;
 
       console.log(`✅ Step 3 complete: ${usedGUIDs.size} already used, ${afterCount} remaining (filtered out ${beforeCount - afterCount})`);
+
+      // Also filter out artifacts that were already skipped (no story created, but already evaluated)
+      const { data: skippedItems, error: skippedError } = await supabase
+        .from('journalism_queue')
+        .select('artifact_id')
+        .eq('status', 'skipped');
+
+      if (skippedError) {
+        console.warn('⚠️ Error fetching skipped artifacts:', skippedError);
+      } else {
+        const skippedIds = new Set(
+          (skippedItems || []).map((item: Record<string, unknown>) => item.artifact_id)
+        );
+        const beforeSkipFilter = artifacts.length;
+        artifacts = artifacts.filter(a => !skippedIds.has(a.id));
+        console.log(`   Skipped-artifact filter: ${skippedIds.size} previously skipped, ${artifacts.length} remaining (filtered out ${beforeSkipFilter - artifacts.length})`);
+      }
     } else {
       console.log(`🧪 Step 3: Test mode - Skipping duplicate check to allow multiple runs`);
     }

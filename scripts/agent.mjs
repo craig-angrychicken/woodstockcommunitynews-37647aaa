@@ -316,8 +316,8 @@ SELECT
   COUNT(*) FILTER (WHERE is_test = false) AS total,
   ROUND(100.0 * COUNT(*) FILTER (WHERE cluster_id IS NOT NULL AND is_test = false)
     / NULLIF(COUNT(*) FILTER (WHERE is_test = false), 0), 1) AS pct_clustered,
-  (SELECT MAX(end_time) FROM cron.job_run_details
-   WHERE jobname = 'cluster-artifacts' AND status = 'succeeded') AS last_successful_cluster_run
+  (SELECT MAX(triggered_at) FROM cron_job_logs
+   WHERE job_name = 'cluster-artifacts' AND error_message IS NULL) AS last_successful_cluster_run
 FROM artifacts;
 
 10. Skipped artifacts (24h):
