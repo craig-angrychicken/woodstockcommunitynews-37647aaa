@@ -109,22 +109,39 @@ ${factCheckFeedback}
 ## Output Format
 Respond with the improved article in the SAME format as the input. Start with the headline on the first line, then the article body. Keep all existing structural markers (SUBHEAD:, BYLINE:, SOURCE:) if present.`;
 
-        // Build multimodal prompt if images are available
-        const prompt: string | Array<{ type: string; text?: string; image_url?: { url: string } }> =
-          imageUrls.length > 0
-            ? [
+        // Build multimodal prompt if images are available, with fallback to text-only
+        let llmResponse;
+        if (imageUrls.length > 0) {
+          try {
+            llmResponse = await callLLM({
+              prompt: [
                 { type: "text", text: promptText },
                 ...imageUrls.map(url => ({ type: "image_url" as const, image_url: { url } })),
-              ]
-            : promptText;
-
-        const llmResponse = await callLLM({
-          prompt,
-          modelConfig,
-          maxTokens: 5000,
-          temperature: 0.6,
-          appTitle: "Woodstock Community News Rewriter",
-        });
+              ],
+              modelConfig,
+              maxTokens: 5000,
+              temperature: 0.6,
+              appTitle: "Woodstock Community News Rewriter",
+            });
+          } catch (imgErr) {
+            console.warn(`⚠️ LLM call with images failed, retrying text-only:`, imgErr instanceof Error ? imgErr.message : imgErr);
+            llmResponse = await callLLM({
+              prompt: promptText,
+              modelConfig,
+              maxTokens: 5000,
+              temperature: 0.6,
+              appTitle: "Woodstock Community News Rewriter",
+            });
+          }
+        } else {
+          llmResponse = await callLLM({
+            prompt: promptText,
+            modelConfig,
+            maxTokens: 5000,
+            temperature: 0.6,
+            appTitle: "Woodstock Community News Rewriter",
+          });
+        }
 
         const rewrittenContent = llmResponse.content.trim();
 

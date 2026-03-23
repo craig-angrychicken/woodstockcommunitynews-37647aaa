@@ -71,12 +71,17 @@ Deno.serve(async (req) => {
             if (!artifact) return null;
 
             // Collect images from this artifact for multimodal fact-checking
-            if (artifact.hero_image_url?.includes('supabase.co/storage')) {
-              imageUrls.push(artifact.hero_image_url);
+            // Only include Supabase storage images that haven't been cleaned up
+            const heroUrl = artifact.hero_image_url as string | undefined;
+            if (heroUrl?.includes('supabase.co/storage')) {
+              imageUrls.push(heroUrl);
             }
             for (const img of artifact.images || []) {
               if (img && typeof img === 'object' && img.stored_url && !img.download_failed) {
-                imageUrls.push(img.stored_url);
+                // Only include storage images — external CDN URLs expire
+                if ((img.stored_url as string).includes('supabase.co/storage')) {
+                  imageUrls.push(img.stored_url);
+                }
               }
             }
 
@@ -117,25 +122,39 @@ Respond in this format:
 - End with a summary line: "OVERALL: [PASS/CONCERNS]"`;
 
         // Build multimodal prompt if images are available
-        const prompt: string | Array<{ type: string; text?: string; image_url?: { url: string } }> =
-          imageUrls.length > 0
-            ? [
-                { type: "text", text: promptText },
-                ...imageUrls.map(url => ({ type: "image_url" as const, image_url: { url } })),
-              ]
-            : promptText;
-
+        let llmResponse;
         if (imageUrls.length > 0) {
           console.log(`📷 Including ${imageUrls.length} source image(s) for fact-checking`);
+          try {
+            llmResponse = await callLLM({
+              prompt: [
+                { type: "text", text: promptText },
+                ...imageUrls.map(url => ({ type: "image_url" as const, image_url: { url } })),
+              ],
+              modelConfig,
+              maxTokens: 1000,
+              temperature: 0.1,
+              appTitle: "Woodstock Community News Fact Checker",
+            });
+          } catch (imgErr) {
+            console.warn(`⚠️ LLM call with images failed, retrying text-only:`, imgErr instanceof Error ? imgErr.message : imgErr);
+            llmResponse = await callLLM({
+              prompt: promptText,
+              modelConfig,
+              maxTokens: 1000,
+              temperature: 0.1,
+              appTitle: "Woodstock Community News Fact Checker",
+            });
+          }
+        } else {
+          llmResponse = await callLLM({
+            prompt: promptText,
+            modelConfig,
+            maxTokens: 1000,
+            temperature: 0.1,
+            appTitle: "Woodstock Community News Fact Checker",
+          });
         }
-
-        const llmResponse = await callLLM({
-          prompt,
-          modelConfig,
-          maxTokens: 1000,
-          temperature: 0.1,
-          appTitle: "Woodstock Community News Fact Checker",
-        });
 
         const factCheckResult = llmResponse.content.trim();
         console.log(`📋 Fact-check result for "${storyTitle}": ${factCheckResult.substring(0, 200)}`);

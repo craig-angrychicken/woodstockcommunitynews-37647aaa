@@ -54,6 +54,7 @@ Deno.serve(async (req) => {
         title,
         content,
         hero_image_url,
+        ghost_url,
         created_at,
         structured_metadata,
         publish_attempts,
@@ -149,6 +150,7 @@ ${story.content || ""}`;
                 featured: isFeatured,
                 publishedAt,
                 structuredMetadata: (story as Record<string, unknown>).structured_metadata || null,
+                ghostUrl: story.ghost_url || null,
               },
             }
           );
@@ -180,22 +182,26 @@ ${story.content || ""}`;
           summary.published++;
           if (isFeatured) summary.featured++;
 
-          // Facebook: post link to page (non-fatal)
-          try {
-            const { data: fbData, error: fbError } = await supabase.functions.invoke(
-              "publish-to-facebook",
-              { body: { storyId: story.id, ghostUrl: publishData.url, title: storyTitle } }
-            );
-            if (fbError || !fbData?.success) {
-              console.warn(`⚠️ Facebook failed for "${storyTitle}": ${fbError?.message || fbData?.error}`);
+          // Facebook: post link to page (non-fatal) — skip for re-published stories
+          if (story.ghost_url) {
+            console.log(`📘 Skipping Facebook for re-published story: "${storyTitle}"`);
+          } else {
+            try {
+              const { data: fbData, error: fbError } = await supabase.functions.invoke(
+                "publish-to-facebook",
+                { body: { storyId: story.id, ghostUrl: publishData.url, title: storyTitle } }
+              );
+              if (fbError || !fbData?.success) {
+                console.warn(`⚠️ Facebook failed for "${storyTitle}": ${fbError?.message || fbData?.error}`);
+                summary.facebook_failed++;
+              } else {
+                console.log(`📘 Facebook posted: "${storyTitle}" → ${fbData.url}`);
+                summary.facebook_posted++;
+              }
+            } catch (fbErr) {
+              console.warn(`⚠️ Facebook threw for "${storyTitle}":`, fbErr);
               summary.facebook_failed++;
-            } else {
-              console.log(`📘 Facebook posted: "${storyTitle}" → ${fbData.url}`);
-              summary.facebook_posted++;
             }
-          } catch (fbErr) {
-            console.warn(`⚠️ Facebook threw for "${storyTitle}":`, fbErr);
-            summary.facebook_failed++;
           }
         } else if (upperVerdict.startsWith("REJECT:")) {
           const reason = verdict.slice(7).trim();
