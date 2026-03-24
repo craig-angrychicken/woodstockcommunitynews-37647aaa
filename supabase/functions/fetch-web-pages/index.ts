@@ -335,6 +335,21 @@ Deno.serve(async (req) => {
     console.log(`\n━━━ DONE ━━━`);
     console.log(`   Artifacts: ${totalArtifacts}, Errors: ${totalErrors}`);
 
+    // Finalize query history
+    if (queryHistoryId) {
+      await supabase
+        .from("query_history")
+        .update({
+          status: "completed",
+          completed_at: new Date().toISOString(),
+          artifacts_count: totalArtifacts,
+          sources_processed: sources.length,
+          current_source_id: null,
+          current_source_name: null,
+        })
+        .eq("id", queryHistoryId);
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -346,6 +361,25 @@ Deno.serve(async (req) => {
     );
   } catch (error) {
     console.error("Fatal error:", error);
+
+    // Try to update query history with error status
+    try {
+      const reqBody = await req.clone().json().catch(() => ({}));
+      if (reqBody.queryHistoryId) {
+        const sb = createSupabaseClient();
+        await sb
+          .from("query_history")
+          .update({
+            status: "failed",
+            error_message: error instanceof Error ? error.message : String(error),
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", reqBody.queryHistoryId);
+      }
+    } catch (updateErr) {
+      console.error("Failed to update query history:", updateErr);
+    }
+
     return new Response(
       JSON.stringify({
         success: false,
