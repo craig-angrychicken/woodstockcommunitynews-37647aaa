@@ -12,7 +12,6 @@ interface SourceCardProps {
   lastFetchAt?: string;
   itemsFetched: number;
   status: string;
-  parserConfig?: Record<string, unknown>;
   onEdit: () => void;
   onPause: () => void;
   onRemove: () => void;
@@ -27,7 +26,6 @@ export const SourceCard = ({
   lastFetchAt,
   itemsFetched,
   status,
-  parserConfig,
   onEdit,
   onPause,
   onRemove,
@@ -46,28 +44,12 @@ export const SourceCard = ({
     });
   };
 
-  const getHealthStatus = () => {
-    if (parserConfig) {
-      const confidence = (parserConfig.confidence as number) || 0;
-      if (confidence >= 80) return { color: "bg-green-500", label: "Healthy" };
-      if (confidence >= 50) return { color: "bg-yellow-500", label: "Moderate" };
-      return { color: "bg-red-500", label: "Low Confidence" };
-    }
-    return { color: "bg-gray-400", label: "Not Configured" };
-  };
-
-  const healthStatus = getHealthStatus();
-
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">{name}</CardTitle>
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1">
-              <div className={`h-2 w-2 rounded-full ${healthStatus.color}`} />
-              <span className="text-xs text-muted-foreground">{healthStatus.label}</span>
-            </div>
             <Badge variant="outline" className="text-xs">{type === "Web Page" ? "Web" : "RSS"}</Badge>
             <Badge variant="default">{status.toUpperCase()}</Badge>
           </div>

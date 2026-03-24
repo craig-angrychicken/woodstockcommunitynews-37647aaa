@@ -204,7 +204,6 @@ const Sources = () => {
                   lastFetchAt={source.last_fetch_at ?? undefined}
                   itemsFetched={source.items_fetched || 0}
                   status={source.status}
-                  parserConfig={source.parser_config as Record<string, unknown> | undefined}
                   onEdit={() => handleEdit(source)}
                   onPause={() => handlePause(source)}
                   onRemove={() => handleRemove(source.id)}
@@ -243,7 +242,6 @@ const Sources = () => {
                   type={source.type}
                   lastFetchAt={source.last_fetch_at ?? undefined}
                   itemsFetched={source.items_fetched || 0}
-                  parserConfig={source.parser_config as Record<string, unknown> | undefined}
                   onActivate={() => handleActivate(source)}
                   onRemove={() => handleRemove(source.id)}
                   onViewTestArtifacts={() => handleViewTestArtifacts(source.id)}

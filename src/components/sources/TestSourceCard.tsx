@@ -12,7 +12,6 @@ interface TestSourceCardProps {
   type: string;
   lastFetchAt?: string;
   itemsFetched: number;
-  parserConfig?: Record<string, unknown>;
   onActivate: () => void;
   onRemove: () => void;
   onViewTestArtifacts: () => void;
@@ -26,7 +25,6 @@ export const TestSourceCard = ({
   type,
   lastFetchAt,
   itemsFetched,
-  parserConfig,
   onActivate,
   onRemove,
   onViewTestArtifacts,
