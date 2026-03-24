@@ -50,7 +50,10 @@ export const TestSourceCard = ({
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">{name}</CardTitle>
-          <Badge variant="secondary">TESTING</Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs">{type === "Web Page" ? "Web" : "RSS"}</Badge>
+            <Badge variant="secondary">TESTING</Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

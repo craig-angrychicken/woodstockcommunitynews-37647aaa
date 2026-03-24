@@ -41,7 +41,7 @@ Woodstock Community News — private admin tool for AI-generated local news for 
 | `/ai-journalist` | AIJournalist | Monitor AI journalist + queue |
 | `/artifacts` | Artifacts | Browse raw RSS artifacts |
 | `/prompts` | Prompts | Manage AI prompts |
-| `/sources` | Sources | Configure RSS feeds |
+| `/sources` | Sources | Configure RSS feeds and Web Page sources |
 | `/models` | Models | Configure LLM model |
 
 All routes are admin-protected.
@@ -49,8 +49,8 @@ All routes are admin-protected.
 ### Database Tables
 | Table | Purpose |
 |---|---|
-| `sources` | RSS feed sources (url, status, last_fetch_at) |
-| `artifacts` | Raw content fetched from RSS feeds. Columns include `embedding vector(384)`, `cluster_id UUID` for dedup |
+| `sources` | RSS feed and Web Page sources (url, type, status, last_fetch_at). Type is "RSS Feed" or "Web Page" |
+| `artifacts` | Raw content fetched from RSS feeds or Web Pages. Columns include `embedding vector(384)`, `cluster_id UUID` for dedup |
 | `artifact_clusters` | Groups of similar artifacts (pgvector cosine similarity > 0.85) |
 | `stories` | AI-generated articles (status: pending/fact_checked/edited/draft/published/archived/rejected). Columns include `structured_metadata JSONB`, `word_count`, `source_count`, `reading_level`, `generation_metadata JSONB`, `fact_check_notes TEXT` |
 | `story_artifacts` | Many-to-many junction: stories ↔ artifacts |
@@ -65,7 +65,9 @@ All routes are admin-protected.
 | Function | Trigger | Purpose |
 |---|---|---|
 | `fetch-rss-feeds` | UI / scheduled | Fetch + normalize RSS feeds → artifacts table |
-| `scheduled-fetch-artifacts` | pg_cron (every 30min) | Cron wrapper for fetch-rss-feeds |
+| `fetch-web-pages` | UI / scheduled | Fetch Web Page sources via Readability → artifacts table |
+| `test-readability` | UI | Test a URL with Readability extraction (content, images, videos) |
+| `scheduled-fetch-artifacts` | pg_cron (every 30min) | Cron wrapper for fetch-rss-feeds + fetch-web-pages |
 | `run-ai-journalist` | UI / scheduled | Orchestrate journalism pipeline run (with cluster dedup) |
 | `process-journalism-queue-item` | Internal | Convert single artifact → story via LLM (structured JSON output) |
 | `scheduled-run-journalism` | pg_cron (hourly) | Cron wrapper for journalism pipeline |
@@ -90,6 +92,7 @@ All routes are admin-protected.
 | `cron-logger.ts` | `logCronJob(supabase, log)` |
 | `ghost-token.ts` | `generateGhostToken(apiKey)` |
 | `llm-client.ts` | `callLLM(options)` — OpenRouter/Lovable API wrapper with retry |
+| `readability.ts` | `fetchPageHTML(url)`, `extractWithReadability(html)`, `extractImages(html, baseUrl)`, `extractVideos(html)` — Mozilla Readability extraction |
 
 ### Key File Paths
 - Frontend pages: `src/pages/`

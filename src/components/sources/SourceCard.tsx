@@ -68,6 +68,7 @@ export const SourceCard = ({
               <div className={`h-2 w-2 rounded-full ${healthStatus.color}`} />
               <span className="text-xs text-muted-foreground">{healthStatus.label}</span>
             </div>
+            <Badge variant="outline" className="text-xs">{type === "Web Page" ? "Web" : "RSS"}</Badge>
             <Badge variant="default">{status.toUpperCase()}</Badge>
           </div>
         </div>

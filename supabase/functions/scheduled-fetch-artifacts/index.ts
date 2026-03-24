@@ -25,19 +25,31 @@ Deno.serve(async (req) => {
 
     console.log(`✅ Schedule gate passed (${currentTimeET} ET) - running artifact fetch`);
 
-    // Fetch all active RSS Feed sources
-    const { data: sources, error: sourcesError } = await supabase
+    // Fetch all active sources by type
+    const { data: rssSources, error: rssSourcesError } = await supabase
       .from("sources")
       .select("*")
       .eq("status", "active")
       .eq("type", "RSS Feed");
 
-    if (sourcesError) {
-      throw new Error(`Failed to fetch sources: ${sourcesError.message}`);
+    if (rssSourcesError) {
+      throw new Error(`Failed to fetch RSS sources: ${rssSourcesError.message}`);
     }
 
-    if (!sources || sources.length === 0) {
-      console.log("⚠️ No active RSS feed sources found");
+    const { data: webPageSources, error: webSourcesError } = await supabase
+      .from("sources")
+      .select("*")
+      .eq("status", "active")
+      .eq("type", "Web Page");
+
+    if (webSourcesError) {
+      throw new Error(`Failed to fetch Web Page sources: ${webSourcesError.message}`);
+    }
+
+    const sources = [...(rssSources || []), ...(webPageSources || [])];
+
+    if (sources.length === 0) {
+      console.log("⚠️ No active sources found");
       const duration = Date.now() - startTime;
       await logCronJob(supabase, {
         job_name: "scheduled-fetch-artifacts",
@@ -46,16 +58,16 @@ Deno.serve(async (req) => {
         sources_count: 0,
         artifacts_count: 0,
         time_checked: currentTimeET,
-        reason: "No active RSS feed sources found",
+        reason: "No active sources found",
         execution_duration_ms: duration,
       });
       return new Response(
-        JSON.stringify({ success: true, message: "No active RSS feed sources to fetch", artifactsCount: 0 }),
+        JSON.stringify({ success: true, message: "No active sources to fetch", artifactsCount: 0 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`📊 Found ${sources.length} active RSS feed sources to process`);
+    console.log(`📊 Found ${rssSources?.length || 0} RSS + ${webPageSources?.length || 0} Web Page active sources`);
 
     // Calculate TRUE 24-hour window in ET (handles EST/EDT automatically)
     const utcStr = now.toLocaleString('en-US', { timeZone: 'UTC' });
@@ -84,7 +96,9 @@ Deno.serve(async (req) => {
     console.log(`📅 Fetching articles from ${formatET(new Date(dateFrom))} to ${formatET(new Date(dateTo))}`);
 
     // Create a single query history entry for the entire batch
-    const sourceIds = sources.map(s => s.id);
+    const rssSourceIds = (rssSources || []).map(s => s.id);
+    const webPageSourceIds = (webPageSources || []).map(s => s.id);
+    const sourceIds = [...rssSourceIds, ...webPageSourceIds];
     const { data: historyEntry, error: historyError } = await supabase
       .from("query_history")
       .insert({
@@ -109,30 +123,54 @@ Deno.serve(async (req) => {
 
     console.log(`📊 Created history record: ${historyEntry.id}`);
 
-    // Make ONE batch call to fetch-rss-feeds with ALL RSS sources
-    console.log(`🔄 Batch fetching ${sources.length} RSS sources...`);
-
-    const { data: fetchResult, error: fetchError } = await supabase.functions.invoke('fetch-rss-feeds', {
-      body: {
-        dateFrom,
-        dateTo,
-        sourceIds: sourceIds,
-        environment: "production",
-        queryHistoryId: historyEntry.id
-      }
-    });
-
     let totalArtifactsCount = 0;
     let finalStatus = "completed";
     let errorMessage = null;
 
-    if (fetchError) {
-      console.error(`❌ Error fetching RSS feeds:`, fetchError);
-      errorMessage = fetchError.message;
-      finalStatus = "failed";
-    } else {
-      totalArtifactsCount = fetchResult?.artifactsCreated || 0;
-      console.log(`✅ Successfully fetched ${totalArtifactsCount} artifacts`);
+    // Batch fetch RSS sources
+    if (rssSourceIds.length > 0) {
+      console.log(`🔄 Batch fetching ${rssSourceIds.length} RSS sources...`);
+
+      const { data: fetchResult, error: fetchError } = await supabase.functions.invoke('fetch-rss-feeds', {
+        body: {
+          dateFrom,
+          dateTo,
+          sourceIds: rssSourceIds,
+          environment: "production",
+          queryHistoryId: historyEntry.id
+        }
+      });
+
+      if (fetchError) {
+        console.error(`❌ Error fetching RSS feeds:`, fetchError);
+        errorMessage = fetchError.message;
+        finalStatus = "failed";
+      } else {
+        totalArtifactsCount += fetchResult?.artifactsCreated || 0;
+        console.log(`✅ RSS: fetched ${fetchResult?.artifactsCreated || 0} artifacts`);
+      }
+    }
+
+    // Batch fetch Web Page sources
+    if (webPageSourceIds.length > 0) {
+      console.log(`🌐 Fetching ${webPageSourceIds.length} Web Page sources...`);
+
+      const { data: webResult, error: webError } = await supabase.functions.invoke('fetch-web-pages', {
+        body: {
+          sourceIds: webPageSourceIds,
+          environment: "production",
+          queryHistoryId: historyEntry.id
+        }
+      });
+
+      if (webError) {
+        console.error(`❌ Error fetching Web Pages:`, webError);
+        if (!errorMessage) errorMessage = webError.message;
+        if (finalStatus !== "failed") finalStatus = "partial";
+      } else {
+        totalArtifactsCount += webResult?.artifactsCreated || 0;
+        console.log(`✅ Web Pages: fetched ${webResult?.artifactsCreated || 0} artifacts`);
+      }
     }
 
     // Finalize query_history entry
@@ -160,9 +198,9 @@ Deno.serve(async (req) => {
       sourcesProcessed: sources.length,
       artifactsCount: totalArtifactsCount,
       historyId: historyEntry.id,
-      message: fetchError
-        ? `Failed to fetch RSS feeds: ${errorMessage}`
-        : `Processed ${sources.length} RSS sources in batch. Created ${totalArtifactsCount} artifacts.`,
+      message: errorMessage
+        ? `Errors during fetch: ${errorMessage}`
+        : `Processed ${rssSourceIds.length} RSS + ${webPageSourceIds.length} Web Page sources. Created ${totalArtifactsCount} artifacts.`,
     };
 
     // Log the cron job execution

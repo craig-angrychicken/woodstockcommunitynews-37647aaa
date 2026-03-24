@@ -228,23 +228,44 @@ const ManualQuery = () => {
       // Store the history ID for polling — do this before invoking
       setCurrentHistoryId(historyRecord.id);
 
+      // Partition selected sources by type
+      const rssSources = selectedSources.filter(id =>
+        sources?.find(s => s.id === id)?.type === 'RSS Feed'
+      );
+      const webPageSources = selectedSources.filter(id =>
+        sources?.find(s => s.id === id)?.type === 'Web Page'
+      );
+
       // Fire-and-forget: don't await the response.
       // The function can take 60-90s for many sources; the browser will time out
       // waiting. Instead, the query_history polling below detects completion.
-      console.log('📡 Fetching RSS feeds:', selectedSources.length);
-      supabase.functions.invoke('fetch-rss-feeds', {
-        body: {
-          dateFrom: dateFrom.toISOString(),
-          dateTo: dateTo.toISOString(),
-          sourceIds: selectedSources,
-          environment,
-          queryHistoryId: historyRecord.id
-        }
-      }).catch(err => {
-        // Swallow connection/timeout errors — the function is still running
-        // server-side and will update query_history when done.
-        console.warn('fetch-rss-feeds connection closed (function still running):', err?.message);
-      });
+      if (rssSources.length > 0) {
+        console.log('📡 Fetching RSS feeds:', rssSources.length);
+        supabase.functions.invoke('fetch-rss-feeds', {
+          body: {
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
+            sourceIds: rssSources,
+            environment,
+            queryHistoryId: historyRecord.id
+          }
+        }).catch(err => {
+          console.warn('fetch-rss-feeds connection closed (function still running):', err?.message);
+        });
+      }
+
+      if (webPageSources.length > 0) {
+        console.log('🌐 Fetching Web Pages:', webPageSources.length);
+        supabase.functions.invoke('fetch-web-pages', {
+          body: {
+            sourceIds: webPageSources,
+            environment,
+            queryHistoryId: historyRecord.id
+          }
+        }).catch(err => {
+          console.warn('fetch-web-pages connection closed (function still running):', err?.message);
+        });
+      }
 
       return historyRecord;
     },

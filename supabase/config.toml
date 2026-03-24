@@ -1,5 +1,8 @@
 project_id = "cceprnhnpqnpexmouuig"
 
+[functions.publish-about-page]
+verify_jwt = false
+
 [functions.run-ai-journalist]
 verify_jwt = false
 
@@ -52,5 +55,11 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.publish-to-facebook]
+verify_jwt = false
+
+[functions.test-readability]
+verify_jwt = false
+
+[functions.fetch-web-pages]
 verify_jwt = false
 
