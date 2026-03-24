@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, Search, XCircle } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { CheckCircle, ExternalLink, Loader2, Search, XCircle } from "lucide-react";
 import { ReadabilityTestResults } from "./ReadabilityTestResults";
 
 interface AddSourceFormProps {
@@ -24,6 +25,12 @@ interface TestResult {
   videos: { type: string; url: string }[];
 }
 
+interface IndexTestResult {
+  success: boolean;
+  links_found: number;
+  links: { url: string; text: string }[];
+}
+
 export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
   const [sourceType, setSourceType] = useState<SourceType>("RSS Feed");
   const [name, setName] = useState("");
@@ -35,15 +42,23 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
 
+  // Index page state
+  const [isIndexPage, setIsIndexPage] = useState(false);
+  const [linkSelector, setLinkSelector] = useState("");
+  const [indexTestResult, setIndexTestResult] = useState<IndexTestResult | null>(null);
+
   const resetTestState = () => {
     setTestResult(null);
     setTestError(null);
+    setIndexTestResult(null);
   };
 
   const handleTypeChange = (value: SourceType) => {
     setSourceType(value);
     setName("");
     setUrl("");
+    setIsIndexPage(false);
+    setLinkSelector("");
     resetTestState();
   };
 
@@ -53,19 +68,37 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
       return;
     }
 
+    if (isIndexPage && !linkSelector.trim()) {
+      toast.error("Please enter a CSS selector for article links");
+      return;
+    }
+
     setIsTesting(true);
     resetTestState();
 
     try {
-      const { data, error } = await supabase.functions.invoke("test-readability", {
-        body: { url: url.trim() },
-      });
+      const body: Record<string, string> = { url: url.trim() };
+      if (isIndexPage && linkSelector.trim()) {
+        body.link_selector = linkSelector.trim();
+      }
+
+      const { data, error } = await supabase.functions.invoke("test-readability", { body });
 
       if (error) throw error;
 
-      if (data.success) {
+      if (isIndexPage && data.mode === "index") {
+        setIndexTestResult(data);
+        if (data.links_found > 0) {
+          toast.success(`Found ${data.links_found} article links`);
+          if (!name.trim()) {
+            setName(url.trim().replace(/^https?:\/\//, "").split("/")[0] + " — News Index");
+          }
+        } else {
+          setTestError("No links matched the selector. Check the CSS selector.");
+          toast.error("No links matched the selector");
+        }
+      } else if (data.success) {
         setTestResult(data);
-        // Pre-fill name with extracted title
         if (data.title && !name.trim()) {
           setName(data.title);
         }
@@ -92,9 +125,16 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
       return;
     }
 
-    if (sourceType === "Web Page" && !testResult?.success) {
-      toast.error("Please test the URL successfully before adding");
-      return;
+    if (sourceType === "Web Page") {
+      if (isIndexPage) {
+        if (!indexTestResult || indexTestResult.links_found === 0) {
+          toast.error("Please test the link selector and find articles before adding");
+          return;
+        }
+      } else if (!testResult?.success) {
+        toast.error("Please test the URL successfully before adding");
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -115,6 +155,10 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
               feedType: "web_page",
               extractImages: true,
               extractVideo: true,
+              ...(isIndexPage && {
+                page_mode: "index",
+                link_selector: linkSelector.trim(),
+              }),
             };
 
       const { error } = await supabase.from("sources").insert({
@@ -248,6 +292,40 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
                 </div>
               </div>
 
+              {/* Index Page Toggle */}
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="index-page"
+                  checked={isIndexPage}
+                  onCheckedChange={(checked) => {
+                    setIsIndexPage(!!checked);
+                    resetTestState();
+                  }}
+                />
+                <Label htmlFor="index-page" className="cursor-pointer text-sm">
+                  This is a News Index page (contains links to multiple articles)
+                </Label>
+              </div>
+
+              {/* Link Selector (shown in index mode) */}
+              {isIndexPage && (
+                <div className="space-y-2">
+                  <Label htmlFor="link-selector">Article Link CSS Selector *</Label>
+                  <Input
+                    id="link-selector"
+                    value={linkSelector}
+                    onChange={(e) => {
+                      setLinkSelector(e.target.value);
+                      resetTestState();
+                    }}
+                    placeholder='e.g., a[href*="/post-detail/"]'
+                  />
+                  <div className="text-sm text-muted-foreground">
+                    CSS selector that matches the article links on the index page
+                  </div>
+                </div>
+              )}
+
               {/* Test Error */}
               {testError && (
                 <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
@@ -259,8 +337,39 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
               {/* Test Results */}
               {testResult && <ReadabilityTestResults result={testResult} />}
 
+              {/* Index Test Results */}
+              {indexTestResult && indexTestResult.links_found > 0 && (
+                <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                    <span className="font-medium">
+                      Found {indexTestResult.links_found} article links
+                    </span>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto space-y-1">
+                    {indexTestResult.links.slice(0, 20).map((link, i) => (
+                      <div key={i} className="text-sm flex gap-2 py-1 border-b last:border-0">
+                        <span className="text-muted-foreground shrink-0">{i + 1}.</span>
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{link.text || "(no text)"}</div>
+                          <a
+                            href={link.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-500 hover:underline truncate block flex items-center gap-1"
+                          >
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                            {link.url}
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Name + Submit — only after successful test */}
-              {testResult?.success && (
+              {(testResult?.success || (isIndexPage && indexTestResult && indexTestResult.links_found > 0)) && (
                 <div className="space-y-4 pt-2">
                   <div className="space-y-2">
                     <Label htmlFor="web-name">Source Name *</Label>

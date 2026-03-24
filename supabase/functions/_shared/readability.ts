@@ -195,6 +195,53 @@ export interface ExtractedVideo {
   embedUrl?: string;
 }
 
+export interface ExtractedLink {
+  url: string;
+  text: string;
+}
+
+export function extractLinks(
+  html: string,
+  baseUrl: string,
+  selector: string
+): ExtractedLink[] {
+  if (!parseHTML) {
+    console.warn("linkedom not loaded, cannot extract links");
+    return [];
+  }
+
+  const { document } = parseHTML(html);
+  const anchors = document.querySelectorAll(selector);
+  const links: ExtractedLink[] = [];
+  const seen = new Set<string>();
+
+  for (const anchor of anchors) {
+    const href = anchor.getAttribute("href");
+    if (!href) continue;
+
+    let absoluteUrl: string;
+    try {
+      absoluteUrl = new URL(href, baseUrl).href;
+    } catch {
+      continue;
+    }
+
+    // Normalize for dedup: strip fragments and trailing slashes
+    const normalized = absoluteUrl.split("#")[0].replace(/\/+$/, "");
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+
+    if (!normalized.startsWith("http")) continue;
+
+    links.push({
+      url: absoluteUrl,
+      text: (anchor.textContent || "").trim(),
+    });
+  }
+
+  return links;
+}
+
 export function extractVideos(html: string): ExtractedVideo[] {
   const videos: ExtractedVideo[] = [];
   const seen = new Set<string>();

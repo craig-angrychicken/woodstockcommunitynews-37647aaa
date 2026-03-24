@@ -5,6 +5,7 @@ import {
   extractWithReadability,
   extractImages,
   extractVideos,
+  extractLinks,
   isReadabilityLoaded,
   getImportError,
 } from "../_shared/readability.ts";
@@ -214,111 +215,260 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // 1. Fetch HTML
-        const htmlResult = await fetchPageHTML(source.url);
-        if ("error" in htmlResult) {
-          console.error(`❌ Failed to fetch ${source.url}: ${htmlResult.error}`);
-          totalErrors++;
-          continue;
-        }
+        const parserConfig = source.parser_config as Record<string, unknown> | null;
 
-        console.log(`   HTML: ${htmlResult.html.length} chars`);
+        if (parserConfig?.page_mode === "index") {
+          // ── INDEX PAGE FLOW: follow article links ──
 
-        // 2. Extract content with Readability
-        const readResult = extractWithReadability(htmlResult.html);
-        if (!readResult.success) {
-          console.warn(`⚠️ Readability extraction failed for ${source.name}: ${readResult.error}`);
-          totalErrors++;
-          continue;
-        }
+          // 1. Fetch listing page HTML
+          const listingHtml = await fetchPageHTML(source.url);
+          if ("error" in listingHtml) {
+            console.error(`❌ Failed to fetch listing page ${source.url}: ${listingHtml.error}`);
+            totalErrors++;
+            continue;
+          }
 
-        const title = readResult.title || source.name;
-        console.log(`   Title: ${title}`);
-        console.log(`   Content: ${readResult.charCount} chars`);
+          console.log(`   Listing HTML: ${listingHtml.html.length} chars`);
 
-        // 3. Extract images from Readability HTML
-        const imageUrls = extractImages(readResult.content, source.url);
-        console.log(`   Images found: ${imageUrls.length}`);
+          // 2. Extract article links using CSS selector
+          const linkSelector = (parserConfig.link_selector as string) || "a";
+          const links = extractLinks(listingHtml.html, source.url, linkSelector);
+          console.log(`   Found ${links.length} links matching "${linkSelector}"`);
 
-        // 4. Extract videos
-        const videoUrls = extractVideos(readResult.content);
-        console.log(`   Videos found: ${videoUrls.length}`);
+          if (links.length === 0) {
+            console.warn(`   ⚠️ No links found for selector "${linkSelector}" — skipping source`);
+            totalErrors++;
+            continue;
+          }
 
-        // 5. Generate deterministic GUID from source_id + URL
-        const fingerprint = `${source.id}:${source.url}`;
-        const guid = await normalizeToUUID(fingerprint);
+          // 3. Cap at max_pages to avoid function timeout
+          const maxPages = (parserConfig.max_pages as number) || 20;
+          const linksToProcess = links.slice(0, maxPages);
+          if (links.length > maxPages) {
+            console.log(`   ⚠️ Capping at ${maxPages} of ${links.length} links`);
+          }
 
-        // 6. Download and store images (cap at 10 to avoid function timeout)
-        const MAX_IMAGES = 10;
-        const storageFolderGuid = crypto.randomUUID();
-        const storageImages: { original_url: string; stored_url: string; download_failed?: true; type?: string; embed_type?: string }[] = [];
+          // 4. Batch-check which GUIDs already exist
+          const guidMap = new Map<string, string>();
+          for (const link of linksToProcess) {
+            const fingerprint = `${source.id}:${link.url}`;
+            const guid = await normalizeToUUID(fingerprint);
+            guidMap.set(guid, link.url);
+          }
 
-        const imagesToDownload = imageUrls.slice(0, MAX_IMAGES);
-        if (imageUrls.length > MAX_IMAGES) {
-          console.log(`   ⚠️ Capping image downloads: ${imageUrls.length} found, downloading first ${MAX_IMAGES}`);
-        }
+          const guidsToCheck = Array.from(guidMap.keys());
+          const { data: existingArtifacts } = await supabase
+            .from("artifacts")
+            .select("guid")
+            .in("guid", guidsToCheck);
 
-        for (let i = 0; i < imagesToDownload.length; i++) {
-          const result = await downloadAndStoreImage(supabase, imagesToDownload[i].url, storageFolderGuid, i);
-          if (result) storageImages.push(result);
-        }
+          const existingGuids = new Set((existingArtifacts || []).map((a: { guid: string }) => a.guid));
+          console.log(`   ${existingGuids.size} already exist, ${guidsToCheck.length - existingGuids.size} new`);
 
-        // 7. Store video embed URLs in the images array with type discriminator
-        for (const video of videoUrls) {
-          storageImages.push({
-            original_url: video.url,
-            stored_url: video.url,
-            type: "video",
-            embed_type: video.type,
-          } as { original_url: string; stored_url: string; type: string; embed_type: string });
-        }
+          // 5. Process each new article
+          let articlesCreated = 0;
+          const MAX_IMAGES_PER_ARTICLE = 3;
 
-        const heroImage = storageImages.find((img) => !("type" in img) || img.type !== "video")?.stored_url || null;
+          for (const link of linksToProcess) {
+            const fingerprint = `${source.id}:${link.url}`;
+            const guid = await normalizeToUUID(fingerprint);
 
-        console.log(`   📸 Stored ${storageImages.filter((i) => !("type" in i) || i.type !== "video").length} images, ${videoUrls.length} videos`);
-
-        // 8. Upsert artifact
-        const { error: upsertError } = await supabase
-          .from("artifacts")
-          .upsert(
-            {
-              id: storageFolderGuid,
-              name: title,
-              title: title,
-              url: source.url,
-              guid: guid,
-              content: readResult.textContent,
-              hero_image_url: heroImage,
-              images: storageImages,
-              date: new Date().toISOString(),
-              type: "Web Page",
-              source_id: source.id,
-              is_test: environment === "test",
-            },
-            {
-              onConflict: "guid",
-              ignoreDuplicates: false,
+            if (existingGuids.has(guid)) {
+              continue;
             }
-          );
 
-        if (upsertError) {
-          console.error("❌ Upsert error:", upsertError);
-          totalErrors++;
+            try {
+              const articleHtml = await fetchPageHTML(link.url);
+              if ("error" in articleHtml) {
+                console.warn(`   ⚠️ Failed to fetch ${link.url}: ${articleHtml.error}`);
+                continue;
+              }
+
+              const readResult = extractWithReadability(articleHtml.html);
+              if (!readResult.success) {
+                console.warn(`   ⚠️ Readability failed for ${link.url}: ${readResult.error}`);
+                continue;
+              }
+
+              const title = readResult.title || link.text || "Untitled";
+              console.log(`   📄 ${title}`);
+
+              const imageUrls = extractImages(readResult.content, link.url);
+              const videoUrls = extractVideos(readResult.content);
+
+              const storageFolderGuid = crypto.randomUUID();
+              const storageImages: { original_url: string; stored_url: string; download_failed?: true; type?: string; embed_type?: string }[] = [];
+
+              const imagesToDownload = imageUrls.slice(0, MAX_IMAGES_PER_ARTICLE);
+              for (let i = 0; i < imagesToDownload.length; i++) {
+                const result = await downloadAndStoreImage(supabase, imagesToDownload[i].url, storageFolderGuid, i);
+                if (result) storageImages.push(result);
+              }
+
+              for (const video of videoUrls) {
+                storageImages.push({
+                  original_url: video.url,
+                  stored_url: video.url,
+                  type: "video",
+                  embed_type: video.type,
+                } as { original_url: string; stored_url: string; type: string; embed_type: string });
+              }
+
+              const heroImage = storageImages.find((img) => !("type" in img) || img.type !== "video")?.stored_url || null;
+
+              const { error: upsertError } = await supabase
+                .from("artifacts")
+                .upsert(
+                  {
+                    id: storageFolderGuid,
+                    name: title,
+                    title: title,
+                    url: link.url,
+                    guid: guid,
+                    content: readResult.textContent,
+                    hero_image_url: heroImage,
+                    images: storageImages,
+                    date: new Date().toISOString(),
+                    type: "Web Page",
+                    source_id: source.id,
+                    is_test: environment === "test",
+                  },
+                  { onConflict: "guid", ignoreDuplicates: false }
+                );
+
+              if (upsertError) {
+                console.error(`   ❌ Upsert error for ${title}:`, upsertError);
+                totalErrors++;
+              } else {
+                console.log(`   ✅ Upserted: ${title}`);
+                articlesCreated++;
+                totalArtifacts++;
+              }
+            } catch (articleError) {
+              console.error(`   ❌ Error processing ${link.url}:`, articleError);
+            }
+          }
+
+          // Update source
+          await supabase
+            .from("sources")
+            .update({
+              last_fetch_at: new Date().toISOString(),
+              items_fetched: (source.items_fetched || 0) + articlesCreated,
+            })
+            .eq("id", source.id);
+
+          console.log(`   Index done: ${articlesCreated} articles created`);
+
         } else {
-          console.log(`✅ Upserted artifact: ${title}`);
-          totalArtifacts++;
+          // ── SINGLE PAGE FLOW (existing behavior) ──
+
+          // 1. Fetch HTML
+          const htmlResult = await fetchPageHTML(source.url);
+          if ("error" in htmlResult) {
+            console.error(`❌ Failed to fetch ${source.url}: ${htmlResult.error}`);
+            totalErrors++;
+            continue;
+          }
+
+          console.log(`   HTML: ${htmlResult.html.length} chars`);
+
+          // 2. Extract content with Readability
+          const readResult = extractWithReadability(htmlResult.html);
+          if (!readResult.success) {
+            console.warn(`⚠️ Readability extraction failed for ${source.name}: ${readResult.error}`);
+            totalErrors++;
+            continue;
+          }
+
+          const title = readResult.title || source.name;
+          console.log(`   Title: ${title}`);
+          console.log(`   Content: ${readResult.charCount} chars`);
+
+          // 3. Extract images from Readability HTML
+          const imageUrls = extractImages(readResult.content, source.url);
+          console.log(`   Images found: ${imageUrls.length}`);
+
+          // 4. Extract videos
+          const videoUrls = extractVideos(readResult.content);
+          console.log(`   Videos found: ${videoUrls.length}`);
+
+          // 5. Generate deterministic GUID from source_id + URL
+          const fingerprint = `${source.id}:${source.url}`;
+          const guid = await normalizeToUUID(fingerprint);
+
+          // 6. Download and store images (cap at 10 to avoid function timeout)
+          const MAX_IMAGES = 10;
+          const storageFolderGuid = crypto.randomUUID();
+          const storageImages: { original_url: string; stored_url: string; download_failed?: true; type?: string; embed_type?: string }[] = [];
+
+          const imagesToDownload = imageUrls.slice(0, MAX_IMAGES);
+          if (imageUrls.length > MAX_IMAGES) {
+            console.log(`   ⚠️ Capping image downloads: ${imageUrls.length} found, downloading first ${MAX_IMAGES}`);
+          }
+
+          for (let i = 0; i < imagesToDownload.length; i++) {
+            const result = await downloadAndStoreImage(supabase, imagesToDownload[i].url, storageFolderGuid, i);
+            if (result) storageImages.push(result);
+          }
+
+          // 7. Store video embed URLs in the images array with type discriminator
+          for (const video of videoUrls) {
+            storageImages.push({
+              original_url: video.url,
+              stored_url: video.url,
+              type: "video",
+              embed_type: video.type,
+            } as { original_url: string; stored_url: string; type: string; embed_type: string });
+          }
+
+          const heroImage = storageImages.find((img) => !("type" in img) || img.type !== "video")?.stored_url || null;
+
+          console.log(`   📸 Stored ${storageImages.filter((i) => !("type" in i) || i.type !== "video").length} images, ${videoUrls.length} videos`);
+
+          // 8. Upsert artifact
+          const { error: upsertError } = await supabase
+            .from("artifacts")
+            .upsert(
+              {
+                id: storageFolderGuid,
+                name: title,
+                title: title,
+                url: source.url,
+                guid: guid,
+                content: readResult.textContent,
+                hero_image_url: heroImage,
+                images: storageImages,
+                date: new Date().toISOString(),
+                type: "Web Page",
+                source_id: source.id,
+                is_test: environment === "test",
+              },
+              {
+                onConflict: "guid",
+                ignoreDuplicates: false,
+              }
+            );
+
+          if (upsertError) {
+            console.error("❌ Upsert error:", upsertError);
+            totalErrors++;
+          } else {
+            console.log(`✅ Upserted artifact: ${title}`);
+            totalArtifacts++;
+          }
+
+          // 9. Update source
+          await supabase
+            .from("sources")
+            .update({
+              last_fetch_at: new Date().toISOString(),
+              items_fetched: (source.items_fetched || 0) + 1,
+            })
+            .eq("id", source.id);
         }
 
-        // 9. Update source
-        await supabase
-          .from("sources")
-          .update({
-            last_fetch_at: new Date().toISOString(),
-            items_fetched: (source.items_fetched || 0) + 1,
-          })
-          .eq("id", source.id);
-
-        // 10. Update query history
+        // Update query history (for both modes)
         if (queryHistoryId) {
           const currentProcessed = sources.indexOf(source) + 1;
           await supabase

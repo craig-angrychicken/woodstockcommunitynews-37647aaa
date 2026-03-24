@@ -6,6 +6,7 @@ import {
   extractWithReadability,
   extractImages,
   extractVideos,
+  extractLinks,
 } from "../_shared/readability.ts";
 
 Deno.serve(async (req) => {
@@ -13,7 +14,7 @@ Deno.serve(async (req) => {
   if (corsResponse) return corsResponse;
 
   try {
-    const { url } = await req.json();
+    const { url, link_selector } = await req.json();
 
     if (!url || typeof url !== "string") {
       return new Response(
@@ -51,6 +52,27 @@ Deno.serve(async (req) => {
     }
 
     console.log(`   HTML fetched: ${htmlResult.html.length} chars`);
+
+    // If link_selector is provided, extract and return links (index page test mode)
+    if (link_selector && typeof link_selector === "string") {
+      const links = extractLinks(htmlResult.html, url, link_selector);
+      console.log(`   Link selector: "${link_selector}"`);
+      console.log(`   Links found: ${links.length}`);
+
+      return new Response(
+        JSON.stringify({
+          success: links.length > 0,
+          url,
+          mode: "index",
+          link_selector,
+          links_found: links.length,
+          links: links.slice(0, 30),
+          error: links.length === 0 ? "No links matched the selector" : undefined,
+          readability_loaded: isReadabilityLoaded(),
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Extract content with Readability
     const readResult = extractWithReadability(htmlResult.html);
