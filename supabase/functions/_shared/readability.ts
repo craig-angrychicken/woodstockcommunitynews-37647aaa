@@ -157,6 +157,13 @@ export function extractImages(html: string, baseUrl: string): ExtractedImage[] {
   while ((match = imgRegex.exec(html)) !== null) {
     let src = match[1];
 
+    // Skip malformed URLs: Finalsite CMS embeds JSON arrays in src attributes
+    // e.g. src="[{&quot;url&quot;:&quot;https://...&quot;}]" or literal [{...}]
+    if (/[\[{]|%5B|%7B|&quot;|&amp;/i.test(src)) continue;
+
+    // Skip excessively long src values (likely encoded data, not real URLs)
+    if (src.length > 500) continue;
+
     // Resolve relative URLs
     try {
       src = new URL(src, baseUrl).href;
@@ -167,6 +174,9 @@ export function extractImages(html: string, baseUrl: string): ExtractedImage[] {
     // Skip data URIs, tracking pixels, tiny spacers
     if (src.startsWith("data:")) continue;
     if (/pixel|tracking|spacer|beacon/i.test(src)) continue;
+
+    // Double-check resolved URL isn't too long (catches resolved relative paths)
+    if (src.length > 600) continue;
 
     if (seen.has(src)) continue;
     seen.add(src);

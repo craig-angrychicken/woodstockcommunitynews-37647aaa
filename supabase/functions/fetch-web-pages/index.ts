@@ -248,12 +248,18 @@ Deno.serve(async (req) => {
         const fingerprint = `${source.id}:${source.url}`;
         const guid = await normalizeToUUID(fingerprint);
 
-        // 6. Download and store images
+        // 6. Download and store images (cap at 10 to avoid function timeout)
+        const MAX_IMAGES = 10;
         const storageFolderGuid = crypto.randomUUID();
         const storageImages: { original_url: string; stored_url: string; download_failed?: true; type?: string; embed_type?: string }[] = [];
 
-        for (let i = 0; i < imageUrls.length; i++) {
-          const result = await downloadAndStoreImage(supabase, imageUrls[i].url, storageFolderGuid, i);
+        const imagesToDownload = imageUrls.slice(0, MAX_IMAGES);
+        if (imageUrls.length > MAX_IMAGES) {
+          console.log(`   ⚠️ Capping image downloads: ${imageUrls.length} found, downloading first ${MAX_IMAGES}`);
+        }
+
+        for (let i = 0; i < imagesToDownload.length; i++) {
+          const result = await downloadAndStoreImage(supabase, imagesToDownload[i].url, storageFolderGuid, i);
           if (result) storageImages.push(result);
         }
 
