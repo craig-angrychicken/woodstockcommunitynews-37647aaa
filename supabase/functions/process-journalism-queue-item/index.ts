@@ -232,6 +232,61 @@ ${artifactData}`;
       }
     }
 
+    // Artifact-level dedup: check if source artifact is similar to one that already produced a story
+    // This catches cases where clustering missed near-threshold pairs and the LLM would generate
+    // different-enough titles to bypass story-title dedup.
+    if (queueItem.artifact.embedding) {
+      try {
+        const { data: similarStoryArtifacts, error: artDedupError } = await supabase.rpc(
+          "match_published_story_artifacts",
+          {
+            query_embedding: typeof queueItem.artifact.embedding === "string"
+              ? queueItem.artifact.embedding
+              : JSON.stringify(queueItem.artifact.embedding),
+            similarity_threshold: 0.80,
+            match_count: 1,
+          }
+        );
+
+        if (!artDedupError && similarStoryArtifacts && similarStoryArtifacts.length > 0) {
+          const match = similarStoryArtifacts[0];
+          const skipReason = `Source artifact similar to artifact behind story "${match.story_title}" (similarity: ${match.similarity.toFixed(3)})`;
+          console.log(`⏭️ Skipping — artifact-level dedup: ${skipReason}`);
+
+          await supabase
+            .from("journalism_queue")
+            .update({
+              status: "skipped",
+              completed_at: new Date().toISOString(),
+              error_message: skipReason,
+            })
+            .eq("id", queueItemId);
+
+          await updateHistoryProgress(supabase, queueItem.query_history_id);
+
+          const { data: nextItem } = await supabase
+            .from("journalism_queue")
+            .select("id")
+            .eq("query_history_id", queueItem.query_history_id)
+            .eq("status", "pending")
+            .order("position", { ascending: true })
+            .limit(1)
+            .single();
+
+          if (nextItem) {
+            chainToNextItem(supabaseUrl, supabaseKey, INTERNAL_SECRET, nextItem.id);
+          }
+
+          return new Response(
+            JSON.stringify({ skipped: true, reason: skipReason, queueItemId }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      } catch (artDedupErr) {
+        console.warn("⚠️ Artifact-level dedup check failed (proceeding anyway):", artDedupErr instanceof Error ? artDedupErr.message : artDedupErr);
+      }
+    }
+
     // Call LLM via shared client
     const llmResponse = await callLLM({
       prompt: messageContent,

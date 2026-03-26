@@ -4,7 +4,7 @@ import { generateEmbedding } from "../_shared/llm-client.ts";
 import { checkScheduleGate } from "../_shared/schedule-gate.ts";
 import { logCronJob } from "../_shared/cron-logger.ts";
 
-const SIMILARITY_THRESHOLD = 0.85;
+const SIMILARITY_THRESHOLD = 0.82;
 
 Deno.serve(async (req) => {
   const corsResponse = handleCorsPrelight(req);
