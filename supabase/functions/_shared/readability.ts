@@ -1,8 +1,10 @@
 // Shared Readability module — used by test-readability and fetch-web-pages
 
 // deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let Readability: any = null;
 // deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let parseHTML: any = null;
 let _importError = "";
 
@@ -159,7 +161,7 @@ export function extractImages(html: string, baseUrl: string): ExtractedImage[] {
 
     // Skip malformed URLs: Finalsite CMS embeds JSON arrays in src attributes
     // e.g. src="[{&quot;url&quot;:&quot;https://...&quot;}]" or literal [{...}]
-    if (/[\[{]|%5B|%7B|&quot;|&amp;/i.test(src)) continue;
+    if (/[[{]|%5B|%7B|&quot;|&amp;/i.test(src)) continue;
 
     // Skip excessively long src values (likely encoded data, not real URLs)
     if (src.length > 500) continue;
