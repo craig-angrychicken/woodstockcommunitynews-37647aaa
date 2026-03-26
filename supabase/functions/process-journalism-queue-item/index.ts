@@ -1,6 +1,6 @@
 import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient, getSupabaseUrl, getServiceRoleKey } from "../_shared/supabase-client.ts";
-import { callLLM } from "../_shared/llm-client.ts";
+import { callLLM, generateEmbedding } from "../_shared/llm-client.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface StructuredStoryResponse {
@@ -319,8 +319,105 @@ ${artifactData}`;
       content = lines.slice(1).join("\n").trim();
     }
 
+    // Story-level dedup: check for similar existing stories by title embedding
+    let titleEmbedding: number[] | null = null;
+    try {
+      titleEmbedding = await generateEmbedding(title);
+
+      const { data: similarStories, error: simError } = await supabase.rpc(
+        "match_stories_by_embedding",
+        {
+          query_embedding: JSON.stringify(titleEmbedding),
+          similarity_threshold: 0.85,
+          match_count: 3,
+        }
+      );
+
+      if (!simError && similarStories && similarStories.length > 0) {
+        const activeDupes = similarStories.filter(
+          (s: { id: string; title: string; status: string; similarity: number }) =>
+            s.status !== "rejected"
+        );
+
+        if (activeDupes.length > 0) {
+          const dupeTitle = activeDupes[0].title;
+          const dupeSim = activeDupes[0].similarity.toFixed(3);
+          const skipReason = `Duplicate of existing story "${dupeTitle}" (similarity: ${dupeSim})`;
+          console.log(`⏭️ Skipping — story-level dedup: ${skipReason}`);
+
+          await supabase
+            .from("journalism_queue")
+            .update({
+              status: "skipped",
+              completed_at: new Date().toISOString(),
+              error_message: skipReason,
+            })
+            .eq("id", queueItemId);
+
+          await updateHistoryProgress(supabase, queueItem.query_history_id);
+
+          const { data: nextItem } = await supabase
+            .from("journalism_queue")
+            .select("id")
+            .eq("query_history_id", queueItem.query_history_id)
+            .eq("status", "pending")
+            .order("position", { ascending: true })
+            .limit(1)
+            .single();
+
+          if (nextItem) {
+            chainToNextItem(supabaseUrl, supabaseKey, INTERNAL_SECRET, nextItem.id);
+          }
+
+          return new Response(
+            JSON.stringify({ skipped: true, reason: skipReason, queueItemId }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      }
+    } catch (dedupErr) {
+      console.warn("⚠️ Story-level dedup check failed (proceeding anyway):", dedupErr instanceof Error ? dedupErr.message : dedupErr);
+    }
+
     const source_id = queueItem.artifact.source_id || null;
-    const heroImageUrl = queueItem.artifact.hero_image_url || null;
+
+    // Hero image: use artifact's image, fall back to cluster mates or similar artifacts
+    let heroImageUrl = queueItem.artifact.hero_image_url || null;
+
+    if (!heroImageUrl && queueItem.artifact.cluster_id) {
+      console.log("🖼️ No hero image — checking cluster mates...");
+      const { data: clusterMates } = await supabase
+        .from("artifacts")
+        .select("hero_image_url")
+        .eq("cluster_id", queueItem.artifact.cluster_id)
+        .not("hero_image_url", "is", null)
+        .neq("id", queueItem.artifact.id)
+        .limit(1);
+
+      if (clusterMates && clusterMates.length > 0) {
+        heroImageUrl = clusterMates[0].hero_image_url;
+        console.log(`✅ Found hero image from cluster mate`);
+      }
+    }
+
+    if (!heroImageUrl && queueItem.artifact.embedding) {
+      console.log("🖼️ No hero image in cluster — checking similar artifacts...");
+      const { data: similarWithImages } = await supabase.rpc(
+        "match_artifacts_with_images",
+        {
+          query_embedding: typeof queueItem.artifact.embedding === "string"
+            ? queueItem.artifact.embedding
+            : JSON.stringify(queueItem.artifact.embedding),
+          similarity_threshold: 0.80,
+          match_count: 1,
+        }
+      );
+
+      if (similarWithImages && similarWithImages.length > 0) {
+        heroImageUrl = similarWithImages[0].hero_image_url;
+        console.log(`✅ Found hero image from similar artifact`);
+      }
+    }
 
     // Compute quality metrics
     const wordCount = content.split(/\s+/).filter((w: string) => w.length > 0).length;
@@ -334,6 +431,15 @@ ${artifactData}`;
       total_tokens: llmResponse.usage?.total_tokens || null,
       prompt_version_id: promptVersion.id,
     };
+
+    // Generate title embedding for dedup if not already done
+    if (!titleEmbedding) {
+      try {
+        titleEmbedding = await generateEmbedding(title);
+      } catch (embErr) {
+        console.warn("⚠️ Failed to generate title embedding (non-fatal):", embErr instanceof Error ? embErr.message : embErr);
+      }
+    }
 
     // Insert story
     const { data: newStory, error: storyError } = await supabase
@@ -350,6 +456,7 @@ ${artifactData}`;
         source_count: 1,
         generation_metadata: generationMetadata,
         ...(structuredMetadata ? { structured_metadata: structuredMetadata } : {}),
+        ...(titleEmbedding ? { title_embedding: JSON.stringify(titleEmbedding) } : {}),
       })
       .select()
       .single();

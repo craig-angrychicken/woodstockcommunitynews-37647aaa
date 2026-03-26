@@ -2,6 +2,7 @@ import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase-client.ts";
 import { generateEmbedding } from "../_shared/llm-client.ts";
 import { checkScheduleGate } from "../_shared/schedule-gate.ts";
+import { logCronJob } from "../_shared/cron-logger.ts";
 
 const SIMILARITY_THRESHOLD = 0.85;
 
@@ -12,6 +13,7 @@ Deno.serve(async (req) => {
   console.log("🔗 Starting artifact clustering...");
 
   const supabase = createSupabaseClient();
+  const startTime = Date.now();
 
   try {
     // Active-hours gate (piggybacks on artifact_fetch schedule's is_enabled and active hours)
@@ -172,12 +174,29 @@ Deno.serve(async (req) => {
 
     console.log("✅ Clustering complete:", summary);
 
+    await logCronJob(supabase, {
+      job_name: "cluster-artifacts",
+      schedule_check_passed: true,
+      schedule_enabled: true,
+      reason: `Clustered ${clusteredCount} artifacts into ${newClusters} new clusters (${embeddingsMap.size} embeddings generated from ${artifacts.length} unclustered)`,
+      execution_duration_ms: Date.now() - startTime,
+    });
+
     return new Response(
       JSON.stringify(summary),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("💥 Fatal error in cluster-artifacts:", error);
+
+    await logCronJob(supabase, {
+      job_name: "cluster-artifacts",
+      schedule_check_passed: true,
+      reason: "Fatal error during clustering",
+      error_message: error instanceof Error ? error.message : "Unknown error",
+      execution_duration_ms: Date.now() - startTime,
+    });
+
     return new Response(
       JSON.stringify({
         success: false,

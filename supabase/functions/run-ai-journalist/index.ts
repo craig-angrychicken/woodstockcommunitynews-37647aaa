@@ -132,6 +132,27 @@ Deno.serve(async (req) => {
 
       console.log(`✅ Step 3 complete: ${usedGUIDs.size} already used, ${afterCount} remaining (filtered out ${beforeCount - afterCount})`);
 
+      // Cluster-based dedup: skip all artifacts whose cluster already produced a story
+      const { data: usedClusterRows, error: usedClusterError } = await supabase
+        .from('story_artifacts')
+        .select('artifact:artifacts(cluster_id)');
+
+      if (usedClusterError) {
+        console.warn('⚠️ Error fetching used clusters:', usedClusterError);
+      } else {
+        const usedClusterIds = new Set(
+          (usedClusterRows || [])
+            .map((sa: Record<string, unknown>) =>
+              (sa.artifact as Record<string, unknown> | undefined)?.cluster_id
+            )
+            .filter((cid: unknown) => cid != null)
+        );
+
+        const beforeClusterFilter = artifacts.length;
+        artifacts = artifacts.filter(a => !a.cluster_id || !usedClusterIds.has(a.cluster_id));
+        console.log(`   Cluster-dedup filter: ${usedClusterIds.size} clusters already have stories, ${artifacts.length} remaining (filtered out ${beforeClusterFilter - artifacts.length})`);
+      }
+
       // Also filter out artifacts that were already skipped (no story created, but already evaluated)
       const { data: skippedItems, error: skippedError } = await supabase
         .from('journalism_queue')
