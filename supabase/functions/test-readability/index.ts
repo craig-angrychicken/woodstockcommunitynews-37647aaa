@@ -5,6 +5,7 @@ import {
   fetchPageHTML,
   extractWithReadability,
   extractImages,
+  extractImagesFromMeta,
   extractVideos,
   extractLinks,
 } from "../_shared/readability.ts";
@@ -93,12 +94,16 @@ Deno.serve(async (req) => {
     }
 
     // Extract media from the Readability HTML output
-    const images = extractImages(readResult.content, url);
+    let images = extractImages(readResult.content, url);
+    const metaImages = images.length === 0 ? extractImagesFromMeta(htmlResult.html, url) : [];
+    if (images.length === 0 && metaImages.length > 0) {
+      images = metaImages;
+    }
     const videos = extractVideos(readResult.content);
 
     console.log(`   Title: ${readResult.title}`);
     console.log(`   Content: ${readResult.charCount} chars`);
-    console.log(`   Images: ${images.length}`);
+    console.log(`   Images: ${images.length}${metaImages.length > 0 ? ` (from meta/social tags)` : ""}`);
     console.log(`   Videos: ${videos.length}`);
 
     return new Response(
@@ -109,6 +114,7 @@ Deno.serve(async (req) => {
         content_preview: readResult.textContent.substring(0, 500),
         char_count: readResult.charCount,
         images,
+        meta_images: metaImages,
         videos,
         readability_loaded: isReadabilityLoaded(),
       }),

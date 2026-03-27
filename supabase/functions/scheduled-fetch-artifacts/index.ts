@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
 
     const duration = Date.now() - startTime;
     const summary = {
-      success: !fetchError,
+      success: finalStatus !== "failed",
       timestamp: new Date().toISOString(),
       dateRange: { from: dateFrom, to: dateTo },
       sourcesProcessed: sources.length,

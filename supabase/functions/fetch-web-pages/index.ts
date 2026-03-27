@@ -4,6 +4,7 @@ import {
   fetchPageHTML,
   extractWithReadability,
   extractImages,
+  extractImagesFromMeta,
   extractVideos,
   extractLinks,
   isReadabilityLoaded,
@@ -293,7 +294,13 @@ Deno.serve(async (req) => {
               const title = readResult.title || link.text || "Untitled";
               console.log(`   📄 ${title}`);
 
-              const imageUrls = extractImages(readResult.content, link.url);
+              let imageUrls = extractImages(readResult.content, link.url);
+              if (imageUrls.length === 0) {
+                imageUrls = extractImagesFromMeta(articleHtml.html, link.url);
+                if (imageUrls.length > 0) {
+                  console.log(`   🔍 Found ${imageUrls.length} image(s) from meta/social tags`);
+                }
+              }
               const videoUrls = extractVideos(readResult.content);
 
               const storageFolderGuid = crypto.randomUUID();
@@ -385,8 +392,14 @@ Deno.serve(async (req) => {
           console.log(`   Title: ${title}`);
           console.log(`   Content: ${readResult.charCount} chars`);
 
-          // 3. Extract images from Readability HTML
-          const imageUrls = extractImages(readResult.content, source.url);
+          // 3. Extract images from Readability HTML (fall back to meta/social tags)
+          let imageUrls = extractImages(readResult.content, source.url);
+          if (imageUrls.length === 0) {
+            imageUrls = extractImagesFromMeta(htmlResult.html, source.url);
+            if (imageUrls.length > 0) {
+              console.log(`   🔍 Found ${imageUrls.length} image(s) from meta/social tags`);
+            }
+          }
           console.log(`   Images found: ${imageUrls.length}`);
 
           // 4. Extract videos

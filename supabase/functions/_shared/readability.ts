@@ -161,7 +161,10 @@ export function extractImages(html: string, baseUrl: string): ExtractedImage[] {
 
     // Skip malformed URLs: Finalsite CMS embeds JSON arrays in src attributes
     // e.g. src="[{&quot;url&quot;:&quot;https://...&quot;}]" or literal [{...}]
-    if (/[[{]|%5B|%7B|&quot;|&amp;/i.test(src)) continue;
+    if (/[[{]|%5B|%7B|&quot;/i.test(src)) continue;
+
+    // Decode HTML entities in src (e.g. &amp; → &) so URLs with query params resolve correctly
+    src = src.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
 
     // Skip excessively long src values (likely encoded data, not real URLs)
     if (src.length > 500) continue;
@@ -186,6 +189,81 @@ export function extractImages(html: string, baseUrl: string): ExtractedImage[] {
     // Extract alt text
     const altMatch = match[0].match(/alt=["']([^"']*?)["']/i);
     images.push({ url: src, alt: altMatch?.[1] || "" });
+  }
+
+  return images;
+}
+
+/**
+ * Fallback image extraction from raw page HTML (not Readability output).
+ * Looks for images in meta tags and social sharing buttons when <img> tags
+ * are absent (e.g. Finalsite CMS which renders images via JavaScript).
+ */
+export function extractImagesFromMeta(rawHtml: string, baseUrl: string): ExtractedImage[] {
+  const images: ExtractedImage[] = [];
+  const seen = new Set<string>();
+
+  function addImage(rawUrl: string) {
+    // Decode HTML entities
+    let url = rawUrl
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"');
+
+    // Resolve relative URLs
+    try {
+      url = new URL(url, baseUrl).href;
+    } catch {
+      return;
+    }
+
+    if (url.startsWith("data:")) return;
+    if (/pixel|tracking|spacer|beacon|favicon|logo|icon/i.test(url)) return;
+    if (url.length > 600) return;
+    if (seen.has(url)) return;
+    seen.add(url);
+
+    images.push({ url, alt: "" });
+  }
+
+  // 1. og:image — property before content
+  const ogRegex1 = /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/gi;
+  let match;
+  while ((match = ogRegex1.exec(rawHtml)) !== null) {
+    addImage(match[1]);
+  }
+  // og:image — content before property
+  const ogRegex2 = /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["'][^>]*>/gi;
+  while ((match = ogRegex2.exec(rawHtml)) !== null) {
+    addImage(match[1]);
+  }
+
+  // 2. twitter:image — name before content
+  const twRegex1 = /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/gi;
+  while ((match = twRegex1.exec(rawHtml)) !== null) {
+    addImage(match[1]);
+  }
+  // twitter:image — content before name
+  const twRegex2 = /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["'][^>]*>/gi;
+  while ((match = twRegex2.exec(rawHtml)) !== null) {
+    addImage(match[1]);
+  }
+
+  // 3. Pinterest share button media= parameter
+  const pinterestRegex = /pinterest\.com\/pin\/create\/button\/[^"']*?media=([^&"']+)/gi;
+  while ((match = pinterestRegex.exec(rawHtml)) !== null) {
+    try {
+      addImage(decodeURIComponent(match[1]));
+    } catch {
+      addImage(match[1]);
+    }
+  }
+
+  // 4. link rel="image_src"
+  const linkRegex = /<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["'][^>]*>/gi;
+  while ((match = linkRegex.exec(rawHtml)) !== null) {
+    addImage(match[1]);
   }
 
   return images;
