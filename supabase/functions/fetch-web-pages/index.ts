@@ -292,6 +292,18 @@ Deno.serve(async (req) => {
               }
 
               const title = readResult.title || link.text || "Untitled";
+
+              // Check content filter — skip low-impact press-release content
+              const excludePatterns = (parserConfig?.exclude_title_patterns as string[]) || [];
+              if (excludePatterns.length > 0) {
+                const titleLower = title.toLowerCase();
+                const matched = excludePatterns.find(p => titleLower.includes(p.toLowerCase()));
+                if (matched) {
+                  console.log(`   ⏭️ Skipped (filter: "${matched}"): ${title}`);
+                  continue;
+                }
+              }
+
               console.log(`   📄 ${title}`);
 
               let imageUrls = extractImages(readResult.content, link.url);
@@ -306,10 +318,25 @@ Deno.serve(async (req) => {
               const storageFolderGuid = crypto.randomUUID();
               const storageImages: { original_url: string; stored_url: string; download_failed?: true; type?: string; embed_type?: string }[] = [];
 
-              const imagesToDownload = imageUrls.slice(0, MAX_IMAGES_PER_ARTICLE);
+              let imagesToDownload = imageUrls.slice(0, MAX_IMAGES_PER_ARTICLE);
               for (let i = 0; i < imagesToDownload.length; i++) {
                 const result = await downloadAndStoreImage(supabase, imagesToDownload[i].url, storageFolderGuid, i);
                 if (result) storageImages.push(result);
+              }
+
+              // Secondary fallback: if all Readability images failed to download,
+              // try meta/social extraction (catches Finalsite CDN URLs that Readability
+              // resolves to incorrect relative paths)
+              const hasRealImage = storageImages.some(img => !("type" in img) || img.type !== "video");
+              if (!hasRealImage && imageUrls.length > 0) {
+                const metaImages = extractImagesFromMeta(articleHtml.html, link.url);
+                if (metaImages.length > 0) {
+                  console.log(`   🔍 Readability images failed, found ${metaImages.length} from meta/social tags`);
+                  for (let i = 0; i < Math.min(metaImages.length, MAX_IMAGES_PER_ARTICLE); i++) {
+                    const result = await downloadAndStoreImage(supabase, metaImages[i].url, storageFolderGuid, i);
+                    if (result) storageImages.push(result);
+                  }
+                }
               }
 
               for (const video of videoUrls) {
@@ -423,6 +450,20 @@ Deno.serve(async (req) => {
           for (let i = 0; i < imagesToDownload.length; i++) {
             const result = await downloadAndStoreImage(supabase, imagesToDownload[i].url, storageFolderGuid, i);
             if (result) storageImages.push(result);
+          }
+
+          // Secondary fallback: if all Readability images failed to download,
+          // try meta/social extraction (Finalsite CDN URLs)
+          const hasRealImage = storageImages.some(img => !("type" in img) || img.type !== "video");
+          if (!hasRealImage && imageUrls.length > 0) {
+            const metaImages = extractImagesFromMeta(htmlResult.html, source.url);
+            if (metaImages.length > 0) {
+              console.log(`   🔍 Readability images failed, found ${metaImages.length} from meta/social tags`);
+              for (let i = 0; i < Math.min(metaImages.length, MAX_IMAGES); i++) {
+                const result = await downloadAndStoreImage(supabase, metaImages[i].url, storageFolderGuid, i);
+                if (result) storageImages.push(result);
+              }
+            }
           }
 
           // 7. Store video embed URLs in the images array with type discriminator

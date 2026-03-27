@@ -266,6 +266,15 @@ export function extractImagesFromMeta(rawHtml: string, baseUrl: string): Extract
     addImage(match[1]);
   }
 
+  // 5. Finalsite CDN images — reliable fallback for Finalsite CMS pages where
+  //    images are rendered via JavaScript and only appear in Pinterest/share URLs
+  if (images.length === 0) {
+    const finalsiteRegex = /https?:\/\/resources\.finalsite\.net\/images\/[^"'\s\)>;,]+\.(?:jpg|jpeg|png|gif|webp)/gi;
+    while ((match = finalsiteRegex.exec(rawHtml)) !== null) {
+      addImage(match[0]);
+    }
+  }
+
   return images;
 }
 
