@@ -318,7 +318,7 @@ Deno.serve(async (req) => {
               const storageFolderGuid = crypto.randomUUID();
               const storageImages: { original_url: string; stored_url: string; download_failed?: true; type?: string; embed_type?: string }[] = [];
 
-              let imagesToDownload = imageUrls.slice(0, MAX_IMAGES_PER_ARTICLE);
+              const imagesToDownload = imageUrls.slice(0, MAX_IMAGES_PER_ARTICLE);
               for (let i = 0; i < imagesToDownload.length; i++) {
                 const result = await downloadAndStoreImage(supabase, imagesToDownload[i].url, storageFolderGuid, i);
                 if (result) storageImages.push(result);

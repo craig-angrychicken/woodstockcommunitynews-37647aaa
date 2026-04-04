@@ -37,6 +37,7 @@ async function getStory(slug: string) {
     )
     .eq("slug", slug)
     .eq("status", "published")
+    .eq("environment", "production")
     .single();
 
   return data as Story | null;

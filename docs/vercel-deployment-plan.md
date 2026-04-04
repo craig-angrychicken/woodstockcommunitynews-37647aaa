@@ -1,69 +1,45 @@
-# Vercel Deployment Plan
+# Vercel Deployment — Status
 
-Everything is built, tested, and deployed to Supabase. This is what's left.
+**Migration status: COMPLETE as of 2026-04-04.**
 
-## 1. Create Vercel Project
+The public site is live at https://woodstockcommunity.news, serving stories directly from Supabase via the Next.js App Router on Vercel. Ghost CMS has been retired from the active publish path.
 
-1. Go to https://vercel.com/new
-2. Import the GitHub repo `craig-angrychicken/woodstockcommunitynews-37647aaa`
-3. Set **Root Directory** to `site`
-4. Framework Preset: **Next.js** (should auto-detect)
-5. Add environment variables:
-   - `SUPABASE_URL` = `https://cceprnhnpqnpexmouuig.supabase.co`
-   - `SUPABASE_ANON_KEY` = (copy from `.env` → `VITE_SUPABASE_PUBLISHABLE_KEY`)
-   - `REVALIDATION_SECRET` = generate a random string (e.g., `openssl rand -hex 32`)
-6. Deploy
+---
 
-## 2. Add Revalidation Secret to Supabase
+## What's deployed
 
-1. Go to https://supabase.com/dashboard/project/cceprnhnpqnpexmouuig/settings/functions
-2. Add secret: `VERCEL_REVALIDATION_SECRET` = same value you used for `REVALIDATION_SECRET` in Vercel
+- **Vercel project**: builds from `site/` directory, Next.js 16 + React 19
+- **Domain**: `woodstockcommunity.news` (Vercel-managed SSL)
+- **Publish path**: admin UI → `publish-story` edge function → slug generated → `/api/revalidate` triggers ISR refresh → `publish-to-facebook` posts link (first publish only)
+- **ISR**: story pages, homepage, and feed.xml revalidate every 3600s; on-demand revalidation via `/api/revalidate?secret=...&path=...`
 
-## 3. Verify on Temporary Vercel Domain
+## Completed
 
-Before touching DNS, test on the `*.vercel.app` URL that Vercel assigns:
+- [x] Vercel project created, linked to `craig-angrychicken/woodstockcommunitynews-37647aaa`
+- [x] Root directory set to `site`
+- [x] Environment variables configured (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REVALIDATION_SECRET`)
+- [x] `VERCEL_REVALIDATION_SECRET` added to Supabase function secrets
+- [x] Homepage loads with Featured + Latest sections
+- [x] Story detail pages render (title, image, body, byline, source attribution, related stories)
+- [x] `/about`, `/feed.xml`, `/sitemap.xml` all working
+- [x] DNS pointed to Vercel, SSL active
+- [x] Publish flow tested end-to-end from admin UI
+- [x] Facebook auto-posting on first publish
+- [x] Story slugs backfilled (migration `20260402000001_add_slug_to_stories.sql`)
 
-- [ ] Homepage loads with Featured + Latest sections
-- [ ] Click a story — detail page renders with title, image, body, source attribution
-- [ ] `/about` page renders
-- [ ] `/feed.xml` returns valid RSS
-- [ ] `/sitemap.xml` lists all stories
-- [ ] `/rss/` redirects to `/feed.xml`
+## Ghost cleanup — remaining
 
-## 4. Test Publish Flow
-
-1. Open admin UI at localhost:5173 (or wherever it's hosted)
-2. Find a pending/edited story → click **Publish**
-3. Verify the story appears on the Vercel site within a few seconds
-4. Check that Facebook post was created (if Facebook credentials are configured)
-
-## 5. Point DNS to Vercel
-
-1. In Vercel project settings → Domains → add `woodstockcommunity.news`
-2. Update DNS records for `woodstockcommunity.news`:
-   - If using Vercel nameservers: follow their instructions
-   - If using external DNS: add CNAME to `cname.vercel-dns.com` (or A records per Vercel docs)
-3. Vercel handles SSL automatically
-4. Wait for DNS propagation (usually minutes, sometimes up to an hour)
-
-## 6. Verify Live Site
-
-- [ ] https://woodstockcommunity.news loads correctly
-- [ ] Story pages work
-- [ ] About page works
-- [ ] RSS feed works
-- [ ] Publish a test story from admin → appears on live site
-- [ ] Facebook post links to woodstockcommunity.news (not Ghost)
-
-## 7. Ghost Cleanup (after everything is confirmed working)
-
-Once confident the Vercel site is live and stable:
+Once fully confident nothing depends on Ghost:
 
 1. Remove Ghost secrets from Supabase dashboard:
    - `GHOST_ADMIN_API_KEY`
    - `GHOST_API_URL`
-2. Delete Ghost edge functions (can do this in a future session with Claude):
+2. Delete legacy Ghost edge functions:
    - `supabase/functions/publish-to-ghost/`
-   - `supabase/functions/publish-about-page/`
+   - `supabase/functions/publish-about-page/` (if Ghost-specific)
+   - `supabase/functions/migrate-ghost-stories/` (one-time tool, already run)
+   - `supabase/functions/check-ghost-images/` (debugging tool)
    - `supabase/functions/_shared/ghost-token.ts`
-3. Shut down Ghost instance
+3. Remove Ghost references from the admin UI (any "Publish to Ghost" buttons)
+4. Shut down Ghost instance
+5. Drop/repurpose the `ghost_url` column on `stories` (currently used as the canonical public URL)

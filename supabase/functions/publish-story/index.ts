@@ -45,7 +45,7 @@ serve(async (req) => {
     const isFirstPublish = !story.ghost_url;
 
     // Generate slug
-    let baseSlug = slugify(story.title);
+    const baseSlug = slugify(story.title);
     let finalSlug = baseSlug;
     let suffix = 2;
 
