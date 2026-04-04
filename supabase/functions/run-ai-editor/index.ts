@@ -53,12 +53,7 @@ Deno.serve(async (req) => {
         id,
         title,
         content,
-        hero_image_url,
-        ghost_url,
-        created_at,
-        structured_metadata,
-        publish_attempts,
-        story_artifacts(artifact_id, artifacts(date))
+        publish_attempts
       `)
       .eq("status", "edited")
       .eq("environment", "production")
@@ -131,26 +126,13 @@ ${story.content || ""}`;
         const isPublish = upperVerdict === "PUBLISH" || isFeatured;
 
         if (isPublish) {
-          // Get artifact_id and date for storage cleanup and publish date
-          const firstArtifact = (story.story_artifacts as Array<Record<string, unknown>>)?.[0];
-          const artifactId = firstArtifact?.artifact_id || null;
-          const artifactDate = (firstArtifact?.artifacts as Record<string, unknown> | undefined)?.date || null;
-          const publishedAt = artifactDate || (story as Record<string, unknown>).created_at || new Date().toISOString();
-
-          // Invoke publish-to-ghost
+          // Invoke publish-story (handles slug, status, revalidation, and Facebook)
           const { data: publishData, error: publishError } = await supabase.functions.invoke(
-            "publish-to-ghost",
+            "publish-story",
             {
               body: {
-                title: storyTitle,
-                content: story.content,
-                status: "published",
-                heroImageUrl: story.hero_image_url || null,
-                artifactId,
+                storyId: story.id,
                 featured: isFeatured,
-                publishedAt,
-                structuredMetadata: (story as Record<string, unknown>).structured_metadata || null,
-                ghostUrl: story.ghost_url || null,
               },
             }
           );
@@ -167,42 +149,9 @@ ${story.content || ""}`;
             continue;
           }
 
-          // Update story status, ghost_url, and published_at in DB
-          await supabase
-            .from("stories")
-            .update({
-              status: "published",
-              ghost_url: publishData.url || null,
-              featured: isFeatured,
-              published_at: new Date().toISOString(),
-            })
-            .eq("id", story.id);
-
           console.log(`${isFeatured ? "⭐" : "✅"} Published${isFeatured ? " (featured)" : ""}: "${storyTitle}" → ${publishData.url}`);
           summary.published++;
           if (isFeatured) summary.featured++;
-
-          // Facebook: post link to page (non-fatal) — skip for re-published stories
-          if (story.ghost_url) {
-            console.log(`📘 Skipping Facebook for re-published story: "${storyTitle}"`);
-          } else {
-            try {
-              const { data: fbData, error: fbError } = await supabase.functions.invoke(
-                "publish-to-facebook",
-                { body: { storyId: story.id, ghostUrl: publishData.url, title: storyTitle } }
-              );
-              if (fbError || !fbData?.success) {
-                console.warn(`⚠️ Facebook failed for "${storyTitle}": ${fbError?.message || fbData?.error}`);
-                summary.facebook_failed++;
-              } else {
-                console.log(`📘 Facebook posted: "${storyTitle}" → ${fbData.url}`);
-                summary.facebook_posted++;
-              }
-            } catch (fbErr) {
-              console.warn(`⚠️ Facebook threw for "${storyTitle}":`, fbErr);
-              summary.facebook_failed++;
-            }
-          }
         } else if (upperVerdict.startsWith("REJECT:")) {
           const reason = verdict.slice(7).trim();
 

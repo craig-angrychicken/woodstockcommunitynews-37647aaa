@@ -60,6 +60,9 @@ verify_jwt = false
 [functions.test-readability]
 verify_jwt = false
 
+[functions.publish-story]
+verify_jwt = false
+
 [functions.fetch-web-pages]
 verify_jwt = false
 

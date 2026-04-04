@@ -383,7 +383,7 @@ const AIJournalist = () => {
               { label: "Pending", description: "AI generates draft from artifacts" },
               { label: "Fact Checked", description: "AI verifies claims against sources" },
               { label: "Edited", description: "AI rewrites for style and clarity" },
-              { label: "Published / Rejected", description: "Final review and publish to Ghost" },
+              { label: "Published / Rejected", description: "Final review and publish" },
             ].map((stage, index) => (
               <div key={stage.label} className="flex items-center gap-1">
                 {index > 0 && <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0" />}

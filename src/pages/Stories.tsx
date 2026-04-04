@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { publishToGhost } from "@/lib/ghost-api";
+import { publishStory } from "@/lib/ghost-api";
 
 interface Story {
   id: string;
@@ -221,104 +221,34 @@ const Stories = () => {
   const handlePublish = async (story?: Story) => {
     const storyToPublish = story || selectedStory;
     if (!storyToPublish) return;
-    
+
     try {
       toast({
-        title: "Publishing to Ghost",
+        title: "Publishing",
         description: "Please wait..."
       });
-      
-      // Fetch artifact date(s) for this story
-      const { data: storyArtifacts, error: artifactsError } = await supabase
-        .from('story_artifacts')
-        .select('artifact_id')
-        .eq('story_id', storyToPublish.id);
-      
-      if (artifactsError) throw artifactsError;
-      
-      let artifactDate: string | null = null;
-      let firstArtifactId: string | null = null;
-      if (storyArtifacts && storyArtifacts.length > 0) {
-        const artifactIds = storyArtifacts.map(sa => sa.artifact_id);
-        firstArtifactId = artifactIds[0]; // Store first artifact ID for cleanup
-        const { data: artifacts, error: dateError } = await supabase
-          .from('artifacts')
-          .select('date')
-          .in('id', artifactIds)
-          .order('date', { ascending: false })
-          .limit(1);
-        
-        if (!dateError && artifacts && artifacts.length > 0) {
-          artifactDate = artifacts[0].date;
-        }
-      }
-      
-      const result = await publishToGhost(
-        storyToPublish.content || '',
-        storyToPublish.title,
-        {
-          status: 'published',
-          tags: [],
-          featured: storyToPublish.featured || false,
-          ghostUrl: storyToPublish.ghost_url || undefined,
-          publishedAt: artifactDate || storyToPublish.created_at,
-          heroImageUrl: storyToPublish.hero_image_url,
-          artifactId: firstArtifactId || undefined
-        }
+
+      const result = await publishStory(
+        storyToPublish.id,
+        storyToPublish.featured || false
       );
-      
+
       if (result.success) {
-        await updateStoryMutation.mutateAsync({
-          id: storyToPublish.id,
-          updates: {
-            status: 'published',
-            published_at: new Date().toISOString(),
-            ghost_url: result.url
-          }
+        queryClient.invalidateQueries({ queryKey: ['stories'] });
+
+        toast({
+          title: storyToPublish.ghost_url ? "Updated!" : "Published!",
+          description: result.url ? (
+            <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+              View on site &rarr;
+            </a>
+          ) : "Story published successfully"
         });
-
-        // Facebook: only on first publish (not re-publish/update)
-        const isFirstPublish = !storyToPublish.ghost_url;
-        if (isFirstPublish) {
-          try {
-            const excerpt = undefined;
-            const { data: fbData, error: fbError } = await supabase.functions.invoke(
-              'publish-to-facebook',
-              { body: { storyId: storyToPublish.id, ghostUrl: result.url, title: storyToPublish.title, excerpt } }
-            );
-
-            if (fbError || !fbData?.success) {
-              const reason = fbError?.message || fbData?.error || 'Unknown error';
-              toast({ title: "Published to Ghost!", description: `Facebook warning: ${reason}`, variant: "destructive" });
-            } else {
-              toast({
-                title: "Published to Ghost + Facebook!",
-                description: (
-                  <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                    View on Ghost →
-                  </a>
-                )
-              });
-            }
-          } catch (fbErr: unknown) {
-            const fbErrMsg = fbErr instanceof Error ? fbErr.message : String(fbErr);
-            toast({ title: "Published to Ghost!", description: `Facebook failed: ${fbErrMsg}`, variant: "destructive" });
-          }
-        } else {
-          toast({
-            title: "Updated on Ghost!",
-            description: result.url ? (
-              <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                View on Ghost →
-              </a>
-            ) : "Story updated successfully"
-          });
-        }
 
         setShowDetailModal(false);
       }
     } catch (error: unknown) {
-      const errorMsg = error instanceof Error ? error.message : "Failed to publish to Ghost";
+      const errorMsg = error instanceof Error ? error.message : "Failed to publish";
       toast({
         title: "Publishing Failed",
         description: errorMsg,

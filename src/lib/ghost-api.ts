@@ -2,67 +2,42 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
 /**
- * Publishes a story to Ghost CMS
- * @param storyContent - The HTML content of the story
- * @param storyTitle - The title of the story
- * @param options - Additional Ghost post options
- * @returns Promise with the created post data
+ * Publishes a story to the public site via the publish-story edge function.
+ * Handles slug generation, status update, revalidation, and Facebook posting.
  */
-export async function publishToGhost(
-  storyContent: string,
-  storyTitle: string,
-  options?: {
-    status?: "draft" | "published";
-    tags?: string[];
-    featured?: boolean;
-    excerpt?: string;
-    ghostUrl?: string;
-    publishedAt?: string;
-    heroImageUrl?: string | null;
-    artifactId?: string;
-  }
-): Promise<{ success: boolean; postId?: string; url?: string }> {
+export async function publishStory(
+  storyId: string,
+  featured: boolean
+): Promise<{ success: boolean; url?: string }> {
   try {
-    console.log("📝 Publishing to Ghost CMS:", storyTitle);
+    console.log("Publishing story:", storyId);
 
-    const { data, error } = await supabase.functions.invoke('publish-to-ghost', {
-      body: {
-        title: storyTitle,
-        content: storyContent,
-        status: options?.status || "draft",
-        tags: options?.tags,
-        featured: options?.featured || false,
-        excerpt: options?.excerpt,
-        ghostUrl: options?.ghostUrl,
-        publishedAt: options?.publishedAt,
-        heroImageUrl: options?.heroImageUrl,
-        artifactId: options?.artifactId,
-      },
+    const { data, error } = await supabase.functions.invoke('publish-story', {
+      body: { storyId, featured },
     });
 
     if (error) {
-      console.error("Ghost API error:", error);
-      toast.error("Failed to publish to Ghost");
+      console.error("Publish error:", error);
+      toast.error("Failed to publish story");
       throw error;
     }
 
     if (!data.success) {
-      console.error("Ghost API error:", data.error);
-      toast.error(`Failed to publish to Ghost: ${data.error}`);
+      console.error("Publish error:", data.error);
+      toast.error(`Failed to publish: ${data.error}`);
       return { success: false };
     }
 
-    toast.success(options?.ghostUrl ? "Story updated on Ghost!" : "Story published to Ghost successfully!");
-
     return {
       success: true,
-      postId: data.postId,
       url: data.url,
     };
   } catch (error) {
-    console.error("Error publishing to Ghost:", error);
-    toast.error("Failed to publish to Ghost");
+    console.error("Error publishing story:", error);
+    toast.error("Failed to publish story");
     return { success: false };
   }
 }
 
+// Keep backward-compatible export name
+export const publishToGhost = publishStory;

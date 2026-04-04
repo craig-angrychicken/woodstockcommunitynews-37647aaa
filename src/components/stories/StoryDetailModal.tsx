@@ -161,11 +161,11 @@ export const StoryDetailModal = ({
             <>
               <Button variant="default" onClick={onPublish}>
                 <Send className="h-4 w-4 mr-2" />
-                {story.ghost_url ? 'Update on Ghost' : 'Publish to Ghost'}
+                {story.ghost_url ? 'Republish' : 'Publish'}
               </Button>
               {story.ghost_url && (
                 <Button variant="outline" onClick={() => window.open(story.ghost_url!, '_blank')}>
-                  View on Ghost →
+                  View on site &rarr;
                 </Button>
               )}
             </>
