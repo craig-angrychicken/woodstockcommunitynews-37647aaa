@@ -19,28 +19,39 @@ serve(async (req) => {
 
     const token = await generateGhostToken(ghostApiKey);
 
-    // Accept mode: "missing" (default) only updates NULL images, "defaults" replaces default placeholder images too
+    // mode: "broken" (default) fixes expired external URLs, "missing" only NULL, "all" reprocesses everything
     const body = await req.json().catch(() => ({}));
-    const mode = body.mode || "defaults";
-    const defaultImageSubstr = "defaults/hero-default";
+    const mode = body.mode || "broken";
+    const supabaseStoragePrefix = "supabase.co/storage";
 
     // 1. Get stories to update
     let query = supabase
       .from("stories")
-      .select("id, title, ghost_url, slug")
+      .select("id, title, ghost_url, slug, hero_image_url")
       .eq("status", "published")
       .eq("environment", "production");
 
-    if (mode === "defaults") {
-      // Get stories with NULL or default placeholder images
-      query = query.or(`hero_image_url.is.null,hero_image_url.like.%${defaultImageSubstr}%`);
-    } else {
+    if (mode === "missing") {
       query = query.is("hero_image_url", null);
+    } else if (mode === "all") {
+      // Reprocess everything
+    } else {
+      // "broken" mode: get stories where image URL is NOT in Supabase storage (expired external URLs)
+      // PostgREST doesn't support NOT LIKE easily, so we fetch all and filter client-side
     }
 
-    const { data: stories, error: storyErr } = await query;
+    const { data: allStories, error: storyErr } = await query;
     if (storyErr) throw new Error(`DB error: ${storyErr.message}`);
-    if (!stories || stories.length === 0) {
+
+    // Filter client-side for "broken" mode: exclude stories already in Supabase storage
+    let stories = allStories || [];
+    if (mode === "broken") {
+      stories = stories.filter(s =>
+        !s.hero_image_url || !s.hero_image_url.includes(supabaseStoragePrefix)
+      );
+    }
+
+    if (stories.length === 0) {
       return new Response(JSON.stringify({ success: true, message: "No stories need images", updated: 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
