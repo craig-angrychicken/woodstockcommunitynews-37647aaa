@@ -3,11 +3,22 @@
 @theme inline {
   --font-sans: var(--font-sans);
   --font-serif: var(--font-serif);
+  --font-display: var(--font-display);
+  --color-ink: #111111;
+  --color-paper: #fafaf7;
+  --color-accent: #c2410c;
+  --color-rule: #e5e5e5;
+  --color-source-bg: #f5f1ea;
 }
 
 body {
-  background: #ffffff;
-  color: #1a1a1a;
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+.font-display {
+  font-family: var(--font-display), Georgia, serif;
+  font-optical-sizing: auto;
 }
 
 .font-serif {
@@ -16,4 +27,28 @@ body {
 
 .font-sans {
   font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.category-label {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.story-body {
+  font-family: var(--font-serif), Georgia, serif;
+  font-size: 19px;
+  line-height: 1.7;
+  color: var(--color-ink);
+}
+
+.story-body p {
+  margin-bottom: 1.25em;
+}
+
+.story-body p:last-child {
+  margin-bottom: 0;
 }

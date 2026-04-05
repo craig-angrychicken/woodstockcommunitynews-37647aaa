@@ -2,19 +2,29 @@ import Link from "next/link";
 
 export default function Header() {
   return (
-    <header className="border-b border-gray-100">
-      <div className="mx-auto max-w-4xl px-4 py-6 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
-        <Link href="/" className="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900 font-serif">
-          Woodstock Community News
-        </Link>
-        <nav className="flex gap-6 text-sm font-medium text-gray-600">
-          <Link href="/" className="hover:text-gray-900 transition-colors">
-            Home
-          </Link>
-          <Link href="/about" className="hover:text-gray-900 transition-colors">
-            About
-          </Link>
-        </nav>
+    <header className="border-b-2 border-[var(--color-accent)]">
+      <div className="mx-auto max-w-6xl px-4 py-6">
+        <div className="flex flex-col items-center text-center sm:flex-row sm:items-baseline sm:justify-between sm:text-left">
+          <div>
+            <Link
+              href="/"
+              className="font-display text-3xl sm:text-4xl font-semibold tracking-tight text-ink block"
+            >
+              Woodstock Community News
+            </Link>
+            <p className="hidden sm:block mt-1 text-xs text-gray-500 font-sans">
+              Local news for Woodstock, Georgia — primary sources, AP Stylebook
+            </p>
+          </div>
+          <nav className="mt-3 sm:mt-0 flex gap-6 text-[11px] font-semibold tracking-[0.1em] uppercase text-gray-600 font-sans">
+            <Link href="/" className="hover:text-[var(--color-accent)] transition-colors">
+              Home
+            </Link>
+            <Link href="/about" className="hover:text-[var(--color-accent)] transition-colors">
+              About
+            </Link>
+          </nav>
+        </div>
       </div>
     </header>
   );

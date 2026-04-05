@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Image from "next/image";
-import type { Metadata, ResolvingMetadata } from "next";
+import type { Metadata } from "next";
 import { supabase } from "@/lib/supabase";
 import { estimateReadTime, formatDate, getExcerpt } from "@/lib/formatting";
 import RelatedStories from "@/components/RelatedStories";
@@ -72,8 +72,7 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata(
-  { params }: Props,
-  parent: ResolvingMetadata
+  { params }: Props
 ): Promise<Metadata> {
   const { slug } = await params;
   const story = await getStory(slug);
@@ -112,24 +111,29 @@ export default async function StoryPage({ params }: Props) {
   const related = await getRelatedStories(story.id);
 
   return (
-    <article className="mx-auto max-w-2xl px-4 py-10">
+    <article className="mx-auto max-w-2xl px-4 py-10 sm:py-14">
       <header className="mb-8">
-        <h1 className="font-serif text-3xl sm:text-4xl font-bold text-gray-900 leading-tight">
+        <h1 className="font-display text-4xl sm:text-5xl font-semibold text-ink leading-[1.1] tracking-tight">
           {story.title}
         </h1>
-        <p className="mt-4 text-sm text-gray-500">
-          <span>{byline}</span>
-          <span className="mx-1">&middot;</span>
+        {metadata?.subhead && (
+          <p className="mt-4 font-serif italic text-xl text-gray-600 leading-snug">
+            {metadata.subhead}
+          </p>
+        )}
+        <p className="mt-6 text-sm font-sans text-gray-500">
+          <span className="text-[var(--color-accent)] font-semibold">{byline}</span>
+          <span className="mx-2 text-gray-300">|</span>
           <time dateTime={story.published_at}>
             {formatDate(story.published_at)}
           </time>
-          <span className="mx-1">&middot;</span>
+          <span className="mx-2 text-gray-300">|</span>
           <span>{readTime} min read</span>
         </p>
       </header>
 
       {story.hero_image_url && (
-        <div className="relative w-full aspect-[16/9] mb-8 rounded-lg overflow-hidden">
+        <div className="relative w-full aspect-[16/9] mb-10 overflow-hidden">
           <Image
             src={story.hero_image_url}
             alt={story.title}
@@ -141,30 +145,25 @@ export default async function StoryPage({ params }: Props) {
         </div>
       )}
 
-      <div className="prose prose-gray max-w-none">
-        {metadata?.subhead && (
-          <p className="text-lg text-gray-600 italic mb-6">
-            {metadata.subhead}
-          </p>
-        )}
-
+      <div className="story-body">
         {paragraphs.map((paragraph, i) => (
-          <p key={i} className="mb-4 leading-relaxed">
-            {paragraph}
-          </p>
+          <p key={i}>{paragraph}</p>
         ))}
       </div>
 
       {metadata?.source_name && (
-        <div className="mt-10 pt-6 border-t border-gray-200">
-          <p className="text-sm text-gray-600 italic">
-            Source:{" "}
+        <aside
+          className="mt-12 border-t-2 border-[var(--color-accent)] p-6"
+          style={{ background: "var(--color-source-bg)" }}
+        >
+          <p className="category-label mb-2">Source</p>
+          <p className="font-serif text-base text-gray-800">
             {metadata.source_url ? (
               <a
                 href={metadata.source_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-gray-800 hover:underline"
+                className="hover:underline"
               >
                 {metadata.source_name}
               </a>
@@ -172,7 +171,7 @@ export default async function StoryPage({ params }: Props) {
               metadata.source_name
             )}
           </p>
-        </div>
+        </aside>
       )}
 
       <RelatedStories stories={related} />
