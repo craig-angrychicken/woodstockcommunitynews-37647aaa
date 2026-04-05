@@ -1,6 +1,7 @@
 import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase-client.ts";
 import { callLLM } from "../_shared/llm-client.ts";
+import { stripEmDashes } from "../_shared/text-cleanup.ts";
 
 const MAX_STORIES_PER_RUN = 20;
 
@@ -161,8 +162,8 @@ Respond with the improved article in the SAME format as the input. Start with th
         await supabase
           .from("stories")
           .update({
-            title: newTitle,
-            content: newContent,
+            title: stripEmDashes(newTitle),
+            content: stripEmDashes(newContent),
             status: "edited",
           })
           .eq("id", story.id);

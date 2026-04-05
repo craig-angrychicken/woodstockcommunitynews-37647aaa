@@ -1,6 +1,7 @@
 import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient, getSupabaseUrl, getServiceRoleKey } from "../_shared/supabase-client.ts";
 import { callLLM, generateEmbedding } from "../_shared/llm-client.ts";
+import { stripEmDashes } from "../_shared/text-cleanup.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface StructuredStoryResponse {
@@ -372,6 +373,18 @@ ${artifactData}`;
         .replace(/^HEADLINE:\s*/i, "")
         .trim() || "Untitled Story";
       content = lines.slice(1).join("\n").trim();
+    }
+
+    // Strip em/en dashes from reader-facing fields — classic AI tell.
+    title = stripEmDashes(title);
+    content = stripEmDashes(content);
+    if (structuredMetadata) {
+      structuredMetadata.subhead = stripEmDashes(
+        structuredMetadata.subhead as string | null
+      );
+      structuredMetadata.byline = stripEmDashes(
+        structuredMetadata.byline as string | null
+      );
     }
 
     // Story-level dedup: check for similar existing stories by title embedding

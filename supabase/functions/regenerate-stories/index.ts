@@ -1,6 +1,7 @@
 import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase-client.ts";
 import { callLLM } from "../_shared/llm-client.ts";
+import { stripEmDashes } from "../_shared/text-cleanup.ts";
 
 interface StructuredStoryResponse {
   headline: string;
@@ -209,6 +210,18 @@ ${artifactData}`;
             .replace(/^HEADLINE:\s*/i, "")
             .trim() || "Untitled Story";
           newContent = lines.slice(1).join("\n").trim();
+        }
+
+        // Strip em/en dashes from reader-facing fields — classic AI tell.
+        newTitle = stripEmDashes(newTitle);
+        newContent = stripEmDashes(newContent);
+        if (structuredMetadata) {
+          structuredMetadata.subhead = stripEmDashes(
+            structuredMetadata.subhead as string | null
+          );
+          structuredMetadata.byline = stripEmDashes(
+            structuredMetadata.byline as string | null
+          );
         }
 
         const wordCount = newContent.split(/\s+/).filter((w: string) => w.length > 0).length;
