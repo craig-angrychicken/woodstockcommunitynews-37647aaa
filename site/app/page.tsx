@@ -13,14 +13,13 @@ interface Story {
   hero_image_url: string | null;
   published_at: string;
   structured_metadata: { subhead?: string; byline?: string } | null;
-  featured: boolean;
 }
 
 async function getStories() {
   const { data } = await supabase
     .from("stories")
     .select(
-      "id, title, content, slug, hero_image_url, published_at, structured_metadata, featured"
+      "id, title, content, slug, hero_image_url, published_at, structured_metadata"
     )
     .eq("status", "published")
     .eq("environment", "production")
@@ -35,10 +34,8 @@ export default async function HomePage() {
   const stories = await getStories();
   if (stories.length === 0) return null;
 
-  // Lead story = first featured, else most recent
-  const featuredStory = stories.find((s) => s.featured);
-  const lead = featuredStory || stories[0];
-  const remaining = stories.filter((s) => s.id !== lead.id);
+  // Lead story = most recent; remaining fill news column then sidebar
+  const [lead, ...remaining] = stories;
   const newsColumn = remaining.slice(0, 7);
   const sidebarList = remaining.slice(7, 17);
 

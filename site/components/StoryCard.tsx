@@ -32,12 +32,12 @@ export default function StoryCard({
       <article className="group pb-8 border-b border-[var(--color-rule)]">
         <Link href={`/${slug}`} className="block">
           {heroImageUrl && (
-            <div className="relative aspect-[16/9] sm:aspect-[21/9] overflow-hidden mb-5">
+            <div className="relative h-[220px] sm:h-[280px] lg:h-[340px] overflow-hidden mb-5">
               <Image
                 src={heroImageUrl}
                 alt={title}
                 fill
-                sizes="(max-width: 1024px) 100vw, 768px"
+                sizes="(max-width: 1024px) 100vw, 1152px"
                 className="object-cover group-hover:scale-[1.02] transition-transform duration-500"
                 priority
               />
