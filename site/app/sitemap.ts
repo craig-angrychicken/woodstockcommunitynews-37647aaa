@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { supabase } from "@/lib/supabase";
+import { getAllTopicSlugs } from "@/lib/topics";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const { data: stories } = await supabase
@@ -17,6 +18,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }));
 
+  const topicEntries: MetadataRoute.Sitemap = getAllTopicSlugs().map(
+    (slug) => ({
+      url: `https://woodstockcommunity.news/topic/${slug}`,
+      lastModified: new Date(),
+      changeFrequency: "daily",
+      priority: 0.6,
+    })
+  );
+
   return [
     {
       url: "https://woodstockcommunity.news",
@@ -30,6 +40,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "monthly",
       priority: 0.5,
     },
+    ...topicEntries,
     ...storyEntries,
   ];
 }

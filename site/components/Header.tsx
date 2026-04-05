@@ -20,6 +20,9 @@ export default function Header() {
             <Link href="/" className="hover:text-[var(--color-accent)] transition-colors">
               Home
             </Link>
+            <Link href="/search" className="hover:text-[var(--color-accent)] transition-colors">
+              Search
+            </Link>
             <Link href="/about" className="hover:text-[var(--color-accent)] transition-colors">
               About
             </Link>

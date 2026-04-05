@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { supabase } from "@/lib/supabase";
 import { estimateReadTime, formatDate, getExcerpt } from "@/lib/formatting";
 import RelatedStories from "@/components/RelatedStories";
+import ShareButtons from "@/components/ShareButtons";
 
 export const revalidate = 3600;
 
@@ -21,6 +22,7 @@ interface Story {
   slug: string;
   hero_image_url: string | null;
   published_at: string;
+  content_updated_at: string | null;
   structured_metadata: StructuredMetadata | null;
   word_count: number | null;
 }
@@ -33,7 +35,7 @@ async function getStory(slug: string) {
   const { data } = await supabase
     .from("stories")
     .select(
-      "id, title, content, slug, hero_image_url, published_at, structured_metadata, word_count"
+      "id, title, content, slug, hero_image_url, published_at, content_updated_at, structured_metadata, word_count"
     )
     .eq("slug", slug)
     .eq("status", "published")
@@ -84,12 +86,22 @@ export async function generateMetadata(
   return {
     title: story.title,
     description,
+    alternates: {
+      canonical: `/${story.slug}`,
+    },
     openGraph: {
       title: story.title,
       description,
       type: "article",
+      url: `/${story.slug}`,
       publishedTime: story.published_at,
       authors: [metadata?.byline || "Woodstock Community News"],
+      ...(story.hero_image_url ? { images: [story.hero_image_url] } : {}),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: story.title,
+      description,
       ...(story.hero_image_url ? { images: [story.hero_image_url] } : {}),
     },
   };
@@ -107,6 +119,15 @@ export default async function StoryPage({ params }: Props) {
   const paragraphs = (story.content || "")
     .split("\n")
     .filter((p) => p.trim());
+
+  // Show "Updated" only when content changed meaningfully after publishing
+  // (>1h after published_at, to filter immediate post-publish touchups).
+  const showUpdated = (() => {
+    if (!story.content_updated_at) return false;
+    const published = new Date(story.published_at).getTime();
+    const updated = new Date(story.content_updated_at).getTime();
+    return updated - published > 60 * 60 * 1000;
+  })();
 
   const related = await getRelatedStories(story.id);
 
@@ -130,6 +151,14 @@ export default async function StoryPage({ params }: Props) {
           <span className="mx-2 text-gray-300">|</span>
           <span>{readTime} min read</span>
         </p>
+        {showUpdated && story.content_updated_at && (
+          <p className="mt-2 text-xs font-sans italic text-gray-500">
+            Updated{" "}
+            <time dateTime={story.content_updated_at}>
+              {formatDate(story.content_updated_at)}
+            </time>
+          </p>
+        )}
       </header>
 
       {story.hero_image_url && (
@@ -173,6 +202,11 @@ export default async function StoryPage({ params }: Props) {
           </p>
         </aside>
       )}
+
+      <ShareButtons
+        url={`https://woodstockcommunity.news/${story.slug}`}
+        title={story.title}
+      />
 
       <RelatedStories stories={related} />
     </article>

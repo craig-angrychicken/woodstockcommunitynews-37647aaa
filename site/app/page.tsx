@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import StoryCard from "@/components/StoryCard";
+import { TOPICS } from "@/lib/topics";
 
 export const revalidate = 3600;
 
@@ -77,6 +78,24 @@ export default async function HomePage() {
           </Link>
         </div>
       </section>
+
+      <nav
+        aria-label="Browse by topic"
+        className="mt-10 pt-6 border-t border-[var(--color-rule)]"
+      >
+        <p className="category-label mb-3">Browse by Topic</p>
+        <div className="flex flex-wrap gap-x-4 gap-y-2">
+          {TOPICS.map((t) => (
+            <Link
+              key={t.slug}
+              href={`/topic/${t.slug}`}
+              className="text-[13px] font-sans text-gray-600 hover:text-[var(--color-accent)] transition-colors"
+            >
+              {t.name}
+            </Link>
+          ))}
+        </div>
+      </nav>
     </div>
   );
 }

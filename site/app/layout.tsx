@@ -24,6 +24,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://woodstockcommunity.news"),
   title: {
     default: "Woodstock Community News",
     template: "%s | Woodstock Community News",
@@ -34,8 +35,16 @@ export const metadata: Metadata = {
     siteName: "Woodstock Community News",
     type: "website",
     locale: "en_US",
+    url: "https://woodstockcommunity.news",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Woodstock Community News",
+    description:
+      "Local news for Woodstock, Georgia. Community journalism powered by AI, guided by AP standards.",
   },
   alternates: {
+    canonical: "/",
     types: {
       "application/rss+xml": "/feed.xml",
     },

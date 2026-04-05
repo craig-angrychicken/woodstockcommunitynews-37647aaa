@@ -3,6 +3,28 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase-client.ts";
 
+// Map title keywords to a single extra topic hashtag. First match wins.
+// Order matters — more specific keywords come first.
+function pickTopicHashtag(title: string): string | null {
+  const t = title.toLowerCase();
+  if (/\bsheriff|police|deputy|deputies|arrest|suspect|fire department|firefighter|wildfire|drought warning\b/.test(t)) {
+    return '#PublicSafety';
+  }
+  if (/\bschool|ccsd|student|classroom|teacher|chorus|elementary|high school|middle school\b/.test(t)) {
+    return '#CherokeeSchools';
+  }
+  if (/\bcity council|mayor|ordinance|zoning|city of woodstock|budget|permit\b/.test(t)) {
+    return '#LocalGov';
+  }
+  if (/\bart|arts|concert|festival|performance|exhibit|gallery|theater|theatre|music\b/.test(t)) {
+    return '#WoodstockArts';
+  }
+  if (/\bchamber|business|grand opening|ribbon cutting|downtown woodstock\b/.test(t)) {
+    return '#WoodstockBusiness';
+  }
+  return null;
+}
+
 serve(async (req) => {
   const corsResponse = handleCorsPrelight(req);
   if (corsResponse) return corsResponse;
@@ -12,6 +34,7 @@ serve(async (req) => {
 
     const PAGE_ACCESS_TOKEN = Deno.env.get('FACEBOOK_PAGE_ACCESS_TOKEN');
     const PAGE_ID = Deno.env.get('FACEBOOK_PAGE_ID');
+    const PLACE_ID = Deno.env.get('FACEBOOK_PLACE_ID'); // Optional: Facebook Place ID for location tagging
 
     if (!PAGE_ACCESS_TOKEN || !PAGE_ID) {
       throw new Error('Facebook credentials not configured');
@@ -19,8 +42,13 @@ serve(async (req) => {
 
     console.log('📘 Publishing to Facebook:', { storyId, ghostUrl, title, hasHero: !!heroImageUrl });
 
+    // Derive topic hashtag from title keywords (best-effort)
+    const topicTag = pickTopicHashtag(title);
+    const hashtags = ['#WoodstockGA', '#CherokeeCounty', ...(topicTag ? [topicTag] : [])].join(' ');
+
     // Build caption (post message) — same shape for both post types
-    const caption = excerpt ? `${title}\n\n${excerpt}` : title;
+    const captionBody = excerpt ? `${title}\n\n${excerpt}` : title;
+    const caption = `${captionBody}\n\n${hashtags}`;
 
     let postId: string;
     let postedAsPhoto = false;
@@ -28,16 +56,19 @@ serve(async (req) => {
 
     if (heroImageUrl) {
       // Photo post — high reach, link goes in first comment
+      const photoBody: Record<string, string> = {
+        url: heroImageUrl,
+        message: caption,
+        access_token: PAGE_ACCESS_TOKEN,
+      };
+      if (PLACE_ID) photoBody.place = PLACE_ID;
+
       const photoRes = await fetch(
         `https://graph.facebook.com/v21.0/${PAGE_ID}/photos`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            url: heroImageUrl,
-            message: caption,
-            access_token: PAGE_ACCESS_TOKEN,
-          }),
+          body: JSON.stringify(photoBody),
         }
       );
 
@@ -82,16 +113,19 @@ serve(async (req) => {
       }
     } else {
       // Fallback: link-preview post (no hero image available)
+      const feedBody: Record<string, string> = {
+        message: caption,
+        link: ghostUrl,
+        access_token: PAGE_ACCESS_TOKEN,
+      };
+      if (PLACE_ID) feedBody.place = PLACE_ID;
+
       const feedResponse = await fetch(
         `https://graph.facebook.com/v21.0/${PAGE_ID}/feed`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: caption,
-            link: ghostUrl,
-            access_token: PAGE_ACCESS_TOKEN,
-          }),
+          body: JSON.stringify(feedBody),
         }
       );
 
