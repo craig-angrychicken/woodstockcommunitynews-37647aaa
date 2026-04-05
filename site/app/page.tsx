@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import StoryCard from "@/components/StoryCard";
 
@@ -66,6 +67,14 @@ export default async function HomePage() {
               variant="row"
             />
           ))}
+        </div>
+        <div className="mt-6 pt-4 border-t border-[var(--color-rule)]">
+          <Link
+            href="/archive"
+            className="category-label hover:underline"
+          >
+            View Full Archive &rarr;
+          </Link>
         </div>
       </section>
     </div>
