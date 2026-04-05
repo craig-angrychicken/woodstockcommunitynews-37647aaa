@@ -402,7 +402,13 @@ Deno.serve(async (req) => {
               }
             }
 
-            const heroImage = storageImages[0]?.stored_url || null;
+            // Pick first image that successfully downloaded to Supabase storage —
+            // never use a download_failed entry as the hero (its stored_url is
+            // still the original external URL, which may be ephemeral, e.g.
+            // Facebook/Instagram CDN links that expire).
+            const heroImage =
+              storageImages.find((img) => !img.download_failed)?.stored_url ||
+              null;
             console.log(`📸 Successfully stored ${storageImages.length}/${allImages.length} images`);
 
             // Get content using configured field

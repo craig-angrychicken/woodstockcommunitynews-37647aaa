@@ -436,8 +436,35 @@ ${artifactData}`;
 
     const source_id = queueItem.artifact.source_id || null;
 
-    // Hero image: use artifact's image, fall back to cluster mates or similar artifacts
+    // Hero image: use artifact's image, fall back to cluster mates or similar artifacts.
+    // hero_image_url must be a Supabase storage URL so it stays stable over time.
+    // External URLs (e.g. Facebook/Instagram CDN) are rejected at every step.
+    const STORAGE_MARKER = "supabase.co/storage";
     let heroImageUrl = queueItem.artifact.hero_image_url || null;
+
+    // If the artifact's own hero URL is external (download_failed entry),
+    // try to salvage a successfully-stored image from its images array.
+    if (heroImageUrl && !heroImageUrl.includes(STORAGE_MARKER)) {
+      const images = queueItem.artifact.images as
+        | Array<{ stored_url?: string; download_failed?: boolean }>
+        | null
+        | undefined;
+      const salvaged = images?.find(
+        (img) =>
+          !img?.download_failed &&
+          typeof img?.stored_url === "string" &&
+          img.stored_url.includes(STORAGE_MARKER)
+      );
+      if (salvaged?.stored_url) {
+        console.log("🖼️ Salvaged hero from stored image in artifact.images");
+        heroImageUrl = salvaged.stored_url;
+      } else {
+        console.log(
+          `🖼️ Rejecting non-Supabase artifact hero URL: ${heroImageUrl}`
+        );
+        heroImageUrl = null;
+      }
+    }
 
     if (!heroImageUrl && queueItem.artifact.cluster_id) {
       console.log("🖼️ No hero image — checking cluster mates...");
@@ -450,8 +477,13 @@ ${artifactData}`;
         .limit(1);
 
       if (clusterMates && clusterMates.length > 0) {
-        heroImageUrl = clusterMates[0].hero_image_url;
-        console.log(`✅ Found hero image from cluster mate`);
+        const candidate = clusterMates[0].hero_image_url;
+        if (candidate?.includes(STORAGE_MARKER)) {
+          heroImageUrl = candidate;
+          console.log(`✅ Found hero image from cluster mate`);
+        } else {
+          console.log(`🖼️ Cluster mate hero URL is external, skipping`);
+        }
       }
     }
 
@@ -469,8 +501,13 @@ ${artifactData}`;
       );
 
       if (similarWithImages && similarWithImages.length > 0) {
-        heroImageUrl = similarWithImages[0].hero_image_url;
-        console.log(`✅ Found hero image from similar artifact`);
+        const candidate = similarWithImages[0].hero_image_url;
+        if (candidate?.includes(STORAGE_MARKER)) {
+          heroImageUrl = candidate;
+          console.log(`✅ Found hero image from similar artifact`);
+        } else {
+          console.log(`🖼️ Similar-artifact hero URL is external, skipping`);
+        }
       }
     }
 

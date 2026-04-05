@@ -348,7 +348,15 @@ Deno.serve(async (req) => {
                 } as { original_url: string; stored_url: string; type: string; embed_type: string });
               }
 
-              const heroImage = storageImages.find((img) => !("type" in img) || img.type !== "video")?.stored_url || null;
+              // Pick first non-video image that downloaded successfully.
+              // download_failed entries retain the original external URL as
+              // their stored_url — never use those as the hero (they may be
+              // ephemeral, e.g. Facebook/Instagram CDN links).
+              const heroImage = storageImages.find(
+                (img) =>
+                  (!("type" in img) || img.type !== "video") &&
+                  !("download_failed" in img && img.download_failed)
+              )?.stored_url || null;
 
               const { error: upsertError } = await supabase
                 .from("artifacts")
@@ -476,7 +484,15 @@ Deno.serve(async (req) => {
             } as { original_url: string; stored_url: string; type: string; embed_type: string });
           }
 
-          const heroImage = storageImages.find((img) => !("type" in img) || img.type !== "video")?.stored_url || null;
+          // Pick first non-video image that downloaded successfully.
+          // download_failed entries retain the original external URL as
+          // their stored_url — never use those as the hero (they may be
+          // ephemeral, e.g. Facebook/Instagram CDN links).
+          const heroImage = storageImages.find(
+            (img) =>
+              (!("type" in img) || img.type !== "video") &&
+              !("download_failed" in img && img.download_failed)
+          )?.stored_url || null;
 
           console.log(`   📸 Stored ${storageImages.filter((i) => !("type" in i) || i.type !== "video").length} images, ${videoUrls.length} videos`);
 
