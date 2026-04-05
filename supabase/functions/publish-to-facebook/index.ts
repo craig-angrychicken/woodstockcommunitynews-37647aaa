@@ -8,7 +8,7 @@ serve(async (req) => {
   if (corsResponse) return corsResponse;
 
   try {
-    const { storyId, ghostUrl, title, excerpt } = await req.json();
+    const { storyId, ghostUrl, title, excerpt, heroImageUrl } = await req.json();
 
     const PAGE_ACCESS_TOKEN = Deno.env.get('FACEBOOK_PAGE_ACCESS_TOKEN');
     const PAGE_ID = Deno.env.get('FACEBOOK_PAGE_ID');
@@ -17,35 +17,94 @@ serve(async (req) => {
       throw new Error('Facebook credentials not configured');
     }
 
-    console.log('📘 Publishing to Facebook:', { storyId, ghostUrl, title });
+    console.log('📘 Publishing to Facebook:', { storyId, ghostUrl, title, hasHero: !!heroImageUrl });
 
-    // Build post message
-    const message = excerpt ? `${title}\n\n${excerpt}` : title;
+    // Build caption (post message) — same shape for both post types
+    const caption = excerpt ? `${title}\n\n${excerpt}` : title;
 
-    // Step 1: Create the Facebook post (comments disabled at creation time)
-    const feedResponse = await fetch(
-      `https://graph.facebook.com/v21.0/${PAGE_ID}/feed`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message,
-          link: ghostUrl,
-          comment_control: 'BLOCKED',
-          access_token: PAGE_ACCESS_TOKEN,
-        }),
+    let postId: string;
+    let postedAsPhoto = false;
+    let commentResult: { ok: boolean; body?: string } | null = null;
+
+    if (heroImageUrl) {
+      // Photo post — high reach, link goes in first comment
+      const photoRes = await fetch(
+        `https://graph.facebook.com/v21.0/${PAGE_ID}/photos`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: heroImageUrl,
+            message: caption,
+            access_token: PAGE_ACCESS_TOKEN,
+          }),
+        }
+      );
+
+      if (!photoRes.ok) {
+        const errorBody = await photoRes.text();
+        console.error('❌ Facebook photo POST failed:', errorBody);
+        throw new Error(`Facebook photo API error: ${photoRes.status} - ${errorBody}`);
       }
-    );
 
-    if (!feedResponse.ok) {
-      const errorBody = await feedResponse.text();
-      console.error('❌ Facebook feed POST failed:', errorBody);
-      throw new Error(`Facebook API error: ${feedResponse.status} - ${errorBody}`);
+      const photoResult = await photoRes.json();
+      // /photos returns { id: photoId, post_id: "{pageId}_{postId}" }
+      // post_id wraps the photo; that's what we comment on and link back to.
+      postId = photoResult.post_id;
+      postedAsPhoto = true;
+      console.log('✅ Photo post created:', postId);
+
+      // Follow-up comment with link (non-fatal — photo post already succeeded)
+      try {
+        const commentRes = await fetch(
+          `https://graph.facebook.com/v21.0/${postId}/comments`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: `Read the full story: ${ghostUrl}`,
+              access_token: PAGE_ACCESS_TOKEN,
+            }),
+          }
+        );
+        if (!commentRes.ok) {
+          const errorBody = await commentRes.text();
+          console.warn('⚠️ Link comment failed (non-fatal):', errorBody);
+          commentResult = { ok: false, body: errorBody };
+        } else {
+          console.log('✅ Link comment posted');
+          commentResult = { ok: true };
+        }
+      } catch (commentErr) {
+        const msg = commentErr instanceof Error ? commentErr.message : String(commentErr);
+        console.warn('⚠️ Link comment threw (non-fatal):', commentErr);
+        commentResult = { ok: false, body: `threw: ${msg}` };
+      }
+    } else {
+      // Fallback: link-preview post (no hero image available)
+      const feedResponse = await fetch(
+        `https://graph.facebook.com/v21.0/${PAGE_ID}/feed`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: caption,
+            link: ghostUrl,
+            access_token: PAGE_ACCESS_TOKEN,
+          }),
+        }
+      );
+
+      if (!feedResponse.ok) {
+        const errorBody = await feedResponse.text();
+        console.error('❌ Facebook feed POST failed:', errorBody);
+        throw new Error(`Facebook API error: ${feedResponse.status} - ${errorBody}`);
+      }
+
+      const feedResult = await feedResponse.json();
+      postId = feedResult.id; // format: "{pageId}_{postId}"
+      console.log('✅ Link post created (no hero image):', postId);
     }
-
-    const feedResult = await feedResponse.json();
-    const postId: string = feedResult.id; // format: "{pageId}_{postId}"
-    console.log('✅ Facebook post created (comments blocked):', postId);
 
     // Step 2: Update DB (non-fatal)
     const numericPostId = postId.includes('_') ? postId.split('_')[1] : postId;
@@ -53,13 +112,18 @@ serve(async (req) => {
 
     try {
       const supabase = createSupabaseClient();
+      const updatePayload: Record<string, string> = {
+        facebook_post_id: postId,
+        facebook_post_url: facebookPostUrl,
+        facebook_posted_at: new Date().toISOString(),
+      };
+      if (postedAsPhoto) {
+        updatePayload.facebook_photo_post_at = new Date().toISOString();
+      }
+
       const { error: dbError } = await supabase
         .from('stories')
-        .update({
-          facebook_post_id: postId,
-          facebook_post_url: facebookPostUrl,
-          facebook_posted_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq('id', storyId);
 
       if (dbError) {
@@ -72,7 +136,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, postId, url: facebookPostUrl }),
+      JSON.stringify({ success: true, postId, url: facebookPostUrl, commentResult }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {

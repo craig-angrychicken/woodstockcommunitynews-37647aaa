@@ -34,7 +34,7 @@ serve(async (req) => {
     // Read story from DB
     const { data: story, error: fetchError } = await supabase
       .from("stories")
-      .select("id, title, ghost_url, structured_metadata")
+      .select("id, title, ghost_url, structured_metadata, hero_image_url")
       .eq("id", storyId)
       .single();
 
@@ -105,7 +105,7 @@ serve(async (req) => {
         const excerpt = metadata?.subhead || undefined;
         const { data: fbData, error: fbError } = await supabase.functions.invoke(
           "publish-to-facebook",
-          { body: { storyId, ghostUrl: publicUrl, title: story.title, excerpt } }
+          { body: { storyId, ghostUrl: publicUrl, title: story.title, excerpt, heroImageUrl: story.hero_image_url } }
         );
         if (fbError || !fbData?.success) {
           console.warn(`⚠️ Facebook failed: ${fbError?.message || fbData?.error}`);
