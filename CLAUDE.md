@@ -37,7 +37,7 @@ Two codebases in one repo:
 
 **Backend:** Supabase (PostgreSQL + Deno edge functions + pg_cron); OpenRouter (LLM access); Facebook Graph API (social publishing).
 
-**Publishing:** Stories are published directly from the `stories` table via slug-based URLs on the Vercel site. Ghost CMS has been replaced (legacy functions remain for reference).
+**Publishing:** Stories are published directly from the `stories` table via slug-based URLs on the Vercel site.
 
 ### Supabase Project (public config)
 - Project ID: `cceprnhnpqnpexmouuig`
@@ -132,14 +132,6 @@ All routes are admin-protected via Supabase Auth.
 |---|---|---|
 | `backfill-artifact-images` | UI / manual | Extract images from artifact HTML |
 | `backfill-story-images` | Manual | Fix missing hero images on stories |
-| `check-ghost-images` | Manual | Audit image URLs for broken links |
-
-**Legacy / Migration (can be removed):**
-| Function | Trigger | Purpose |
-|---|---|---|
-| `publish-to-ghost` | — | Former Ghost CMS publisher (replaced by publish-story) |
-| `migrate-ghost-stories` | Manual | One-time Ghost → Supabase migration |
-| `test-enrichment-methods` | Manual | Testing utility for content enrichment |
 
 ### Shared Modules (`supabase/functions/_shared/`)
 | Module | Exports |
@@ -150,7 +142,7 @@ All routes are admin-protected via Supabase Auth.
 | `llm-client.ts` | `callLLM(options)` — OpenRouter API wrapper with retry |
 | `readability.ts` | `fetchPageHTML(url)`, `extractWithReadability(html)`, `extractImages(html, baseUrl)`, `extractVideos(html)` — Mozilla Readability extraction |
 | `schedule-gate.ts` | `checkScheduleGate(supabase, type, name, req, start)` — shared active-hours gate for scheduled functions |
-| `ghost-token.ts` | `generateGhostToken(apiKey)` — legacy, only used by migrate-ghost-stories |
+| `ghost-token.ts` | `generateGhostToken(apiKey)` — legacy, used by backfill-story-images and publish-about-page |
 
 ### Key File Paths
 - Admin UI pages: `src/pages/`
@@ -187,7 +179,7 @@ Stored in Supabase dashboard secrets:
 - `FACEBOOK_PAGE_ACCESS_TOKEN` + `FACEBOOK_PAGE_ID` — Facebook Graph API publishing
 - `RESEND_API_KEY` (optional — for email alerts via send-alert)
 - `ALERT_EMAIL` (optional — recipient for error alerts)
-- `GHOST_ADMIN_API_KEY` + `GHOST_API_URL` — legacy, only needed for migrate-ghost-stories
+- `GHOST_ADMIN_API_KEY` + `GHOST_API_URL` — legacy, used by backfill-story-images and publish-about-page
 
 Stored in Vercel environment variables:
 - `SUPABASE_URL`

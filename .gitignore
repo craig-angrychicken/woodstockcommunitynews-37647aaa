@@ -23,3 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
+
+# Non-code reference files
+*.pdf
+*.png
+*.jpg
+*.jpeg
+reference/
