@@ -4,6 +4,7 @@
 import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase-client.ts";
 import { callLLM } from "../_shared/llm-client.ts";
+import { extractPdfText } from "../_shared/pdf-extract.ts";
 
 type StoryType = "preview" | "update" | "recap";
 
@@ -191,6 +192,28 @@ Deno.serve(async (req) => {
         JSON.stringify({ success: true, skipped: true, reason: "Story already exists" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
+    }
+
+    // Extract PDF content if not already done
+    const docMap: Record<string, { urlCol: string; contentCol: string }> = {
+      preview: { urlCol: "agenda_url", contentCol: "agenda_content" },
+      update: { urlCol: "packet_url", contentCol: "packet_content" },
+      recap: { urlCol: "minutes_url", contentCol: "minutes_content" },
+    };
+    const { urlCol, contentCol } = docMap[storyType];
+    if (meeting[urlCol] && !meeting[contentCol]) {
+      console.log(`📄 Extracting PDF for ${storyType}: ${meeting[urlCol]}`);
+      try {
+        const text = await extractPdfText(meeting[urlCol] as string);
+        meeting[contentCol] = text;
+        await supabase
+          .from("council_meetings")
+          .update({ [contentCol]: text })
+          .eq("id", meetingId);
+        console.log(`  ✅ Extracted ${text.length} chars`);
+      } catch (err) {
+        console.warn(`  ⚠️ PDF extraction failed:`, err instanceof Error ? err.message : String(err));
+      }
     }
 
     // Fetch prior stories in the chain

@@ -4,7 +4,6 @@
 import { corsHeaders, handleCorsPrelight } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase-client.ts";
 import { fetchPageHTML } from "../_shared/readability.ts";
-import { extractPdfText } from "../_shared/pdf-extract.ts";
 
 const GRANICUS_URL = "https://woodstockga.granicus.com/ViewPublisher.php?view_id=1";
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
@@ -52,56 +51,67 @@ function resolveUrl(href: string): string {
   return href;
 }
 
-/** Parse the Granicus listing page HTML into meeting rows */
+/** Parse the Granicus listing page HTML into meeting rows.
+ *
+ * Granicus HTML uses:
+ *   - <tr class="listingRow"> for each meeting
+ *   - <td class="listItem" headers="Name"> for meeting type
+ *   - <td class="listItem" headers="Date ..."> for date (with &nbsp;)
+ *   - Agenda/minutes/packet links in generic <td class="listItem"> cells
+ *   - Empty cells have id="AgendaLink not Available" etc.
+ */
 function parseMeetings(html: string): ParsedMeeting[] {
   if (!parseHTML) throw new Error("linkedom not loaded");
 
-  const { document } = parseHTML(html) as unknown as { document: {
-    querySelectorAll: (s: string) => Array<{
-      querySelector: (s: string) => { textContent: string; getAttribute: (a: string) => string | null } | null;
-      querySelectorAll: (s: string) => Array<{ getAttribute: (a: string) => string | null }>;
-    }>;
-  }};
-
+  // deno-lint-ignore no-explicit-any
+  const { document } = parseHTML(html) as any;
   const rows = document.querySelectorAll("tr.listingRow");
   const meetings: ParsedMeeting[] = [];
   const cutoff = Date.now() - NINETY_DAYS_MS;
 
   for (const row of rows) {
-    // Extract meeting type
-    const nameCell = row.querySelector("td.Name");
-    const meetingType = nameCell?.textContent?.trim() || "";
-    if (!meetingType) continue;
+    // Extract meeting type — cell with headers containing "Name"
+    const cells = row.querySelectorAll("td.listItem");
+    let meetingType = "";
+    let dateText = "";
 
-    // Skip cancelled meetings
+    for (const cell of cells) {
+      const hdrs = (cell.getAttribute("headers") || "").toLowerCase();
+      if (hdrs === "name" || (hdrs.length > 0 && !meetingType)) {
+        const scope = cell.getAttribute("scope");
+        if (scope === "row" || hdrs === "name") {
+          meetingType = (cell.textContent || "").trim();
+        }
+      }
+      if (hdrs.includes("date") || hdrs === "date") {
+        dateText = (cell.textContent || "").trim();
+      }
+    }
+
+    if (!meetingType) continue;
     if (/cancelled|canceled/i.test(meetingType)) continue;
 
-    // Extract date
-    const dateCell = row.querySelector("td.Date");
-    const dateText = dateCell?.textContent?.trim() || "";
-    const meetingDate = parseGranicusDate(dateText);
+    // Parse date — Granicus uses &nbsp; which becomes \u00a0
+    const cleanDate = dateText.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+    const meetingDate = parseGranicusDate(cleanDate);
     if (!meetingDate || meetingDate.getTime() < cutoff) continue;
 
-    // Extract agenda URL + clip_id
-    const agendaCell = row.querySelector("td.Agenda");
-    const agendaLink = agendaCell?.querySelector?.("a");
-    const agendaHref = agendaLink?.getAttribute?.("href") || null;
-    const agendaUrl = agendaHref ? resolveUrl(agendaHref) : null;
-
-    // Extract minutes URL
-    const minutesCell = row.querySelector("td.Minutes");
-    const minutesLink = minutesCell?.querySelector?.("a");
-    const minutesHref = minutesLink?.getAttribute?.("href") || null;
-    const minutesUrl = minutesHref ? resolveUrl(minutesHref) : null;
-
-    // Extract packet URL (PDF link, usually on CloudFront)
-    let packetUrl: string | null = null;
+    // Extract all links in this row
     const allLinks = row.querySelectorAll("a");
+    let agendaUrl: string | null = null;
+    let minutesUrl: string | null = null;
+    let packetUrl: string | null = null;
+
     for (const link of allLinks) {
-      const href = link.getAttribute?.("href") || "";
-      if (/\.pdf$/i.test(href) || /cloudfront\.net/i.test(href)) {
+      const href = link.getAttribute("href") || "";
+      const text = (link.textContent || "").trim().toLowerCase();
+
+      if (/AgendaViewer/i.test(href) || text === "agenda") {
+        agendaUrl = resolveUrl(href);
+      } else if (/MinutesViewer/i.test(href) || text === "minutes") {
+        minutesUrl = resolveUrl(href);
+      } else if (/\.pdf$/i.test(href) || /cloudfront\.net/i.test(href)) {
         packetUrl = resolveUrl(href);
-        break;
       }
     }
 
@@ -199,29 +209,12 @@ Deno.serve(async (req) => {
 
       meetingsUpserted++;
 
-      // 6. Extract PDF content and trigger stories for new documents
+      // 6. Trigger story generation for new documents
+      // PDF extraction happens inside generate-council-story to keep this function lightweight
       for (const doc of newDocs) {
         documentsDetected++;
         console.log(`📄 New ${doc.type} detected for ${meeting.meetingType} (${meeting.meetingDate.toLocaleDateString()}): ${doc.url}`);
 
-        // Extract PDF text
-        let content: string | null = null;
-        try {
-          content = await extractPdfText(doc.url);
-          console.log(`  ✅ Extracted ${content.length} chars from ${doc.type} PDF`);
-        } catch (err) {
-          console.warn(`  ⚠️ PDF extraction failed for ${doc.type}:`, err instanceof Error ? err.message : String(err));
-        }
-
-        // Store extracted content
-        if (content) {
-          await supabase
-            .from("council_meetings")
-            .update({ [`${doc.type}_content`]: content })
-            .eq("id", upserted.id);
-        }
-
-        // Determine which story type to generate
         const storyTypeMap: Record<DocumentType, { storyType: string; storyIdCol: string }> = {
           agenda: { storyType: "preview", storyIdCol: "preview_story_id" },
           packet: { storyType: "update", storyIdCol: "update_story_id" },
@@ -230,7 +223,6 @@ Deno.serve(async (req) => {
 
         const { storyType, storyIdCol } = storyTypeMap[doc.type];
 
-        // Only trigger if the story hasn't been generated yet
         if (!upserted[storyIdCol]) {
           try {
             console.log(`  🖊️ Triggering ${storyType} story generation...`);
