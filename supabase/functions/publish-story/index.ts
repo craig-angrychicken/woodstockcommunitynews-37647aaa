@@ -34,7 +34,7 @@ serve(async (req) => {
     // Read story from DB
     const { data: story, error: fetchError } = await supabase
       .from("stories")
-      .select("id, title, ghost_url, structured_metadata, hero_image_url")
+      .select("id, title, ghost_url, structured_metadata, hero_image_url, council_meeting_id")
       .eq("id", storyId)
       .single();
 
@@ -88,11 +88,12 @@ serve(async (req) => {
     if (revalidationSecret) {
       try {
         const revalidateBase = "https://woodstockcommunity.news/api/revalidate";
-        await Promise.all([
-          fetch(`${revalidateBase}?secret=${revalidationSecret}&path=/`, { method: "POST" }),
-          fetch(`${revalidateBase}?secret=${revalidationSecret}&path=/${finalSlug}`, { method: "POST" }),
-        ]);
-        console.log("🔄 Revalidation triggered for / and /" + finalSlug);
+        const paths = ["/", `/${finalSlug}`];
+        if (story.council_meeting_id) paths.push("/council");
+        await Promise.all(
+          paths.map(p => fetch(`${revalidateBase}?secret=${revalidationSecret}&path=${p}`, { method: "POST" }))
+        );
+        console.log("🔄 Revalidation triggered for " + paths.join(", "));
       } catch (revalErr) {
         console.warn("⚠️ Revalidation failed (non-fatal):", revalErr);
       }

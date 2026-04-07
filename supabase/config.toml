@@ -66,3 +66,12 @@ verify_jwt = false
 [functions.fetch-web-pages]
 verify_jwt = false
 
+[functions.scrape-council-meetings]
+verify_jwt = false
+
+[functions.generate-council-story]
+verify_jwt = false
+
+[functions.scheduled-scrape-council]
+verify_jwt = false
+
