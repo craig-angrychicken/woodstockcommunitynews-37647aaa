@@ -38,6 +38,11 @@ CREATE INDEX idx_council_meetings_date ON council_meetings(meeting_date DESC);
 ALTER TABLE public.stories ADD COLUMN council_meeting_id UUID REFERENCES public.council_meetings(id);
 ALTER TABLE public.stories ADD COLUMN story_type TEXT;
 
+-- Widen the schedule_type check constraint to allow 'council_scraper'
+ALTER TABLE public.schedules DROP CONSTRAINT IF EXISTS schedules_schedule_type_check;
+ALTER TABLE public.schedules ADD CONSTRAINT schedules_schedule_type_check
+  CHECK (schedule_type IN ('artifact_fetch', 'ai_journalism', 'ai_editor', 'council_scraper'));
+
 -- Schedule entry for the council scraper cron
 INSERT INTO public.schedules (id, schedule_type, is_enabled, active_hour_start, active_hour_end)
 VALUES (gen_random_uuid(), 'council_scraper', true, 6, 22)

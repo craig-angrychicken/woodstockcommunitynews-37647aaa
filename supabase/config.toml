@@ -27,9 +27,6 @@ verify_jwt = false
 [functions.fetch-openrouter-models]
 verify_jwt = false
 
-[functions.publish-to-ghost]
-verify_jwt = false
-
 [functions.run-ai-editor]
 verify_jwt = false
 
