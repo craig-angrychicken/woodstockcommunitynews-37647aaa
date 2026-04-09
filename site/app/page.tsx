@@ -24,15 +24,35 @@ async function getStories() {
     .eq("status", "published")
     .eq("environment", "production")
     .not("slug", "is", null)
+    .is("council_meeting_id", null)
     .order("published_at", { ascending: false })
     .limit(30);
 
   return (data as Story[]) || [];
 }
 
+async function getCouncilStories() {
+  const { data } = await supabase
+    .from("stories")
+    .select(
+      "id, title, content, slug, hero_image_url, published_at, structured_metadata"
+    )
+    .eq("status", "published")
+    .eq("environment", "production")
+    .not("slug", "is", null)
+    .not("council_meeting_id", "is", null)
+    .order("published_at", { ascending: false })
+    .limit(6);
+
+  return (data as Story[]) || [];
+}
+
 export default async function HomePage() {
-  const stories = await getStories();
-  if (stories.length === 0) return null;
+  const [stories, councilStories] = await Promise.all([
+    getStories(),
+    getCouncilStories(),
+  ]);
+  if (stories.length === 0 && councilStories.length === 0) return null;
 
   // Lead = most recent story that has a hero image; fall back to most recent.
   // Stories that don't qualify still appear below in the news column in their
@@ -78,6 +98,34 @@ export default async function HomePage() {
           </Link>
         </div>
       </section>
+
+      {councilStories.length > 0 && (
+        <section className="mt-10">
+          <h2 className="category-label mb-2">City Council</h2>
+          <div>
+            {councilStories.map((story) => (
+              <StoryCard
+                key={story.id}
+                slug={story.slug}
+                title={story.title}
+                content={story.content}
+                heroImageUrl={story.hero_image_url}
+                publishedAt={story.published_at}
+                structuredMetadata={story.structured_metadata}
+                variant="row"
+              />
+            ))}
+          </div>
+          <div className="mt-4 pt-4 border-t border-[var(--color-rule)]">
+            <Link
+              href="/council"
+              className="category-label hover:underline"
+            >
+              View All Council Coverage &rarr;
+            </Link>
+          </div>
+        </section>
+      )}
 
       <nav
         aria-label="Browse by topic"

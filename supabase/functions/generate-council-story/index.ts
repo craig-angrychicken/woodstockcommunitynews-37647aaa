@@ -64,6 +64,10 @@ Write an informative preview story that:
 5. Keeps a neutral, informative tone appropriate for civic coverage
 6. Uses AP style, third person, future tense for the meeting itself
 
+## Headline and Subhead Rules (CRITICAL)
+- The headline MUST include the exact calendar date of the meeting (e.g., "March 23" or "March 23, 2026"). NEVER use relative time references like "Monday," "Monday night," "tonight," "this week," "next week," or "upcoming." These become meaningless after the date passes.
+- The subhead MUST mention that the story is based on the published agenda (e.g., "Based on the published agenda, ..." or "A look at the agenda for ...").
+
 Respond ONLY with JSON (no markdown fencing):
 {"headline":"...","subhead":"...","byline":"Woodstock Community News Staff","source_name":"City of Woodstock","source_url":"${meeting.agenda_url || ""}","body":["paragraph1","paragraph2","..."],"skip":false}`;
 }
@@ -94,6 +98,10 @@ Write an update story that:
 4. Highlights any items that residents should pay attention to
 5. Does NOT simply repeat the preview — add new value
 6. Uses AP style, third person
+
+## Headline and Subhead Rules (CRITICAL)
+- The headline MUST include the exact calendar date of the meeting (e.g., "March 23" or "March 23, 2026"). NEVER use relative time references like "Monday," "Monday night," "tonight," "this week," "next week," or "upcoming." These become meaningless after the date passes.
+- The subhead MUST mention that the story is based on the full agenda packet (e.g., "Based on the full agenda packet, ..." or "New details from the agenda packet for ...").
 
 Respond ONLY with JSON (no markdown fencing):
 {"headline":"...","subhead":"...","byline":"Woodstock Community News Staff","source_name":"City of Woodstock","source_url":"${meeting.packet_url || ""}","body":["paragraph1","paragraph2","..."],"skip":false}`;
@@ -139,6 +147,10 @@ Write a recap story that:
 6. Uses past tense since the meeting has occurred
 7. Notes any items tabled or continued to future meetings
 8. Uses AP style, third person
+
+## Headline and Subhead Rules (CRITICAL)
+- The headline MUST include the exact calendar date of the meeting (e.g., "March 23" or "March 23, 2026"). NEVER use relative time references like "Monday," "Monday night," "tonight," "this week," "next week," or "upcoming." These become meaningless after the date passes.
+- The subhead MUST mention that the story is based on the official meeting minutes (e.g., "Based on the official minutes, ..." or "From the minutes of the ...").
 
 Respond ONLY with JSON (no markdown fencing):
 {"headline":"...","subhead":"...","byline":"Woodstock Community News Staff","source_name":"City of Woodstock","source_url":"${meeting.minutes_url || ""}","body":["paragraph1","paragraph2","..."],"skip":false}`;
