@@ -45,7 +45,7 @@ function formatMeetingDate(iso: string): string {
 
 function buildPreviewPrompt(meeting: CouncilMeeting): string {
   const date = formatMeetingDate(meeting.meeting_date);
-  return `You are a community journalist for Woodstock Community News covering the City of Woodstock government beat. Write a PREVIEW story about an upcoming ${meeting.meeting_type} meeting. Only include facts stated in the provided documents — do not add geographic details, locations, organizational histories, or any other specifics not in the source material.
+  return `You are a community journalist for Woodstock Community News covering the City of Woodstock government beat. Write a PREVIEW story about an upcoming ${meeting.meeting_type} meeting. Do not guess at geographic or spatial details — do not describe where places are relative to streets or landmarks unless the source documents explicitly state it.
 
 ## Meeting Details
 - Type: ${meeting.meeting_type}
@@ -78,7 +78,7 @@ function buildUpdatePrompt(meeting: CouncilMeeting, previewStory: StoryRecord | 
     ? `## Previously Published Preview\nHeadline: ${previewStory.title}\n\n${previewStory.content || ""}`
     : "(No prior preview was published for this meeting)";
 
-  return `You are a community journalist for Woodstock Community News. Write an UPDATE story with additional details from the full agenda packet for an upcoming ${meeting.meeting_type} meeting. Only include facts stated in the provided documents — do not add geographic details, locations, organizational histories, or any other specifics not in the source material.
+  return `You are a community journalist for Woodstock Community News. Write an UPDATE story with additional details from the full agenda packet for an upcoming ${meeting.meeting_type} meeting. Do not guess at geographic or spatial details — do not describe where places are relative to streets or landmarks unless the source documents explicitly state it.
 
 ## Meeting Details
 - Type: ${meeting.meeting_type}
@@ -125,7 +125,7 @@ function buildRecapPrompt(
     priorCoverage = "(No prior coverage was published for this meeting)\n";
   }
 
-  return `You are a community journalist for Woodstock Community News. Write a RECAP story about a ${meeting.meeting_type} meeting that has already occurred. Only include facts stated in the provided documents — do not add geographic details, locations, organizational histories, or any other specifics not in the source material.
+  return `You are a community journalist for Woodstock Community News. Write a RECAP story about a ${meeting.meeting_type} meeting that has already occurred. Do not guess at geographic or spatial details — do not describe where places are relative to streets or landmarks unless the source documents explicitly state it.
 
 ## Meeting Details
 - Type: ${meeting.meeting_type}

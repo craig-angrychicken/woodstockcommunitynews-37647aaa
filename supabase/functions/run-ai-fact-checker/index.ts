@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
           .filter(Boolean)
           .join("\n\n---\n\n") || "No source material available.";
 
-        const promptText = `You are a fact-checker for Woodstock Community News, a local news outlet covering Woodstock, Georgia and Cherokee County. Your job is to compare the generated news article against its source material and flag claims that are not supported.
+        const promptText = `You are a fact-checker for Woodstock Community News, a local news outlet covering Woodstock, Georgia and Cherokee County. Your job is to compare the generated news article against its source material and flag ONLY genuinely problematic claims.
 
 ## Generated Article
 HEADLINE: ${storyTitle}
@@ -103,18 +103,19 @@ ${sourceTexts}
 ## Instructions
 1. Compare factual claims in the article against the source material — this includes BOTH the text above AND any attached images
 2. Source material includes text AND attached images. Details visible in images (dates, times, locations, names, addresses, event details on flyers/posters, etc.) are VALID source material. Do NOT flag claims that are supported by information visible in an image.
-3. Flag these kinds of problems:
+3. ONLY flag these kinds of problems:
    - Fabricated quotes attributed to real people
    - Invented statistics, dollar amounts, or specific numbers not in the source
    - Made-up partnerships, agreements, or organizational relationships
    - Specific factual claims that appear incorrect (wrong dates, wrong names, wrong locations)
-   - Geographic or locational details not in the source material (e.g., describing where a place is relative to a street, which direction something faces, how far apart two locations are, what "anchors" an area). These are high-risk for hallucination and must be flagged unless the source explicitly states them.
-   - Descriptions of organizations, their history, founding dates, or membership numbers that are not in the source material
-4. Do NOT flag:
-   - Explanatory sentences about why something matters to local residents (general framing, not specific claims)
+   - Geographic or spatial claims that appear fabricated — e.g., describing where a place is relative to a street, which end of a road something is on, or what "anchors" an area. These are high-risk for AI hallucination and should be flagged unless you are confident the detail is correct.
+4. Do NOT flag any of the following — these are expected enrichment, not errors:
+   - Well-known facts about local organizations, government bodies, schools, and venues (e.g., "Cherokee County School District serves over 43,000 students", "Woodstock is located in Cherokee County")
+   - General context about what organizations do or when they were established
+   - Explanatory sentences about why something matters to local residents
+   - Background context drawn from general knowledge that is factually accurate
    - Descriptions of standard processes (how Eagle Scouts earn rank, how city government works, etc.)
-   - Details supported by information visible in attached images
-5. When in doubt, FLAG it. An article with a removed detail is better than one with a fabricated detail.
+5. If all claims are supported or represent reasonable enrichment, say so. Err on the side of PASS — but always flag suspect geographic/spatial details.
 
 Respond in this format:
 - If issues found: List each issue on a separate line, starting with "FLAG: "
