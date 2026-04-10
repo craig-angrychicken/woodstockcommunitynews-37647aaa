@@ -15,7 +15,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const QUEUE_PROCESSOR_SECRET = process.env.QUEUE_PROCESSOR_SECRET;
 const SUPABASE_FUNCTIONS_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1`;
-const MAX_TOOL_CALLS = 20;
+const MAX_TOOL_CALLS = 35;
 const IS_DAILY_REPORT = process.env.FORCE_REPORT === "true";
 
 const ALERT_EMAIL = "craig@angrychicken.co";
@@ -400,6 +400,7 @@ ORDER BY schedule_type;
 
 ## Behavioral Rules
 - Run ALL 17 queries before making any decision or taking action.
+- Tool-call budget: you have 35 tool calls per session. The 17 mandatory queries consume 17 of those. Reserve at least ONE slot at the end for send_executive_briefing. Keep follow-up queries to a minimum — prefer to compute numbers from what you already retrieved rather than re-querying. If you feel crowded, skip optional follow-ups and go straight to the email.
 - Call each repair function at most ONCE per session (enforced by the tool).
 - Be conservative — prefer "the pg_cron watchdog will handle minor issues" over unnecessary function calls.
 - Clustering warning: last_successful_cluster_run > 2h ago.
