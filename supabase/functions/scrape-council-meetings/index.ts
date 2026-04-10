@@ -134,6 +134,24 @@ interface DetectedDocument {
   url: string;
 }
 
+interface MissingStoryJob {
+  meetingId: string;
+  meetingDate: string;
+  storyType: "preview" | "update" | "recap";
+  storyIdCol: "preview_story_id" | "update_story_id" | "recap_story_id";
+}
+
+const MAX_GENERATIONS_PER_RUN = 5;
+
+const STAGE_TO_STORY: Record<
+  DocumentType,
+  { storyType: MissingStoryJob["storyType"]; storyIdCol: MissingStoryJob["storyIdCol"] }
+> = {
+  agenda: { storyType: "preview", storyIdCol: "preview_story_id" },
+  packet: { storyType: "update", storyIdCol: "update_story_id" },
+  minutes: { storyType: "recap", storyIdCol: "recap_story_id" },
+};
+
 Deno.serve(async (req) => {
   const corsResponse = handleCorsPrelight(req);
   if (corsResponse) return corsResponse;
@@ -156,7 +174,7 @@ Deno.serve(async (req) => {
 
     let meetingsUpserted = 0;
     let documentsDetected = 0;
-    let storiesTriggered = 0;
+    const missingJobs: MissingStoryJob[] = [];
 
     for (const meeting of meetings) {
       // 3. Check existing state
@@ -166,7 +184,7 @@ Deno.serve(async (req) => {
         .eq("granicus_clip_id", meeting.clipId)
         .maybeSingle();
 
-      // 4. Determine which documents are newly detected
+      // 4. Track newly-detected documents (for detection timestamps only)
       const newDocs: DetectedDocument[] = [];
 
       if (meeting.agendaUrl && !existing?.agenda_url) {
@@ -187,7 +205,6 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       };
 
-      // Set URLs and detection timestamps for new documents
       if (meeting.agendaUrl) upsertData.agenda_url = meeting.agendaUrl;
       if (meeting.packetUrl) upsertData.packet_url = meeting.packetUrl;
       if (meeting.minutesUrl) upsertData.minutes_url = meeting.minutesUrl;
@@ -208,32 +225,60 @@ Deno.serve(async (req) => {
       }
 
       meetingsUpserted++;
+      documentsDetected += newDocs.length;
 
-      // 6. Trigger story generation for new documents
-      // PDF extraction happens inside generate-council-story to keep this function lightweight
-      for (const doc of newDocs) {
-        documentsDetected++;
-        console.log(`📄 New ${doc.type} detected for ${meeting.meetingType} (${meeting.meetingDate.toLocaleDateString()}): ${doc.url}`);
+      // 6. Collect any stage where a PDF exists but the story is missing.
+      // This catches both newly-detected PDFs AND historical meetings whose
+      // original fire-and-forget generation failed or never ran.
+      const stages: DocumentType[] = ["agenda", "packet", "minutes"];
+      for (const stage of stages) {
+        const urlKey = `${stage}_url` as const;
+        const hasPdf = !!upserted[urlKey];
+        const { storyType, storyIdCol } = STAGE_TO_STORY[stage];
+        const storyMissing = !upserted[storyIdCol];
 
-        const storyTypeMap: Record<DocumentType, { storyType: string; storyIdCol: string }> = {
-          agenda: { storyType: "preview", storyIdCol: "preview_story_id" },
-          packet: { storyType: "update", storyIdCol: "update_story_id" },
-          minutes: { storyType: "recap", storyIdCol: "recap_story_id" },
-        };
-
-        const { storyType, storyIdCol } = storyTypeMap[doc.type];
-
-        if (!upserted[storyIdCol]) {
-          try {
-            console.log(`  🖊️ Triggering ${storyType} story generation...`);
-            supabase.functions.invoke("generate-council-story", {
-              body: { meetingId: upserted.id, storyType },
-            }); // fire-and-forget
-            storiesTriggered++;
-          } catch (err) {
-            console.warn(`  ⚠️ Failed to trigger ${storyType} generation:`, err instanceof Error ? err.message : String(err));
-          }
+        if (hasPdf && storyMissing) {
+          missingJobs.push({
+            meetingId: upserted.id,
+            meetingDate: upserted.meeting_date as string,
+            storyType,
+            storyIdCol,
+          });
         }
+      }
+    }
+
+    // 7. Generate missing stories — capped and sequential so LLM costs stay
+    // bounded and failures are visible in the cron log. Newest meetings first.
+    missingJobs.sort((a, b) => b.meetingDate.localeCompare(a.meetingDate));
+    const jobsToRun = missingJobs.slice(0, MAX_GENERATIONS_PER_RUN);
+
+    console.log(
+      `📝 ${missingJobs.length} stage(s) missing stories — will generate ${jobsToRun.length} this run (cap ${MAX_GENERATIONS_PER_RUN})`,
+    );
+
+    let storiesGenerated = 0;
+    let storiesFailed = 0;
+
+    for (const job of jobsToRun) {
+      try {
+        console.log(`  🖊️ Generating ${job.storyType} for meeting ${job.meetingId} (${job.meetingDate})`);
+        const { data, error } = await supabase.functions.invoke("generate-council-story", {
+          body: { meetingId: job.meetingId, storyType: job.storyType },
+        });
+        if (error) {
+          storiesFailed++;
+          console.warn(`  ⚠️ ${job.storyType} generation failed:`, error.message);
+        } else if (data?.success === false) {
+          storiesFailed++;
+          console.warn(`  ⚠️ ${job.storyType} generation returned error:`, data.error);
+        } else {
+          storiesGenerated++;
+          console.log(`  ✅ ${job.storyType} generated (skipped=${data?.skipped ?? false})`);
+        }
+      } catch (err) {
+        storiesFailed++;
+        console.warn(`  ⚠️ Exception generating ${job.storyType}:`, err instanceof Error ? err.message : String(err));
       }
     }
 
@@ -243,7 +288,9 @@ Deno.serve(async (req) => {
       meetingsParsed: meetings.length,
       meetingsUpserted,
       documentsDetected,
-      storiesTriggered,
+      missingStages: missingJobs.length,
+      storiesGenerated,
+      storiesFailed,
       executionMs: duration,
     };
 

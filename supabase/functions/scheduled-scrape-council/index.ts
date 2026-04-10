@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
       time_checked: currentTimeET,
       execution_duration_ms: duration,
       reason: result?.success
-        ? `Parsed ${result.meetingsParsed} meetings, ${result.documentsDetected} new docs, ${result.storiesTriggered} stories triggered`
+        ? `Parsed ${result.meetingsParsed} meetings, ${result.documentsDetected} new docs, ${result.storiesGenerated}/${result.missingStages} missing stories generated${result.storiesFailed ? ` (${result.storiesFailed} failed)` : ""}`
         : `Scraper error: ${result?.error}`,
     });
 

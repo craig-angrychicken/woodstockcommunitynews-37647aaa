@@ -299,7 +299,10 @@ Deno.serve(async (req) => {
       .insert({
         title,
         content,
-        status: "pending",
+        // Council stories are already grounded in the official PDF during
+        // generation, so they bypass fact-check and rewrite and land at
+        // `edited` where run-ai-editor picks them up for publish/reject.
+        status: "edited",
         environment: "production",
         is_test: false,
         word_count: wordCount,
