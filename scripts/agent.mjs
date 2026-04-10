@@ -394,7 +394,7 @@ FROM stories
 WHERE is_test = false AND environment = 'production' AND status = 'published';
 
 17. Schedule gate state — surfaces operator-disabled pipelines:
-SELECT schedule_type, is_enabled, scheduled_times, active_hours_start_et, active_hours_end_et, updated_at
+SELECT schedule_type, is_enabled, scheduled_times, updated_at
 FROM schedules
 ORDER BY schedule_type;
 
