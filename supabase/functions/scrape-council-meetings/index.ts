@@ -23,7 +23,8 @@ try {
 }
 
 interface ParsedMeeting {
-  clipId: number;
+  clipId: number | null;
+  eventId: number | null;
   meetingType: string;
   meetingDate: Date;
   agendaUrl: string | null;
@@ -42,6 +43,13 @@ function parseGranicusDate(text: string): Date | null {
 /** Extract clip_id from a Granicus URL like AgendaViewer.php?view_id=1&clip_id=625 */
 function extractClipId(url: string): number | null {
   const match = url.match(/clip_id=(\d+)/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/** Extract event_id from a Granicus URL like AgendaViewer.php?view_id=1&event_id=468.
+ * Upcoming meetings use event_id until they are recorded; archived meetings use clip_id. */
+function extractEventId(url: string): number | null {
+  const match = url.match(/event_id=(\d+)/);
   return match ? parseInt(match[1], 10) : null;
 }
 
@@ -115,13 +123,18 @@ function parseMeetings(html: string): ParsedMeeting[] {
       }
     }
 
-    // Determine clip_id from agenda or minutes URL
+    // Determine clip_id and/or event_id from agenda or minutes URL. Archived
+    // meetings expose clip_id; upcoming meetings only expose event_id.
     let clipId: number | null = null;
-    if (agendaUrl) clipId = extractClipId(agendaUrl);
-    if (!clipId && minutesUrl) clipId = extractClipId(minutesUrl);
-    if (!clipId) continue; // Can't identify meeting without a clip_id
+    let eventId: number | null = null;
+    for (const url of [agendaUrl, minutesUrl, packetUrl]) {
+      if (!url) continue;
+      if (!clipId) clipId = extractClipId(url);
+      if (!eventId) eventId = extractEventId(url);
+    }
+    if (!clipId && !eventId) continue; // Can't identify the meeting at all
 
-    meetings.push({ clipId, meetingType, meetingDate, agendaUrl, packetUrl, minutesUrl });
+    meetings.push({ clipId, eventId, meetingType, meetingDate, agendaUrl, packetUrl, minutesUrl });
   }
 
   return meetings;
@@ -177,12 +190,48 @@ Deno.serve(async (req) => {
     const missingJobs: MissingStoryJob[] = [];
 
     for (const meeting of meetings) {
-      // 3. Check existing state
-      const { data: existing } = await supabase
-        .from("council_meetings")
-        .select("*")
-        .eq("granicus_clip_id", meeting.clipId)
-        .maybeSingle();
+      // 3. Look up an existing row by either identifier. A meeting that was
+      // first seen while upcoming has only event_id; once it's archived,
+      // Granicus assigns clip_id and we need to update the same row rather
+      // than creating a duplicate. Fall back to (meeting_type, date) to
+      // bridge the transition cleanly.
+      let existing: Record<string, unknown> | null = null;
+
+      if (meeting.clipId) {
+        const { data } = await supabase
+          .from("council_meetings")
+          .select("*")
+          .eq("granicus_clip_id", meeting.clipId)
+          .maybeSingle();
+        if (data) existing = data;
+      }
+
+      if (!existing && meeting.eventId) {
+        const { data } = await supabase
+          .from("council_meetings")
+          .select("*")
+          .eq("granicus_event_id", meeting.eventId)
+          .maybeSingle();
+        if (data) existing = data;
+      }
+
+      if (!existing) {
+        // Bridge: a previously-upcoming row with the same type and date but
+        // no clip_id yet. Match on the calendar date to tolerate minor
+        // time-of-day drift between the upcoming and archived listings.
+        const dayStart = new Date(meeting.meetingDate);
+        dayStart.setUTCHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+        const { data } = await supabase
+          .from("council_meetings")
+          .select("*")
+          .eq("meeting_type", meeting.meetingType)
+          .gte("meeting_date", dayStart.toISOString())
+          .lt("meeting_date", dayEnd.toISOString())
+          .maybeSingle();
+        if (data) existing = data;
+      }
 
       // 4. Track newly-detected documents (for detection timestamps only)
       const newDocs: DetectedDocument[] = [];
@@ -197,32 +246,52 @@ Deno.serve(async (req) => {
         newDocs.push({ type: "minutes", url: meeting.minutesUrl });
       }
 
-      // 5. Upsert the meeting row
-      const upsertData: Record<string, unknown> = {
-        granicus_clip_id: meeting.clipId,
+      // 5. Build the write payload. Only set ids when we have them so we
+      // don't clobber a clip_id with NULL when the archived listing drops a
+      // meeting we previously saw while upcoming.
+      const writeData: Record<string, unknown> = {
         meeting_type: meeting.meetingType,
         meeting_date: meeting.meetingDate.toISOString(),
         updated_at: new Date().toISOString(),
       };
-
-      if (meeting.agendaUrl) upsertData.agenda_url = meeting.agendaUrl;
-      if (meeting.packetUrl) upsertData.packet_url = meeting.packetUrl;
-      if (meeting.minutesUrl) upsertData.minutes_url = meeting.minutesUrl;
-
+      if (meeting.clipId) writeData.granicus_clip_id = meeting.clipId;
+      if (meeting.eventId) writeData.granicus_event_id = meeting.eventId;
+      if (meeting.agendaUrl) writeData.agenda_url = meeting.agendaUrl;
+      if (meeting.packetUrl) writeData.packet_url = meeting.packetUrl;
+      if (meeting.minutesUrl) writeData.minutes_url = meeting.minutesUrl;
       for (const doc of newDocs) {
-        upsertData[`${doc.type}_detected_at`] = new Date().toISOString();
+        writeData[`${doc.type}_detected_at`] = new Date().toISOString();
       }
 
-      const { data: upserted, error: upsertError } = await supabase
-        .from("council_meetings")
-        .upsert(upsertData, { onConflict: "granicus_clip_id" })
-        .select()
-        .single();
-
-      if (upsertError) {
-        console.error(`❌ Upsert failed for clip_id ${meeting.clipId}:`, upsertError.message);
-        continue;
+      let upserted: Record<string, unknown> | null = null;
+      if (existing) {
+        const { data, error } = await supabase
+          .from("council_meetings")
+          .update(writeData)
+          .eq("id", existing.id as string)
+          .select()
+          .single();
+        if (error) {
+          console.error(`❌ Update failed for meeting ${existing.id}:`, error.message);
+          continue;
+        }
+        upserted = data;
+      } else {
+        const { data, error } = await supabase
+          .from("council_meetings")
+          .insert(writeData)
+          .select()
+          .single();
+        if (error) {
+          console.error(
+            `❌ Insert failed for ${meeting.meetingType} ${meeting.meetingDate.toISOString()}:`,
+            error.message,
+          );
+          continue;
+        }
+        upserted = data;
       }
+      if (!upserted) continue;
 
       meetingsUpserted++;
       documentsDetected += newDocs.length;
