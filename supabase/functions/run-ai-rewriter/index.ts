@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
           console.log(`📷 Including ${imageUrls.length} source image(s) for rewriting context`);
         }
 
-        const promptText = `You are a senior editor at Woodstock Community News — a veteran journalist who knows Woodstock, Georgia and Cherokee County inside out. Your job is to take this draft article and make it the best version of itself: not just fix errors, but enrich and elevate.
+        const promptText = `You are a senior editor at Woodstock Community News. Your job is to take this draft article and make it the best version of itself.
 
 ## Current Article
 HEADLINE: ${storyTitle}
@@ -99,13 +99,14 @@ ${factCheckFeedback}
 
 ## Instructions
 1. If the fact-checker flagged issues: remove or hedge claims that are truly unsupported by ANY source material (text or images). Source material includes BOTH text and attached images — details visible in images (dates, times, locations, names, addresses, event details on flyers/posters, etc.) are VALID and should be RETAINED.
-2. ADD community context where it is missing: explain what organizations do, where places are located, why this matters to local residents, and how it connects to broader community patterns.
-3. Improve narrative flow — vary sentence structure, eliminate generic filler ("The district has prioritized...", "Such events offer an opportunity..."), and add smooth transitions between paragraphs.
-4. If the article is thin (under 150 words), expand it with well-established factual context about the people, places, or organizations mentioned. A rich, informative article is the goal.
-5. Ensure every story answers: "Why should a Cherokee County resident care about this?"
-6. Improve the headline if it is weak or clickbait-y
-7. Ensure AP style consistency
-8. Keep the factual core intact — enrich, don't fabricate. Never invent quotes, statistics, or specific claims.
+2. Improve narrative flow — vary sentence structure, eliminate generic filler ("The district has prioritized...", "Such events offer an opportunity..."), and add smooth transitions between paragraphs.
+3. Ensure every story answers: "Why should a Cherokee County resident care about this?"
+4. Improve the headline if it is weak or clickbait-y
+5. Ensure AP style consistency
+6. Keep the factual core intact. Never invent quotes, statistics, or specific claims.
+
+## CRITICAL: Do NOT fabricate details
+Do NOT add geographic details, locations, directional references, distances, neighborhood descriptions, or any other specific claims that are not in the source material or the existing article. For example, do not describe where a park is relative to a street, which end of a road something is on, or how far apart two places are — unless the source material explicitly states it. If you are not certain a detail comes from the source, leave it out. An accurate short article is always better than a longer article with invented details.
 
 ## Output Format
 Respond with the improved article in the SAME format as the input. Start with the headline on the first line, then the article body. Keep all existing structural markers (SUBHEAD:, BYLINE:, SOURCE:) if present.`;
