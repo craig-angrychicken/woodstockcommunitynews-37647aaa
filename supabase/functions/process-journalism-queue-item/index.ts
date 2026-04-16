@@ -288,6 +288,66 @@ ${artifactData}`;
       }
     }
 
+    // Title-level dedup: compare artifact title against existing story titles.
+    // Catches cross-format duplicates (e.g. Facebook post vs. website article about the same event)
+    // where full-content embeddings diverge but titles cover the same topic.
+    const artifactTitle = queueItem.artifact.title || queueItem.artifact.name || "";
+    if (artifactTitle.length > 10) {
+      try {
+        const artifactTitleEmbedding = await generateEmbedding(artifactTitle);
+        const { data: titleMatches, error: titleMatchError } = await supabase.rpc(
+          "match_stories_by_embedding",
+          {
+            query_embedding: JSON.stringify(artifactTitleEmbedding),
+            similarity_threshold: 0.80,
+            match_count: 1,
+          }
+        );
+
+        if (!titleMatchError && titleMatches && titleMatches.length > 0) {
+          const match = titleMatches.find(
+            (s: { id: string; title: string; status: string; similarity: number }) =>
+              s.status !== "rejected" && s.status !== "archived"
+          );
+          if (match) {
+            const skipReason = `Duplicate of existing story "${match.title}" (similarity: ${match.similarity.toFixed(3)})`;
+            console.log(`⏭️ Skipping — artifact-title vs story-title dedup: ${skipReason}`);
+
+            await supabase
+              .from("journalism_queue")
+              .update({
+                status: "skipped",
+                completed_at: new Date().toISOString(),
+                error_message: skipReason,
+              })
+              .eq("id", queueItemId);
+
+            await updateHistoryProgress(supabase, queueItem.query_history_id);
+
+            const { data: nextItem } = await supabase
+              .from("journalism_queue")
+              .select("id")
+              .eq("query_history_id", queueItem.query_history_id)
+              .eq("status", "pending")
+              .order("position", { ascending: true })
+              .limit(1)
+              .single();
+
+            if (nextItem) {
+              chainToNextItem(supabaseUrl, supabaseKey, INTERNAL_SECRET, nextItem.id);
+            }
+
+            return new Response(
+              JSON.stringify({ skipped: true, reason: skipReason, queueItemId }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+        }
+      } catch (titleDedupErr) {
+        console.warn("⚠️ Title-level dedup check failed (proceeding anyway):", titleDedupErr instanceof Error ? titleDedupErr.message : titleDedupErr);
+      }
+    }
+
     // Call LLM via shared client
     const llmResponse = await callLLM({
       prompt: messageContent,
@@ -444,7 +504,43 @@ ${artifactData}`;
         }
       }
     } catch (dedupErr) {
-      console.warn("⚠️ Story-level dedup check failed (proceeding anyway):", dedupErr instanceof Error ? dedupErr.message : dedupErr);
+      console.error("❌ Story-level dedup check failed — retrying once:", dedupErr instanceof Error ? dedupErr.message : dedupErr);
+      try {
+        const retryEmbedding = await generateEmbedding(title);
+        const { data: retryStories } = await supabase.rpc("match_stories_by_embedding", {
+          query_embedding: JSON.stringify(retryEmbedding),
+          similarity_threshold: 0.85,
+          match_count: 1,
+        });
+        if (retryStories && retryStories.length > 0) {
+          const match = retryStories.find(
+            (s: { status: string }) => s.status !== "rejected" && s.status !== "archived"
+          );
+          if (match) {
+            const skipReason = `Duplicate of existing story "${(match as { title: string }).title}" (dedup retry)`;
+            console.log(`⏭️ Skipping — story-level dedup retry caught: ${skipReason}`);
+            await supabase
+              .from("journalism_queue")
+              .update({ status: "skipped", completed_at: new Date().toISOString(), error_message: skipReason })
+              .eq("id", queueItemId);
+            await updateHistoryProgress(supabase, queueItem.query_history_id);
+            const { data: nextItem } = await supabase
+              .from("journalism_queue")
+              .select("id")
+              .eq("query_history_id", queueItem.query_history_id)
+              .eq("status", "pending")
+              .order("position", { ascending: true })
+              .limit(1)
+              .single();
+            if (nextItem) chainToNextItem(supabaseUrl, supabaseKey, INTERNAL_SECRET, nextItem.id);
+            return new Response(JSON.stringify({ skipped: true, reason: skipReason, queueItemId }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+        }
+        titleEmbedding = retryEmbedding;
+      } catch (retryErr) {
+        console.warn("⚠️ Story-level dedup retry also failed (proceeding):", retryErr instanceof Error ? retryErr.message : retryErr);
+      }
     }
 
     const source_id = queueItem.artifact.source_id || null;
