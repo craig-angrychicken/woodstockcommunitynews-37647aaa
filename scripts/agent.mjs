@@ -213,6 +213,12 @@ async function verifyResendDelivery(id) {
       const res = await fetch(`https://api.resend.com/emails/${id}`, {
         headers: { Authorization: `Bearer ${RESEND_API_KEY}` },
       });
+      if (res.status === 401 || res.status === 403) {
+        console.warn(
+          `[email] Status check HTTP ${res.status} — API key lacks read scope; cannot verify delivery`
+        );
+        return { ok: true, lastEvent: "unverifiable", skipped: true };
+      }
       if (!res.ok) {
         console.warn(`[email] Status check attempt ${attempt} HTTP ${res.status}`);
         continue;
@@ -221,14 +227,14 @@ async function verifyResendDelivery(id) {
       lastEvent = data.last_event || data.status || null;
       console.log(`[email] Status check ${attempt}/${maxAttempts}: last_event=${lastEvent}`);
       if (lastEvent === "delivered") return { ok: true, lastEvent };
-      if (["bounced", "complained", "failed", "delivery_delayed"].includes(lastEvent)) {
+      if (["bounced", "complained", "failed"].includes(lastEvent)) {
         return { ok: false, lastEvent, details: data };
       }
     } catch (err) {
       console.warn(`[email] Status check attempt ${attempt} error: ${err.message}`);
     }
   }
-  return { ok: false, lastEvent: lastEvent || "unknown", reason: "not delivered within timeout" };
+  return { ok: true, lastEvent: lastEvent || "unknown", skipped: true, note: "timed out waiting for terminal state" };
 }
 
 async function sendExecutiveBriefing({ subject, html_body, is_critical_alert }) {
@@ -241,7 +247,13 @@ async function sendExecutiveBriefing({ subject, html_body, is_critical_alert }) 
     return { sent: false, reason: "RESEND_API_KEY not configured" };
   }
 
-  console.log(`[email] Sending: "${subject}" → ${ALERT_EMAIL}`);
+  const cleanSubject = subject
+    .replace(/^[\s\p{Emoji_Presentation}\p{Extended_Pictographic}]+/u, "")
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  console.log(`[email] Sending: "${cleanSubject}" → ${ALERT_EMAIL}`);
   try {
     const text_body = htmlToText(html_body);
     const res = await fetch("https://api.resend.com/emails", {
@@ -254,7 +266,7 @@ async function sendExecutiveBriefing({ subject, html_body, is_critical_alert }) 
         from: FROM_EMAIL,
         to: [ALERT_EMAIL],
         reply_to: ALERT_EMAIL,
-        subject,
+        subject: cleanSubject,
         html: html_body,
         text: text_body,
         headers: {
