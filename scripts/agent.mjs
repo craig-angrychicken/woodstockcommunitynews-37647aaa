@@ -187,6 +187,50 @@ async function callEdgeFunction({ function_name, reason }) {
   }
 }
 
+function htmlToText(html) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<(br|\/p|\/div|\/li|\/tr|\/h[1-6])[^>]*>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function verifyResendDelivery(id) {
+  const maxAttempts = 6;
+  const delayMs = 5000;
+  let lastEvent = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    await new Promise((r) => setTimeout(r, delayMs));
+    try {
+      const res = await fetch(`https://api.resend.com/emails/${id}`, {
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}` },
+      });
+      if (!res.ok) {
+        console.warn(`[email] Status check attempt ${attempt} HTTP ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      lastEvent = data.last_event || data.status || null;
+      console.log(`[email] Status check ${attempt}/${maxAttempts}: last_event=${lastEvent}`);
+      if (lastEvent === "delivered") return { ok: true, lastEvent };
+      if (["bounced", "complained", "failed", "delivery_delayed"].includes(lastEvent)) {
+        return { ok: false, lastEvent, details: data };
+      }
+    } catch (err) {
+      console.warn(`[email] Status check attempt ${attempt} error: ${err.message}`);
+    }
+  }
+  return { ok: false, lastEvent: lastEvent || "unknown", reason: "not delivered within timeout" };
+}
+
 async function sendExecutiveBriefing({ subject, html_body, is_critical_alert }) {
   if (!IS_DAILY_REPORT && !is_critical_alert) {
     console.log("[email] Skipping — not a daily report run and not a critical alert");
@@ -199,6 +243,7 @@ async function sendExecutiveBriefing({ subject, html_body, is_critical_alert }) 
 
   console.log(`[email] Sending: "${subject}" → ${ALERT_EMAIL}`);
   try {
+    const text_body = htmlToText(html_body);
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -208,19 +253,43 @@ async function sendExecutiveBriefing({ subject, html_body, is_critical_alert }) 
       body: JSON.stringify({
         from: FROM_EMAIL,
         to: [ALERT_EMAIL],
+        reply_to: ALERT_EMAIL,
         subject,
         html: html_body,
+        text: text_body,
+        headers: {
+          "X-Entity-Ref-ID": `wcn-briefing-${Date.now()}`,
+        },
       }),
     });
     const data = await res.json();
     if (!res.ok) {
       console.error(`[email] Send failed HTTP ${res.status}:`, data);
+      process.exitCode = 1;
       return { sent: false, error: data };
     }
-    console.log("[email] Sent successfully:", data.id);
-    return { sent: true, id: data.id };
+    console.log("[email] Accepted by Resend:", data.id);
+
+    const verification = await verifyResendDelivery(data.id);
+    if (verification.ok) {
+      console.log(`[email] ✅ Delivered (id=${data.id}, last_event=${verification.lastEvent})`);
+      return { sent: true, delivered: true, id: data.id, last_event: verification.lastEvent };
+    }
+    console.error(
+      `[email] ❌ Delivery verification failed: id=${data.id}, last_event=${verification.lastEvent}`,
+      verification.details || verification.reason || ""
+    );
+    process.exitCode = 1;
+    return {
+      sent: true,
+      delivered: false,
+      id: data.id,
+      last_event: verification.lastEvent,
+      error: verification.reason || verification.details,
+    };
   } catch (err) {
     console.error(`[email] Fetch error: ${err.message}`);
+    process.exitCode = 1;
     return { sent: false, error: err.message };
   }
 }
@@ -443,6 +512,40 @@ Keep the email clean, readable on mobile, and free of external image dependencie
 
 // ─── Agentic loop ─────────────────────────────────────────────────────────────
 
+function isTransientAnthropicError(err) {
+  const type = err?.error?.error?.type || err?.error?.type;
+  if (type === "overloaded_error" || type === "rate_limit_error" || type === "api_error") return true;
+  const status = err?.status;
+  if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || status === 529) return true;
+  const msg = (err?.message || "").toLowerCase();
+  if (msg.includes("overloaded") || msg.includes("rate limit") || msg.includes("econnreset") || msg.includes("etimedout")) return true;
+  return false;
+}
+
+async function streamWithRetry(client, params) {
+  const maxAttempts = 5;
+  const delays = [10_000, 30_000, 60_000, 120_000];
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const stream = client.messages.stream(params);
+      return await stream.finalMessage();
+    } catch (err) {
+      lastErr = err;
+      const transient = isTransientAnthropicError(err);
+      const type = err?.error?.error?.type || err?.error?.type || "unknown";
+      console.warn(
+        `[agent] Anthropic API error (attempt ${attempt}/${maxAttempts}, transient=${transient}, type=${type}): ${err?.message || err}`
+      );
+      if (!transient || attempt === maxAttempts) throw err;
+      const delay = delays[attempt - 1] ?? 120_000;
+      console.warn(`[agent] Retrying in ${delay / 1000}s…`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
+
 async function main() {
   console.log(
     `[agent] Starting pipeline monitor — ${IS_DAILY_REPORT ? "DAILY REPORT" : "MONITORING"} run`
@@ -463,7 +566,7 @@ async function main() {
   let toolCallCount = 0;
 
   while (toolCallCount < MAX_TOOL_CALLS) {
-    const stream = client.messages.stream({
+    const response = await streamWithRetry(client, {
       model: IS_DAILY_REPORT ? "claude-opus-4-6" : "claude-sonnet-4-6",
       max_tokens: 50000,
       thinking: { type: "adaptive" },
@@ -471,7 +574,6 @@ async function main() {
       tools,
       messages,
     });
-    const response = await stream.finalMessage();
 
     // Log any text or thinking blocks
     for (const block of response.content) {
