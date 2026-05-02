@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
     };
 
     await logCronJob(supabase, {
-      job_name: "run-editor",
+      job_name: "scheduled-run-editor",
       schedule_check_passed: true,
       schedule_enabled: true,
       time_checked: currentTimeET,
@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
     console.error("💥 Fatal error in scheduled-run-editor:", error);
 
     await logCronJob(supabase, {
-      job_name: "run-editor",
+      job_name: "scheduled-run-editor",
       schedule_check_passed: false,
       reason: "Fatal error during execution",
       error_message: error instanceof Error ? error.message : "Unknown error",
