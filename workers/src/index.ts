@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import type { Env } from "./env";
 import { first } from "./_shared/db";
 import { admin } from "./routes/admin";
+import { publicApi } from "./routes/public";
 
 /**
  * WCN API Worker — entry point.
@@ -40,6 +41,7 @@ app.get("/images/*", async (c) => {
   return new Response(obj.body, { headers });
 });
 
+app.route("/api", publicApi);
 app.route("/api/admin", admin);
 
 export default app;
