@@ -32,7 +32,7 @@ export OPENROUTER_API_KEY QUEUE_PROCESSOR_SECRET REVALIDATION_SECRET ALERT_EMAIL
 node -e '
 const keys=["OPENROUTER_API_KEY","LOVABLE_API_KEY","RESEND_API_KEY","ALERT_EMAIL",
   "FACEBOOK_PAGE_ACCESS_TOKEN","FACEBOOK_PAGE_ID","FACEBOOK_PLACE_ID",
-  "QUEUE_PROCESSOR_SECRET","REVALIDATION_SECRET","GHOST_API_URL","GHOST_ADMIN_API_KEY","R2_PUBLIC_URL"];
+  "QUEUE_PROCESSOR_SECRET","REVALIDATION_SECRET","R2_PUBLIC_URL"];
 const o={}; for(const k of keys){const v=process.env[k]; if(v&&v.length) o[k]=v;}
 require("fs").writeFileSync(".secrets.json", JSON.stringify(o));
 console.error("Uploading "+Object.keys(o).length+" secrets: "+Object.keys(o).join(", "));
