@@ -3,13 +3,17 @@ import { cors } from "hono/cors";
 import type { Env } from "./env";
 import { first } from "./_shared/db";
 import { admin } from "./routes/admin";
+import { pipelineAdmin } from "./routes/pipeline-admin";
 import { publicApi } from "./routes/public";
+import { handleScheduled } from "./cron";
+import { handleQueue } from "./queue";
 
 /**
  * WCN API Worker — entry point.
- * Hosts the admin API (behind Cloudflare Access) and, in later phases, the
- * pipeline HTTP triggers. The scheduled() handler (Cron Triggers) and queue()
- * consumer are added in Phase 4.
+ * - Public read API + image serving (no auth)
+ * - Admin CRUD + pipeline triggers (behind Cloudflare Access)
+ * - scheduled(): Cron Triggers dispatcher (src/cron.ts)
+ * - queue(): serial journalism queue consumer (src/queue.ts)
  */
 const app = new Hono<{ Bindings: Env }>();
 
@@ -17,7 +21,6 @@ app.use("*", cors());
 
 app.get("/health", (c) => c.json({ ok: true, service: "wcn-api" }));
 
-// Connectivity check: proves the D1 binding works end-to-end.
 app.get("/api/db-check", async (c) => {
   try {
     const row = await first<{ now: string }>(c.env, `select datetime('now') as now`);
@@ -27,8 +30,7 @@ app.get("/api/db-check", async (c) => {
   }
 });
 
-// Serve migrated images from R2 (key = path after /images/). Replaces the
-// public Supabase Storage bucket; D1 image URLs were rewritten to /images/<key>.
+// Serve migrated images from R2 (key = path after /images/).
 app.get("/images/*", async (c) => {
   const key = decodeURIComponent(c.req.path.replace(/^\/images\//, ""));
   if (!key) return c.notFound();
@@ -43,5 +45,10 @@ app.get("/images/*", async (c) => {
 
 app.route("/api", publicApi);
 app.route("/api/admin", admin);
+app.route("/api/admin", pipelineAdmin);
 
-export default app;
+export default {
+  fetch: (req: Request, env: Env, ctx: ExecutionContext) => app.fetch(req, env, ctx),
+  scheduled: (controller: ScheduledController, env: Env, _ctx: ExecutionContext) => handleScheduled(controller, env),
+  queue: (batch: MessageBatch<{ queueItemId: string }>, env: Env, _ctx: ExecutionContext) => handleQueue(batch, env),
+};

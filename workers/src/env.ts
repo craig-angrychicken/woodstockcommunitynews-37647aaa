@@ -24,7 +24,14 @@ export interface Env {
   FACEBOOK_PLACE_ID?: string;
   QUEUE_PROCESSOR_SECRET?: string;
   REVALIDATION_SECRET?: string;
+  GHOST_API_URL?: string;
+  GHOST_ADMIN_API_KEY?: string;
 
-  // --- Added in Phase 4 ---
-  // JOURNALISM_QUEUE: Queue;
+  // --- Queue (Phase 4) ---
+  JOURNALISM_QUEUE: Queue<JournalismMessage>;
+}
+
+/** Message enqueued per journalism_queue item for serial processing. */
+export interface JournalismMessage {
+  queueItemId: string;
 }
