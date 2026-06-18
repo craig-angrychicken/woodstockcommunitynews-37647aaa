@@ -1,0 +1,37 @@
+{
+  // Cloudflare Workers config for the WCN API + pipeline (all-Cloudflare / D1 stack).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wcn-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "wcn",
+      "database_id": "7b161ae7-7f3c-42fd-a627-dd3fb1058f14"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACT_IMAGES",
+      "bucket_name": "artifact-images"
+    }
+  ],
+
+  "vars": {
+    "PUBLIC_SITE_URL": "https://woodstockcommunity.news",
+    // Cloudflare Access team domain + AUD for verifying admin JWTs (set real values in phase 0/6).
+    "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_TEAM.cloudflareaccess.com",
+    "ACCESS_AUD": "REPLACE_WITH_ACCESS_AUD"
+  }
+
+  // Secrets (wrangler secret put): OPENROUTER_API_KEY, LOVABLE_API_KEY, RESEND_API_KEY,
+  //   ALERT_EMAIL, FACEBOOK_PAGE_ACCESS_TOKEN, FACEBOOK_PAGE_ID, FACEBOOK_PLACE_ID,
+  //   QUEUE_PROCESSOR_SECRET, REVALIDATION_SECRET, R2_PUBLIC_URL.
+  //
+  // Added later: Phase 4 — "queues" + "triggers".crons ; KV namespace if shared with site.
+}
