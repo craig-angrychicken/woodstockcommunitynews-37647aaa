@@ -1,15 +1,16 @@
 import type { MetadataRoute } from "next";
-import { supabase } from "@/lib/supabase";
+import { all } from "@/lib/db";
 import { getAllTopicSlugs } from "@/lib/topics";
 
+// Generated at request time against live D1 (build has no DB).
+export const dynamic = "force-dynamic";
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const { data: stories } = await supabase
-    .from("stories")
-    .select("slug, published_at")
-    .eq("status", "published")
-    .eq("environment", "production")
-    .not("slug", "is", null)
-    .order("published_at", { ascending: false });
+  const stories = await all<{ slug: string; published_at: string }>(
+    "select slug, published_at from stories where status = ? and environment = ? and slug is not null order by published_at desc",
+    "published",
+    "production"
+  );
 
   const storyEntries: MetadataRoute.Sitemap = (stories || []).map((story) => ({
     url: `https://woodstockcommunity.news/${story.slug}`,

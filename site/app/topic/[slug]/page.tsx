@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { supabase } from "@/lib/supabase";
+import { all, fromJson } from "@/lib/db";
 import StoryCard from "@/components/StoryCard";
 import {
   findTopic,
@@ -26,8 +26,10 @@ type Props = {
   params: Promise<{ slug: string }>;
 };
 
+// Render on-demand against live D1, then ISR-cache (revalidate above) — the build
+// has no D1 to query. dynamicParams (default true) allows all topic slugs at runtime.
 export async function generateStaticParams() {
-  return getAllTopicSlugs().map((slug) => ({ slug }));
+  return [] as { slug: string }[];
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -44,18 +46,20 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 async function getStoriesForTopic(targetSlug: string) {
   // Fetch most recent published stories, then filter client-side by classifier.
   // 200 is generous for a ~monthly cadence and keeps one DB query per topic page.
-  const { data } = await supabase
-    .from("stories")
-    .select(
-      "id, title, content, slug, hero_image_url, published_at, structured_metadata"
-    )
-    .eq("status", "published")
-    .eq("environment", "production")
-    .not("slug", "is", null)
-    .order("published_at", { ascending: false })
-    .limit(200);
+  const rows = await all<Story & { structured_metadata: string | null }>(
+    "select id, title, content, slug, hero_image_url, published_at, structured_metadata from stories where status = ? and environment = ? and slug is not null order by published_at desc limit ?",
+    "published",
+    "production",
+    200
+  );
 
-  const stories = (data as Story[]) || [];
+  const stories: Story[] = rows.map((row) => ({
+    ...row,
+    structured_metadata: fromJson<Story["structured_metadata"]>(
+      row.structured_metadata,
+      null
+    ),
+  }));
   return stories.filter((s) => {
     const haystack = `${s.title} ${s.structured_metadata?.subhead ?? ""}`;
     return findTopic(haystack).slug === targetSlug;

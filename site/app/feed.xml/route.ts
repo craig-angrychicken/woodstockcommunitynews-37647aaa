@@ -1,7 +1,7 @@
-import { supabase } from "@/lib/supabase";
+import { all, fromJson } from "@/lib/db";
 import { getExcerpt } from "@/lib/formatting";
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 function escapeXml(str: string): string {
   return str
@@ -13,22 +13,25 @@ function escapeXml(str: string): string {
 }
 
 export async function GET() {
-  const { data: stories } = await supabase
-    .from("stories")
-    .select(
-      "title, slug, content, published_at, structured_metadata, hero_image_url"
-    )
-    .eq("status", "published")
-    .eq("environment", "production")
-    .not("slug", "is", null)
-    .order("published_at", { ascending: false })
-    .limit(50);
+  const stories = await all<{
+    title: string;
+    slug: string;
+    content: string;
+    published_at: string;
+    structured_metadata: string | null;
+    hero_image_url: string | null;
+  }>(
+    "select title, slug, content, published_at, structured_metadata, hero_image_url from stories where status = ? and environment = ? and slug is not null order by published_at desc limit ?",
+    "published",
+    "production",
+    50
+  );
 
   const items = (stories || [])
     .map((story) => {
-      const metadata = story.structured_metadata as {
+      const metadata = fromJson<{
         subhead?: string;
-      } | null;
+      } | null>(story.structured_metadata, null);
       const description = getExcerpt(story.content, metadata?.subhead);
       const url = `https://woodstockcommunity.news/${story.slug}`;
 
