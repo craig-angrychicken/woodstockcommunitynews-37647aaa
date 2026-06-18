@@ -4,6 +4,8 @@ import { verifyAccess } from "../_shared/auth";
 import { first, insert, toJson } from "../_shared/db";
 import type { PromptVersionRow } from "../_shared/types";
 import { fetchArtifacts } from "../pipeline/fetch-artifacts";
+import { fetchRssFeeds } from "../pipeline/fetch-rss";
+import { fetchWebPages } from "../pipeline/fetch-web-pages";
 import { clusterArtifacts } from "../pipeline/cluster-artifacts";
 import { recoverStuckQueueItems } from "../pipeline/queue-recovery";
 import { runFactChecker, runRewriter, runEditor, runEditorialPipeline } from "../pipeline/editorial-pipeline";
@@ -37,6 +39,32 @@ const body = async (c: { req: { json: () => Promise<unknown> } }) =>
   ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
 
 pipelineAdmin.post("/pipeline/fetch-artifacts", async (c) => c.json(await fetchArtifacts(c.env, { force: true })));
+
+// Manual single-source-type fetch (ManualQuery). Creates a query_history run if none supplied.
+async function manualFetch(
+  c: { env: Env; req: { json: () => Promise<unknown> } },
+  fn: (env: Env, p: { dateFrom: string; dateTo: string; sourceIds: string[]; environment: "production" | "test"; queryHistoryId: string }) => Promise<unknown>,
+) {
+  const b = ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
+  const now = new Date();
+  const dateTo = b.dateTo ? String(b.dateTo) : now.toISOString();
+  const dateFrom = b.dateFrom ? String(b.dateFrom) : new Date(now.getTime() - 24 * 3600 * 1000).toISOString();
+  const environment: "production" | "test" = (b.environment as string) === "test" ? "test" : "production";
+  const sourceIds = Array.isArray(b.sourceIds) ? (b.sourceIds as string[]) : [];
+  let queryHistoryId = b.queryHistoryId ? String(b.queryHistoryId) : "";
+  if (!queryHistoryId) {
+    queryHistoryId = crypto.randomUUID();
+    await insert(c.env, "query_history", {
+      id: queryHistoryId, date_from: dateFrom, date_to: dateTo, environment,
+      source_ids: toJson(sourceIds), run_stages: "manual", status: "running",
+    });
+  }
+  const result = await fn(c.env, { dateFrom, dateTo, sourceIds, environment, queryHistoryId });
+  return { queryHistoryId, result };
+}
+
+pipelineAdmin.post("/pipeline/fetch-rss", async (c) => c.json(await manualFetch(c, fetchRssFeeds)));
+pipelineAdmin.post("/pipeline/fetch-web-pages", async (c) => c.json(await manualFetch(c, fetchWebPages)));
 pipelineAdmin.post("/pipeline/cluster", async (c) => c.json(await clusterArtifacts(c.env, { force: true, startTime: Date.now() })));
 pipelineAdmin.post("/pipeline/recover-queue", async (c) => c.json(await recoverStuckQueueItems(c.env, {})));
 pipelineAdmin.post("/pipeline/fact-checker", async (c) => c.json(await runFactChecker(c.env)));
