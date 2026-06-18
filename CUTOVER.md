@@ -5,6 +5,14 @@ Cron Triggers + Queues + Access). All code + data + images are migrated and veri
 below are the **operator actions** (Cloudflare/GitHub dashboards) needed to go live, plus the final DNS flip
 and decommission. Account: craig@angrychicken.co (`b525c1c1dc3a72e95a5bad3eb28d7ee7`).
 
+## LIVE NOW (deployed to test URLs — no custom domain yet)
+- **Public site:** https://wcn-site.craig-b52.workers.dev — ✅ fully working (renders stories + R2 images from D1).
+- **API/pipeline Worker:** https://wcn-api.craig-b52.workers.dev — ✅ public endpoints work; admin routes 401 (fail-closed,
+  awaiting Access); cron + queue registered; **schedules DISABLED** (re-enable after setting OPENROUTER_API_KEY).
+- **Admin SPA:** https://wcn-admin.pages.dev — deployed; data calls 401 until Access + secrets are set.
+
+Remaining steps below are the ones that need you (secret values, Access, DNS, decommission).
+
 ## Already done (in this repo, branch `migrate/cloudflare`)
 - D1 `wcn` (`7b161ae7-7f3c-42fd-a627-dd3fb1058f14`) — schema + data loaded (657 stories, 614 artifacts, …).
 - R2 `artifact-images` — 663 objects copied; image URLs rewritten to `/images/<key>`.
