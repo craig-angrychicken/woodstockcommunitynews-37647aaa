@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 interface ActivatePromptModalProps {
   open: boolean;
@@ -33,25 +33,12 @@ export const ActivatePromptModal = ({
   const handleActivate = async () => {
     setIsActivating(true);
     try {
-      // First, deactivate current active prompt of this type
-      const { error: deactivateError } = await supabase
-        .from("prompt_versions")
-        .update({ is_active: false })
-        .eq("prompt_type", promptType)
-        .eq("is_active", true);
-
-      if (deactivateError) throw deactivateError;
-
-      // Then activate the selected prompt
-      const { error: activateError } = await supabase
-        .from("prompt_versions")
-        .update({
-          is_active: true,
-          is_test_draft: false,
-        })
-        .eq("id", promptId);
-
-      if (activateError) throw activateError;
+      // Atomic transaction on the server: deactivate the current active
+      // prompt of this type, then activate the selected one and clear its
+      // test-draft flag.
+      await api.patch(`/prompt-versions/${promptId}/activate`, {
+        promptType,
+      });
 
       toast.success(`${versionName} is now active`);
       onSuccess();

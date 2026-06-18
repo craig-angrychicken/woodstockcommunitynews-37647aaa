@@ -92,6 +92,31 @@ storiesAdminRouter.get("/stories/:id", async (c) => {
   return c.json({ story: shapeStory(row) });
 });
 
+// PATCH /api/admin/stories/:id — partial update (content edit / reject) from an allowlist.
+const STORY_UPDATABLE = new Set([
+  "title", "content", "status", "editor_notes", "hero_image_url", "slug",
+  "environment", "article_type", "featured", "story_type", "structured_metadata",
+  "fact_check_notes", "published_at",
+]);
+
+storiesAdminRouter.patch("/stories/:id", async (c) => {
+  const id = c.req.param("id");
+  const body = ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
+  const cols: string[] = [];
+  const params: unknown[] = [];
+  for (const [k, v] of Object.entries(body)) {
+    if (!STORY_UPDATABLE.has(k)) continue;
+    cols.push(`${k} = ?`);
+    params.push(v !== null && typeof v === "object" ? JSON.stringify(v) : v);
+  }
+  if (cols.length === 0) return c.json({ error: "no updatable fields" }, 400);
+  cols.push("updated_at = datetime('now')");
+  params.push(id);
+  await run(c.env, `UPDATE stories SET ${cols.join(", ")} WHERE id = ?`, ...params);
+  const row = await first<StoryJoinRow>(c.env, `${SELECT_STORY} WHERE stories.id = ?`, id);
+  return c.json({ story: row ? shapeStory(row) : null });
+});
+
 // DELETE /api/admin/stories/:id — remove junction rows first, then the story.
 storiesAdminRouter.delete("/stories/:id", async (c) => {
   const id = c.req.param("id");

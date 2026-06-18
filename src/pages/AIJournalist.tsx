@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import type { Tables } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,16 @@ import { ScheduleTimeSelector } from "@/components/scheduling/ScheduleTimeSelect
 import { SaveScheduleButton } from "@/components/scheduling/SaveScheduleButton";
 import { useSchedule } from "@/hooks/useSchedules";
 
+type PromptVersion = Tables<"prompt_versions">;
+type Artifact = Tables<"artifacts">;
+type QueryHistory = Tables<"query_history">;
+
+// query_history row enriched with the joined prompt_versions name (mirrors the
+// !inner join the Supabase query used to perform).
+type QueryHistoryWithPrompt = QueryHistory & {
+  prompt_versions?: { version_name: string; prompt_type: string } | null;
+};
+
 const AIJournalist = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -43,14 +54,14 @@ const AIJournalist = () => {
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState<"dateRange" | "specific">("dateRange");
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
-  
+
   // Scheduling state
   const [journalismScheduleTimes, setJournalismScheduleTimes] = useState<string[]>([]);
   const [journalismScheduleEnabled, setJournalismScheduleEnabled] = useState(false);
-  
+
   // Load existing schedule
   const { data: journalismSchedule } = useSchedule("ai_journalism");
-  
+
   useEffect(() => {
     if (journalismSchedule) {
       setJournalismScheduleTimes(journalismSchedule.scheduled_times || []);
@@ -58,122 +69,85 @@ const AIJournalist = () => {
     }
   }, [journalismSchedule]);
 
-  // Check for most recent query on page load (running or completed)
+  // Check for most recent query on page load (running or completed).
+  // Replaces the Supabase query_history lookup with GET /query-history/recent,
+  // then keeps the manual/automated run.
   useEffect(() => {
     const checkLatestQuery = async () => {
-      const { data: latestRun } = await supabase
-        .from('query_history')
-        .select('id, status')
-        .in('run_stages', ['manual', 'automated'])
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      
-      if (latestRun) {
-        setCurrentHistoryId(latestRun.id);
-        setIsRunning(latestRun.status === 'running');
+      try {
+        const recent = await api.get<QueryHistory[]>("/query-history/recent", { limit: 1 });
+        const latestRun = recent?.[0];
+        if (latestRun) {
+          setCurrentHistoryId(latestRun.id);
+          setIsRunning(latestRun.status === "running");
+        }
+      } catch {
+        // Non-fatal: just leave the run panel empty if the lookup fails.
       }
     };
-    
+
     checkLatestQuery();
   }, []);
 
-  // Fetch prompt versions
+  // Fetch prompt versions (all journalism prompts, including inactive, so the
+  // dropdown + active-version label work).
   const { data: promptVersions } = useQuery({
     queryKey: ['prompt-versions'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('prompt_versions')
-        .select('*')
-        .eq('prompt_type', 'journalism')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data;
-    }
+    queryFn: () =>
+      api.get<PromptVersion[]>("/prompt-versions", {
+        promptType: "journalism",
+        activeOnly: "all",
+        excludeTestDrafts: true,
+      }),
   });
 
-  // Fetch available artifacts for specific selection mode (excluding already-used artifacts)
+  // Fetch available artifacts for specific selection mode (excluding already-used artifacts).
   const { data: availableArtifacts } = useQuery({
     queryKey: ['available-artifacts', dateFrom, dateTo, environment, selectionMode],
     queryFn: async () => {
       if (selectionMode === "specific") {
-        let query = supabase
-          .from('artifacts')
-          .select('*')
-          .order('date', { ascending: false });
-
-        if (environment === 'test') {
-          query = query.eq('is_test', true);
-        } else {
-          query = query.eq('is_test', false);
-        }
-
-        const { data: artifactsData, error: artifactsError } = await query;
-        if (artifactsError) throw artifactsError;
-
-        // Get all artifact IDs that are already used in stories
-        const { data: usedArtifacts, error: usedError } = await supabase
-          .from('story_artifacts')
-          .select('artifact_id');
-
-        if (usedError) throw usedError;
-
-        const usedArtifactIds = new Set(usedArtifacts?.map(sa => sa.artifact_id) || []);
-
-        // Filter out used artifacts
-        const unusedArtifacts = artifactsData?.filter(a => !usedArtifactIds.has(a.id)) || [];
-
-        return unusedArtifacts;
+        // GET /artifacts returns { artifacts: [...] } with story_artifacts already
+        // computed per row; usageStatus=unused filters out artifacts already linked
+        // to a story server-side.
+        const res = await api.get<{ artifacts: Artifact[] }>("/artifacts", {
+          environment,
+          usageStatus: "unused",
+        });
+        return res.artifacts ?? [];
       }
-      return [];
+      return [] as Artifact[];
     },
     enabled: selectionMode === "specific"
   });
 
-  // Fetch count for date range mode
+  // Fetch count for date range mode. No dedicated count endpoint exists, so we
+  // request the filtered list and use its length.
   const { data: dateRangeCount } = useQuery({
     queryKey: ['artifacts-count', dateFrom, dateTo, environment],
     queryFn: async () => {
-      let query = supabase
-        .from('artifacts')
-        .select('*', { count: 'exact', head: true })
-        .gte('date', dateFrom.toISOString())
-        .lte('date', dateTo.toISOString());
-
-      if (environment === 'test') {
-        query = query.eq('is_test', true);
-      } else {
-        query = query.eq('is_test', false);
-      }
-
-      const { count, error } = await query;
-      if (error) throw error;
-      return count || 0;
+      const res = await api.get<{ artifacts: Artifact[] }>("/artifacts", {
+        environment,
+        dateFrom: dateFrom.toISOString(),
+        dateTo: dateTo.toISOString(),
+      });
+      return res.artifacts?.length ?? 0;
     },
     enabled: selectionMode === "dateRange"
   });
 
-  const artifactsCount = selectionMode === "dateRange" 
+  const artifactsCount = selectionMode === "dateRange"
     ? (dateRangeCount || 0)
     : selectedArtifactIds.length;
 
-  // Fetch query history for AI runs
+  // Fetch query history for AI runs (manual/automated journalism runs).
   const { data: queryHistory } = useQuery({
     queryKey: ['ai-journalist-history'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('query_history')
-        .select(`
-          *,
-          prompt_versions!inner (version_name, prompt_type)
-        `)
-        .in('run_stages', ['manual', 'automated'])
-        .eq('prompt_versions.prompt_type', 'journalism')
-        .order('created_at', { ascending: false })
-        .limit(10);
-      if (error) throw error;
-      return data;
-    }
+    queryFn: () =>
+      api.get<QueryHistoryWithPrompt[]>("/query-history", {
+        runStages: "manual,automated",
+        promptType: "journalism",
+        limit: 10,
+      }),
   });
 
   const activePromptVersion = useMemo(
@@ -181,19 +155,12 @@ const AIJournalist = () => {
     [promptVersions]
   );
 
-  // Cancel mutation
+  // Cancel mutation — POST /query-history/:id/cancel marks the run failed/cancelled.
   const cancelMutation = useMutation({
     mutationFn: async (historyId: string) => {
-      const { error } = await supabase
-        .from('query_history')
-        .update({
-          status: 'failed',
-          error_message: 'Cancelled by user',
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', historyId);
-
-      if (error) throw error;
+      await api.post(`/query-history/${historyId}/cancel`, {
+        error_message: "Cancelled by user",
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
@@ -213,41 +180,22 @@ const AIJournalist = () => {
     }
   });
 
-  // Run AI journalist mutation
+  // Run AI journalist mutation. POST /pipeline/journalism creates the
+  // query_history record server-side and returns the new historyId, so we no
+  // longer insert a history record from the client.
   const runMutation = useMutation({
     mutationFn: async () => {
-      const promptVersionId = promptMode === 'active' 
-        ? activePromptVersion?.id 
+      const promptVersionId = promptMode === 'active'
+        ? activePromptVersion?.id
         : selectedPromptVersion;
 
       if (!promptVersionId) {
         throw new Error('No prompt version selected');
       }
 
-      // Create history record
-      const { data: historyRecord, error: historyError } = await supabase
-        .from('query_history')
-        .insert({
-          date_from: dateFrom.toISOString(),
-          date_to: dateTo.toISOString(),
-          environment,
-          prompt_version_id: promptVersionId,
-          source_ids: [],
-          run_stages: 'manual',
-          status: 'running'
-        })
-        .select()
-        .single();
-
-      if (historyError) throw historyError;
-
-      setCurrentHistoryId(historyRecord.id);
-
-      // Call edge function with either date range or specific artifact IDs
       const body: Record<string, unknown> = {
         environment,
         promptVersionId,
-        historyId: historyRecord.id
       };
 
       if (selectionMode === 'specific') {
@@ -257,12 +205,13 @@ const AIJournalist = () => {
         body.dateTo = dateTo.toISOString();
       }
 
-      const { data, error } = await supabase.functions.invoke('run-ai-journalist', {
-        body
-      });
+      const data = await api.post<{ historyId: string; queueSize?: number; artifactsCount?: number }>(
+        "/pipeline/journalism",
+        body,
+      );
 
-      if (error) throw error;
-      return { historyId: historyRecord.id, ...data };
+      setCurrentHistoryId(data.historyId);
+      return data;
     },
     onSuccess: (data) => {
       // Show immediate success message
@@ -271,7 +220,7 @@ const AIJournalist = () => {
         title: "AI Journalist Started",
         description: `Processing ${count} artifacts in the background. Check history for progress.`,
       });
-      
+
       // Invalidate queries to refresh history list
       queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
     },
@@ -286,65 +235,59 @@ const AIJournalist = () => {
     }
   });
 
-  // Poll for status updates when running
+  // Poll for status updates when running. Replaces the Supabase realtime
+  // subscription with React Query polling (2000ms): check the queue for pending
+  // / processing items, and when it drains, read the final run status.
+  const { data: runProgress } = useQuery({
+    queryKey: ['ai-journalist-progress', currentHistoryId],
+    queryFn: async () => {
+      const queueItems = await api.get<{ status: string }[]>("/journalism-queue", {
+        historyId: currentHistoryId as string,
+      });
+      const active = queueItems.filter(
+        (i) => i.status === 'pending' || i.status === 'processing'
+      );
+      if (active.length > 0) {
+        return { done: false as const };
+      }
+      const history = await api.get<Pick<QueryHistory, 'status' | 'stories_count' | 'error_message'>>(
+        `/query-history/${currentHistoryId}`,
+      );
+      return { done: true as const, history };
+    },
+    enabled: isRunning && !!currentHistoryId,
+    refetchInterval: 2000,
+  });
+
   useEffect(() => {
-    if (!isRunning || !currentHistoryId) return;
+    if (!runProgress?.done) return;
 
-    const pollInterval = setInterval(async () => {
-      // Check if there are any pending or processing items in the queue
-      const { data: queueItems, error: queueError } = await supabase
-        .from('journalism_queue')
-        .select('status')
-        .eq('query_history_id', currentHistoryId)
-        .in('status', ['pending', 'processing']);
+    const { history } = runProgress;
+    setIsRunning(false);
 
-      if (queueError) {
-        console.error('Error polling queue:', queueError);
-        return;
-      }
+    queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    queryClient.invalidateQueries({ queryKey: ['stories'] });
 
-      // If no items are pending or processing, check final status
-      if (!queueItems || queueItems.length === 0) {
-        const { data: history, error: historyError } = await supabase
-          .from('query_history')
-          .select('status, stories_count, error_message')
-          .eq('id', currentHistoryId)
-          .single();
-
-        if (historyError) {
-          console.error('Error fetching history:', historyError);
-          return;
-        }
-
-        setIsRunning(false);
-        
-        queryClient.invalidateQueries({ queryKey: ['ai-journalist-history'] });
-        queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-        queryClient.invalidateQueries({ queryKey: ['stories'] });
-        
-        if (history.status === 'completed') {
-          toast({
-            title: "AI Journalist Complete!",
-            description: `Generated ${history.stories_count} stories`,
-          });
-        } else if (history.status === 'failed') {
-          toast({
-            title: "AI Journalist Failed",
-            description: history.error_message || "Unknown error",
-            variant: "destructive"
-          });
-        } else if (history.status === 'cancelled') {
-          toast({
-            title: "AI Journalist Cancelled",
-            description: "The process was stopped by user"
-          });
-        }
-        // Keep currentHistoryId set so the completed run stays visible
-      }
-    }, 3000); // Poll every 3 seconds
-
-    return () => clearInterval(pollInterval);
-  }, [isRunning, currentHistoryId, queryClient, toast]);
+    if (history.status === 'completed') {
+      toast({
+        title: "AI Journalist Complete!",
+        description: `Generated ${history.stories_count} stories`,
+      });
+    } else if (history.status === 'failed') {
+      toast({
+        title: "AI Journalist Failed",
+        description: history.error_message || "Unknown error",
+        variant: "destructive"
+      });
+    } else if (history.status === 'cancelled') {
+      toast({
+        title: "AI Journalist Cancelled",
+        description: "The process was stopped by user"
+      });
+    }
+    // Keep currentHistoryId set so the completed run stays visible.
+  }, [runProgress, queryClient, toast]);
 
   const handleRun = () => {
     setIsRunning(true);
@@ -410,7 +353,7 @@ const AIJournalist = () => {
         <TabsContent value="run" className="space-y-6">
           {/* Queue Processor - Shows active or last run status */}
           {currentHistoryId && (
-            <QueueProcessor 
+            <QueueProcessor
               historyId={currentHistoryId}
               isRunning={isRunning}
               onDismiss={!isRunning ? () => {
@@ -516,17 +459,17 @@ const AIJournalist = () => {
               </div>
 
               <div className="flex gap-2">
-                <Button 
+                <Button
                   variant={activeQuickDate === 7 ? "default" : "outline"}
-                  size="sm" 
+                  size="sm"
                   onClick={() => handleQuickDate(7)}
                   className={cn(activeQuickDate === 7 && "bg-blue-600 hover:bg-blue-700")}
                 >
                   Last 7 days
                 </Button>
-                  <Button 
+                  <Button
                     variant={activeQuickDate === 30 ? "default" : "outline"}
-                    size="sm" 
+                    size="sm"
                     onClick={() => handleQuickDate(30)}
                     className={cn(activeQuickDate === 30 && "bg-blue-600 hover:bg-blue-700")}
                   >
@@ -685,7 +628,7 @@ const AIJournalist = () => {
                 </>
               )}
             </Button>
-            
+
             {isRunning && (
               <Button
                 size="lg"

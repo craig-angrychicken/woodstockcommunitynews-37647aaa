@@ -1,5 +1,5 @@
-import { Navigate } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
+import { useEffect, useState } from "react";
+import { getAccessIdentity, type AccessIdentity } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface ProtectedRouteProps {
@@ -8,7 +8,29 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRouteProps) => {
-  const { user, loading, isAdmin } = useAuth();
+  // Cloudflare Access gates the entire SPA, so an anonymous user never reaches
+  // this component. We only need to confirm an Access identity is present and,
+  // for admin-only routes, that the identity qualifies as admin.
+  const [loading, setLoading] = useState(true);
+  const [identity, setIdentity] = useState<AccessIdentity | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getAccessIdentity()
+      .then((id) => {
+        if (active) setIdentity(id);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Treat any valid Access identity as admin for this single-operator tool,
+  // unless Access groups are present to scope it further.
+  const isAdmin = !!identity && (!identity.groups?.length || identity.groups.includes("admin"));
 
   if (loading) {
     return (
@@ -19,10 +41,6 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
         </div>
       </div>
     );
-  }
-
-  if (!user) {
-    return <Navigate to="/auth" replace />;
   }
 
   if (requireAdmin && !isAdmin) {

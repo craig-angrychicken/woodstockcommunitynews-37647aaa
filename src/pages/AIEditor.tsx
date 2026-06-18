@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,33 @@ import { Loader2, Sparkles, CheckCircle, Edit, Plus, Trash2 } from "lucide-react
 import { format } from "date-fns";
 import { formatUTCtoEST } from "@/lib/time-utils";
 
+// Shapes returned by the admin API (see workers/src/routes/admin/*).
+interface CronJobLog {
+  id: string;
+  job_name: string;
+  created_at: string;
+  schedule_check_passed: boolean;
+  error_message: string | null;
+  reason: string | null;
+}
+
+interface EditorPrompt {
+  id: string;
+  prompt_type: string;
+  version_name: string;
+  content: string;
+  is_active: boolean;
+  author: string | null;
+  update_notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Pipeline-stage result shapes returned by the editorial pipeline endpoints.
+interface FactCheckResult { checked?: number; flagged?: number; errors?: number }
+interface RewriteResult { rewritten?: number; errors?: number }
+interface EditorResult { published?: number; rejected?: number; featured?: number; skipped?: number; errors?: number }
+
 const AIEditor = () => {
   const queryClient = useQueryClient();
 
@@ -25,9 +52,9 @@ const AIEditor = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [runStage, setRunStage] = useState<"fact-check" | "rewrite" | "edit" | null>(null);
   const [runResult, setRunResult] = useState<{
-    factCheck?: { checked?: number; flagged?: number; errors?: number };
-    rewrite?: { rewritten?: number; errors?: number };
-    editor?: { published?: number; rejected?: number; featured?: number; skipped?: number; errors?: number };
+    factCheck?: FactCheckResult;
+    rewrite?: RewriteResult;
+    editor?: EditorResult;
   } | null>(null);
 
   // Schedule tab state
@@ -37,12 +64,12 @@ const AIEditor = () => {
   // Prompt tab state
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedPrompt, setSelectedPrompt] = useState<Record<string, unknown> | null>(null);
+  const [selectedPrompt, setSelectedPrompt] = useState<EditorPrompt | null>(null);
   const [promptToDelete, setPromptToDelete] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [editMode, setEditMode] = useState<"direct" | "new_version">("direct");
   const [editConfirmOpen, setEditConfirmOpen] = useState(false);
-  const [pendingEdit, setPendingEdit] = useState<{ prompt: Record<string, unknown>; mode: "direct" | "new_version" } | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<{ prompt: EditorPrompt; mode: "direct" | "new_version" } | null>(null);
 
   // Load existing schedule
   const { data: editorSchedule } = useSchedule("ai_editor");
@@ -57,30 +84,19 @@ const AIEditor = () => {
   // Fetch cron job logs for run-editor
   const { data: cronLogs } = useQuery({
     queryKey: ["cron-logs-editor"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("cron_job_logs")
-        .select("*")
-        .eq("job_name", "run-editor")
-        .order("created_at", { ascending: false })
-        .limit(5);
-      if (error) throw error;
-      return data;
-    },
+    queryFn: async () =>
+      api.get<CronJobLog[]>("/cron-job-logs/run-editor", { limit: 5 }),
   });
 
-  // Fetch editor prompts
+  // Fetch editor prompts (all versions of the editor type, newest first)
   const { data: prompts, isLoading: promptsLoading } = useQuery({
     queryKey: ["editor-prompts"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("prompt_versions")
-        .select("*")
-        .eq("prompt_type", "editor")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
-    },
+    queryFn: async () =>
+      api.get<EditorPrompt[]>("/prompt-versions", {
+        promptType: "editor",
+        activeOnly: false,
+        excludeTestDrafts: true,
+      }),
   });
 
   // Run full editorial pipeline mutation (fact-check → rewrite → edit)
@@ -88,18 +104,21 @@ const AIEditor = () => {
     mutationFn: async () => {
       // Stage 1: Fact-check
       setRunStage("fact-check");
-      const { data: factCheckData, error: factCheckError } = await supabase.functions.invoke("run-ai-fact-checker");
-      if (factCheckError) throw new Error(`Fact-checker failed: ${factCheckError.message}`);
+      const factCheckData = await api.post<FactCheckResult>("/pipeline/fact-checker").catch((e) => {
+        throw new Error(`Fact-checker failed: ${(e as Error).message}`);
+      });
 
       // Stage 2: Rewrite
       setRunStage("rewrite");
-      const { data: rewriteData, error: rewriteError } = await supabase.functions.invoke("run-ai-rewriter");
-      if (rewriteError) throw new Error(`Rewriter failed: ${rewriteError.message}`);
+      const rewriteData = await api.post<RewriteResult>("/pipeline/rewriter").catch((e) => {
+        throw new Error(`Rewriter failed: ${(e as Error).message}`);
+      });
 
       // Stage 3: Editor
       setRunStage("edit");
-      const { data: editorData, error: editorError } = await supabase.functions.invoke("run-ai-editor");
-      if (editorError) throw new Error(`Editor failed: ${editorError.message}`);
+      const editorData = await api.post<EditorResult>("/pipeline/editor").catch((e) => {
+        throw new Error(`Editor failed: ${(e as Error).message}`);
+      });
 
       return { factCheck: factCheckData, rewrite: rewriteData, editor: editorData };
     },
@@ -126,8 +145,7 @@ const AIEditor = () => {
   // Delete prompt mutation
   const deleteMutation = useMutation({
     mutationFn: async (promptId: string) => {
-      const { error } = await supabase.from("prompt_versions").delete().eq("id", promptId);
-      if (error) throw error;
+      await api.delete(`/prompt-versions/${promptId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["editor-prompts"] });
@@ -147,17 +165,10 @@ const AIEditor = () => {
       const prompt = prompts?.find((p) => p.id === promptId);
       if (!prompt) throw new Error("Prompt not found");
 
-      const { error: deactivateError } = await supabase
-        .from("prompt_versions")
-        .update({ is_active: false })
-        .eq("prompt_type", prompt.prompt_type);
-      if (deactivateError) throw deactivateError;
-
-      const { error: activateError } = await supabase
-        .from("prompt_versions")
-        .update({ is_active: true })
-        .eq("id", promptId);
-      if (activateError) throw activateError;
+      // Atomic deactivate-all-of-type + activate-target on the server.
+      await api.patch(`/prompt-versions/${promptId}/activate`, {
+        promptType: prompt.prompt_type,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["editor-prompts"] });
@@ -168,7 +179,7 @@ const AIEditor = () => {
     },
   });
 
-  const handleEdit = (prompt: Record<string, unknown>, mode: "direct" | "new_version") => {
+  const handleEdit = (prompt: EditorPrompt, mode: "direct" | "new_version") => {
     if (mode === "direct" && prompt.is_active) {
       setPendingEdit({ prompt, mode });
       setEditConfirmOpen(true);
@@ -461,10 +472,10 @@ const AIEditor = () => {
       <EditPromptModal
         open={editModalOpen}
         onOpenChange={setEditModalOpen}
-        promptId={isCreating ? null : selectedPrompt?.id as string | undefined}
+        promptId={isCreating ? null : selectedPrompt?.id}
         promptType="editor"
-        currentContent={(selectedPrompt?.content as string) || ""}
-        currentVersionName={(selectedPrompt?.version_name as string) || ""}
+        currentContent={selectedPrompt?.content || ""}
+        currentVersionName={selectedPrompt?.version_name || ""}
         isTestDraft={false}
         editMode={editMode}
         onSuccess={() => {

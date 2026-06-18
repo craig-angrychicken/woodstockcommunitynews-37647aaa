@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,16 @@ interface Model {
   context_length?: number;
 }
 
+interface OpenRouterModelsResponse {
+  success: boolean;
+  models: Model[];
+}
+
+interface ModelConfig {
+  model_name: string;
+  model_provider: string;
+}
+
 const Models = () => {
   const queryClient = useQueryClient();
   const [selectedModel, setSelectedModel] = useState<string>("");
@@ -28,9 +38,7 @@ const Models = () => {
   const { data: modelsData, isLoading: modelsLoading, refetch: refetchModels } = useQuery({
     queryKey: ["openrouter-models"],
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke("fetch-openrouter-models");
-      if (error) throw error;
-      return data;
+      return await api.get<OpenRouterModelsResponse>("/openrouter-models");
     },
   });
 
@@ -38,14 +46,10 @@ const Models = () => {
   const { data: modelConfig, isLoading: configLoading } = useQuery({
     queryKey: ["ai-model-config"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("app_settings")
-        .select("value")
-        .eq("key", "ai_model_config")
-        .single();
-      
-      if (error) throw error;
-      return data?.value as { model_name: string; model_provider: string };
+      const data = await api.get<{ value: ModelConfig } | null>(
+        "/app-settings/ai_model_config",
+      );
+      return data?.value ?? null;
     },
   });
 
@@ -59,36 +63,25 @@ const Models = () => {
   // Update model mutation
   const updateModelMutation = useMutation({
     mutationFn: async (modelName: string) => {
-      // Check if setting exists
-      const { data: existing } = await supabase
-        .from("app_settings")
-        .select("id")
-        .eq("key", "ai_model_config")
-        .single();
-
-      const newValue = {
+      const newValue: ModelConfig = {
         model_name: modelName,
         model_provider: "openrouter",
       };
 
+      // Check if setting exists (GET returns null when absent)
+      const existing = await api.get<{ value: ModelConfig } | null>(
+        "/app-settings/ai_model_config",
+      );
+
       if (existing) {
         // Update existing setting
-        const { error } = await supabase
-          .from("app_settings")
-          .update({ value: newValue })
-          .eq("key", "ai_model_config");
-
-        if (error) throw error;
+        await api.patch("/app-settings/ai_model_config", { value: newValue });
       } else {
         // Insert new setting
-        const { error } = await supabase
-          .from("app_settings")
-          .insert({
-            key: "ai_model_config",
-            value: newValue,
-          });
-
-        if (error) throw error;
+        await api.post("/app-settings", {
+          key: "ai_model_config",
+          value: newValue,
+        });
       }
     },
     onSuccess: () => {
@@ -142,8 +135,8 @@ const Models = () => {
             Choose the AI model for journalism story generation
           </p>
         </div>
-        <Button 
-          onClick={() => refetchModels()} 
+        <Button
+          onClick={() => refetchModels()}
           variant="outline"
           disabled={modelsLoading}
         >
@@ -190,7 +183,7 @@ const Models = () => {
                   </p>
                 </div>
                 {selectedModel !== modelConfig?.model_name && (
-                  <Button 
+                  <Button
                     onClick={handleSaveModel}
                     disabled={updateModelMutation.isPending}
                   >

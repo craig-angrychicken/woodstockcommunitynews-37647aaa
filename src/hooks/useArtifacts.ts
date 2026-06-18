@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 interface ArtifactsFilters {
   environment?: "production" | "test" | "all";
@@ -10,52 +10,30 @@ interface ArtifactsFilters {
   usageStatus?: "all" | "used" | "unused";
 }
 
+// Shape returned by GET /api/admin/artifacts and /api/admin/artifacts/:id —
+// the worker reshapes the flat join into the nested source/story_artifacts
+// objects the SPA components expect (see workers/src/routes/admin/artifacts.ts).
+interface Artifact {
+  id: string;
+  source: { name: string | null; type: string | null } | null;
+  story_artifacts: { story: { id: string; title: string | null } }[];
+  [key: string]: unknown;
+}
+
 export const useArtifacts = (filters?: ArtifactsFilters) => {
   return useQuery({
     queryKey: ["artifacts", filters],
     queryFn: async () => {
-      let query = supabase
-        .from("artifacts")
-        .select(`
-          *,
-          source:sources(name, type),
-          story_artifacts(
-            story:stories(id, title)
-          )
-        `)
-        .order("date", { ascending: false });
-
-      // Apply filters
-      if (filters?.sourceId) {
-        query = query.eq("source_id", filters.sourceId);
-      }
-
-      if (filters?.dateFrom) {
-        query = query.gte("date", filters.dateFrom);
-      }
-
-      if (filters?.dateTo) {
-        query = query.lte("date", filters.dateTo);
-      }
-
-      if (filters?.searchQuery) {
-        query = query.or(
-          `title.ilike.%${filters.searchQuery}%,content.ilike.%${filters.searchQuery}%,name.ilike.%${filters.searchQuery}%`
-        );
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-
-      // Filter by usage status
-      if (filters?.usageStatus === "used") {
-        return data?.filter((artifact) => artifact.story_artifacts?.length > 0);
-      } else if (filters?.usageStatus === "unused") {
-        return data?.filter((artifact) => !artifact.story_artifacts?.length);
-      }
-
-      return data;
+      // Filtering (sourceId, dateFrom, dateTo, searchQuery, usageStatus) is
+      // applied server-side; pass them as query params.
+      const { artifacts } = await api.get<{ artifacts: Artifact[] }>("/artifacts", {
+        sourceId: filters?.sourceId,
+        dateFrom: filters?.dateFrom,
+        dateTo: filters?.dateTo,
+        searchQuery: filters?.searchQuery,
+        usageStatus: filters?.usageStatus,
+      });
+      return artifacts;
     },
   });
 };
@@ -64,20 +42,8 @@ export const useArtifact = (artifactId: string) => {
   return useQuery({
     queryKey: ["artifacts", artifactId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("artifacts")
-        .select(`
-          *,
-          source:sources(name, type),
-          story_artifacts(
-            story:stories(id, title)
-          )
-        `)
-        .eq("id", artifactId)
-        .single();
-
-      if (error) throw error;
-      return data;
+      const { artifact } = await api.get<{ artifact: Artifact }>(`/artifacts/${artifactId}`);
+      return artifact;
     },
     enabled: !!artifactId,
   });

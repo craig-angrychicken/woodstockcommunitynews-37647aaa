@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import type { Tables } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,22 +31,17 @@ const Prompts = () => {
   } = useQuery({
     queryKey: ["prompts"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("prompt_versions")
-        .select("*")
-        .eq("prompt_type", "journalism")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data;
+      const data = await api.get<Tables<"prompt_versions">[]>(
+        "/prompt-versions/history"
+      );
+      return data.filter((p) => p.prompt_type === "journalism");
     },
   });
 
   // Delete prompt mutation
   const deleteMutation = useMutation({
     mutationFn: async (promptId: string) => {
-      const { error } = await supabase.from("prompt_versions").delete().eq("id", promptId);
-      if (error) throw error;
+      await api.delete(`/prompt-versions/${promptId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prompts"] });
@@ -99,21 +95,10 @@ const Prompts = () => {
       const prompt = prompts?.find(p => p.id === promptId);
       if (!prompt) throw new Error("Prompt not found");
 
-      // Deactivate other prompts of the same type
-      const { error: deactivateError } = await supabase
-        .from("prompt_versions")
-        .update({ is_active: false })
-        .eq("prompt_type", prompt.prompt_type);
-
-      if (deactivateError) throw deactivateError;
-
-      // Activate selected prompt
-      const { error: activateError } = await supabase
-        .from("prompt_versions")
-        .update({ is_active: true })
-        .eq("id", promptId);
-
-      if (activateError) throw activateError;
+      // Atomic activation: deactivate others of this type, then activate target
+      await api.patch(`/prompt-versions/${promptId}/activate`, {
+        promptType: prompt.prompt_type,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prompts"] });

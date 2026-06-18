@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { useAllSources } from "@/hooks/useSources";
 import { StoryCard } from "@/components/stories/StoryCard";
 import { StoryDetailModal } from "@/components/stories/StoryDetailModal";
 import { ArtifactsModal } from "@/components/stories/ArtifactsModal";
@@ -34,6 +35,19 @@ interface Story {
   featured: boolean;
 }
 
+// Shape returned by GET /api/admin/artifacts — the worker nests `source` and
+// `story_artifacts: [{ story: { id, title } }]` (see workers/src/routes/admin/artifacts.ts).
+interface Artifact {
+  id: string;
+  title: string | null;
+  name: string;
+  date: string | null;
+  guid: string | null;
+  source_id: string | null;
+  source: { name: string | null; type: string | null } | null;
+  story_artifacts: { story: { id: string; title: string | null } }[];
+}
+
 const Stories = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -49,30 +63,21 @@ const Stories = () => {
   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showArtifactsModal, setShowArtifactsModal] = useState(false);
-  // Fetch stories
+  // Fetch stories — GET /api/admin/stories returns { stories: [...] } (stories.*
+  // plus a nested source from the LEFT JOIN); ordered by created_at DESC server-side.
   const { data: stories, isLoading } = useQuery({
     queryKey: ['stories'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('stories')
-        .select('id, title, content, status, editor_notes, is_test, article_type, prompt_version_id, created_at, environment, ghost_url, hero_image_url, published_at, source_id, guid, featured')
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      return data;
+      const { stories } = await api.get<{ stories: Story[] }>('/stories');
+      return stories;
     }
   });
 
-  // Fetch story artifact counts for all stories
+  // Fetch story artifact counts for all stories.
+  // GET /api/admin/story-artifacts/count returns an array of { artifact_id, story_id }.
   const { data: allStoryArtifacts } = useQuery({
     queryKey: ['all-story-artifact-counts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('story_artifacts')
-        .select('story_id');
-      if (error) throw error;
-      return data;
-    }
+    queryFn: () => api.get<{ artifact_id: string; story_id: string }[]>('/story-artifacts/count')
   });
 
   const storySourceCounts = useMemo(() => {
@@ -83,51 +88,28 @@ const Stories = () => {
     return counts;
   }, [allStoryArtifacts]);
 
-  // Fetch sources for filter dropdown
-  const { data: sources } = useQuery({
-    queryKey: ['sources'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('sources').select('id, name');
-      if (error) throw error;
-      return data;
-    }
-  });
+  // Fetch sources for filter dropdown — GET /api/admin/sources (array of source rows).
+  const { data: sources } = useAllSources();
 
-  // Fetch story artifacts
+  // Fetch story artifacts — there is no documented artifacts-by-story endpoint, so
+  // we use GET /api/admin/artifacts (each artifact carries a nested `source` and its
+  // `story_artifacts: [{ story: { id } }]`) and keep only those linked to this story.
   const { data: storyArtifacts } = useQuery({
     queryKey: ['story-artifacts', selectedStory?.id],
     enabled: !!selectedStory?.id && showArtifactsModal,
     queryFn: async () => {
-      const { data: junctionData, error: junctionError } = await supabase
-        .from('story_artifacts')
-        .select('artifact_id')
-        .eq('story_id', selectedStory!.id);
-      
-      if (junctionError) throw junctionError;
-      
-      if (!junctionData || junctionData.length === 0) return [];
-      
-      const artifactIds = junctionData.map(j => j.artifact_id);
-      
-      const { data: artifactsData, error: artifactsError } = await supabase
-        .from('artifacts')
-        .select(`
-          id,
-          title,
-          name,
-          date,
-          guid,
-          source_id,
-          sources (name)
-        `)
-        .in('id', artifactIds);
-      
-      if (artifactsError) throw artifactsError;
-      
-      return artifactsData.map(artifact => ({
-        ...artifact,
-        source_name: artifact.sources?.name
-      }));
+      const { artifacts } = await api.get<{ artifacts: Artifact[] }>('/artifacts');
+      return artifacts
+        .filter(a => a.story_artifacts?.some(sa => sa.story?.id === selectedStory!.id))
+        .map(a => ({
+          id: a.id,
+          title: a.title,
+          name: a.name,
+          date: a.date,
+          guid: a.guid,
+          source_id: a.source_id,
+          source_name: a.source?.name ?? undefined,
+        }));
     }
   });
 
@@ -163,15 +145,14 @@ const Stories = () => {
     return filtered;
   }, [stories, statusFilter, environmentFilter, typeFilter, sourceFilter, dateRangeFilter]);
 
-  // Update story mutation
+  // Update story mutation (content save + reject).
+  // NOTE: no story-update endpoint is documented in ADMIN_API_SPEC.md / the stories
+  // router (which only exposes GET list, GET :id, DELETE :id, and POST :id/publish).
+  // Routed to the natural REST endpoint PATCH /api/admin/stories/:id; this worker
+  // route still needs to be added on the backend.
   const updateStoryMutation = useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Record<string, unknown> }) => {
-      const { error } = await supabase
-        .from('stories')
-        .update(updates)
-        .eq('id', id);
-      if (error) throw error;
-    },
+    mutationFn: ({ id, updates }: { id: string; updates: Record<string, unknown> }) =>
+      api.patch(`/stories/${id}`, updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stories'] });
       toast({ title: "Success", description: "Story updated successfully" });
@@ -185,12 +166,9 @@ const Stories = () => {
     }
   });
 
-  // Delete story mutation
+  // Delete story mutation — DELETE /api/admin/stories/:id (cascades junction rows).
   const deleteStoryMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('stories').delete().eq('id', id);
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => api.delete(`/stories/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stories'] });
       toast({ title: "Success", description: "Story deleted successfully" });

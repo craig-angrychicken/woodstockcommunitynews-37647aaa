@@ -1,5 +1,6 @@
 import { LogOut, User } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { accessLogout } from "@/lib/api";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 export const UserMenu = () => {
-  const { user, isAdmin, signOut } = useAuth();
+  const { user, isAdmin } = useAuth();
 
   if (!user) return null;
 
@@ -35,7 +36,7 @@ export const UserMenu = () => {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={signOut} className="cursor-pointer">
+        <DropdownMenuItem onClick={() => accessLogout()} className="cursor-pointer">
           <LogOut className="mr-2 h-4 w-4" />
           <span>Sign out</span>
         </DropdownMenuItem>

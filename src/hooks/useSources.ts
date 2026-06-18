@@ -1,66 +1,34 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import type { Tables } from "@/integrations/supabase/types";
+
+type Source = Tables<"sources">;
 
 export const useActiveSources = () => {
   return useQuery({
     queryKey: ["sources", "active"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sources")
-        .select("*")
-        .eq("status", "active")
-        .order("name");
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api.get<Source[]>("/sources", { status: "active" }),
   });
 };
 
 export const useTestSources = () => {
   return useQuery({
     queryKey: ["sources", "testing"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sources")
-        .select("*")
-        .eq("status", "testing")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api.get<Source[]>("/sources", { status: "testing" }),
   });
 };
 
 export const useAllSources = () => {
   return useQuery({
     queryKey: ["sources", "all"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sources")
-        .select("*")
-        .order("name");
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api.get<Source[]>("/sources", { status: "all" }),
   });
 };
 
 export const useSource = (sourceId: string) => {
   return useQuery({
     queryKey: ["sources", sourceId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sources")
-        .select("*")
-        .eq("id", sourceId)
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api.get<Source>(`/sources/${sourceId}`),
     enabled: !!sourceId,
   });
 };
@@ -68,15 +36,6 @@ export const useSource = (sourceId: string) => {
 export const useSourcesByType = (type: string) => {
   return useQuery({
     queryKey: ["sources", "type", type],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sources")
-        .select("*")
-        .eq("type", type)
-        .order("name");
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api.get<Source[]>(`/sources/type/${type}`),
   });
 };

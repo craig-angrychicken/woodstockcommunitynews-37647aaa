@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import type { Tables } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,10 @@ import { ScheduleTimeSelector } from "@/components/scheduling/ScheduleTimeSelect
 import { SaveScheduleButton } from "@/components/scheduling/SaveScheduleButton";
 import { useSchedule } from "@/hooks/useSchedules";
 
+type SourceRow = Tables<"sources">;
+type PromptVersionRow = Tables<"prompt_versions">;
+type QueryHistoryRow = Tables<"query_history">;
+
 // Extended query_history fields that exist at runtime but not in generated Supabase types
 interface QueryHistoryExt {
   sources_processed?: number;
@@ -42,17 +47,17 @@ const ManualQuery = () => {
   const [environment, setEnvironment] = useState<"production" | "test">("test");
   const [promptMode] = useState<"active" | "select">("active");
   const [selectedPromptVersion] = useState<string>("");
-  
+
   const [isRunning, setIsRunning] = useState(false);
   const [activeQuickDate, setActiveQuickDate] = useState<number | null>(7);
-  
+
   // Scheduling state
   const [fetchScheduleTimes, setFetchScheduleTimes] = useState<string[]>([]);
   const [fetchScheduleEnabled, setFetchScheduleEnabled] = useState(false);
-  
+
   // Load existing schedule
   const { data: existingSchedule } = useSchedule("artifact_fetch");
-  
+
   useEffect(() => {
     if (existingSchedule) {
       setFetchScheduleTimes(existingSchedule.scheduled_times || []);
@@ -60,49 +65,47 @@ const ManualQuery = () => {
     }
   }, [existingSchedule]);
 
-  // Fetch sources
+  // Fetch sources — GET /api/admin/sources?status=all, then keep only active/testing
+  // (the API does exact-match or 'all'; the original used .in(['active','testing'])).
   const { data: sources } = useQuery({
     queryKey: ['sources'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('sources')
-        .select('*')
-        .in('status', ['active', 'testing'])
-        .order('name');
-      if (error) throw error;
-      return data;
+      const rows = await api.get<SourceRow[]>('/sources', { status: 'all' });
+      return rows
+        .filter(s => s.status === 'active' || s.status === 'testing')
+        .sort((a, b) => a.name.localeCompare(b.name));
     }
   });
 
-  // Fetch prompt versions
+  // Fetch prompt versions — GET /api/admin/prompt-versions (active, non-test-draft).
+  // Used to resolve the active journalism prompt and to label history rows.
   const { data: promptVersions } = useQuery({
     queryKey: ['prompt-versions'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('prompt_versions')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data;
-    }
+    queryFn: () =>
+      api.get<PromptVersionRow[]>('/prompt-versions', {
+        activeOnly: true,
+        excludeTestDrafts: true,
+      }),
   });
 
-  // Fetch query history — only manual fetch-artifacts runs
+  // Fetch query history — only manual fetch-artifacts runs.
+  // GET /api/admin/query-history returns raw query_history rows (no prompt_versions
+  // join, no run_stages filter, no limit), so we filter/limit client-side and resolve
+  // version_name from the prompt-versions list above.
   const { data: queryHistory } = useQuery({
     queryKey: ['query-history'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('query_history')
-        .select(`
-          *,
-          prompt_versions (version_name)
-        `)
-        .eq('run_stages', 'manual')
-        .order('created_at', { ascending: false })
-        .limit(10);
-      if (error) throw error;
-      return data;
-    }
+      const rows = await api.get<QueryHistoryRow[]>('/query-history');
+      return rows
+        .filter(r => r.run_stages === 'manual')
+        .slice(0, 10)
+        .map(r => ({
+          ...r,
+          prompt_versions: r.prompt_version_id
+            ? { version_name: promptVersions?.find(p => p.id === r.prompt_version_id)?.version_name }
+            : null,
+        }));
+    },
   });
 
   const activePromptVersion = useMemo(
@@ -113,20 +116,15 @@ const ManualQuery = () => {
   // Track current running history ID
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
 
-  // Poll for progress updates when query is running
+  // Poll for progress updates when query is running.
+  // GET /api/admin/query-history/:id (replaces the Supabase realtime subscription).
   const { data: currentProgress } = useQuery({
     queryKey: ['query-progress', currentHistoryId],
     queryFn: async () => {
       if (!currentHistoryId) return null;
-      
-      const { data, error } = await supabase
-        .from('query_history')
-        .select('*')
-        .eq('id', currentHistoryId)
-        .single();
-      
-      if (error) throw error;
-      
+
+      const data = await api.get<QueryHistoryRow>(`/query-history/${currentHistoryId}`);
+
       // Stop polling and notify when query completes or fails
       if (data.status !== 'running') {
         setIsRunning(false);
@@ -146,7 +144,7 @@ const ManualQuery = () => {
           });
         }
       }
-      
+
       return data;
     },
     enabled: !!currentHistoryId && isRunning,
@@ -157,23 +155,18 @@ const ManualQuery = () => {
   const displayQuery = currentProgress || null;
 
   // Detect stale queries (running for > 5 minutes)
-  const isStaleQuery = displayQuery?.status === 'running' && 
+  const isStaleQuery = displayQuery?.status === 'running' &&
     displayQuery?.created_at &&
     new Date().getTime() - new Date(displayQuery.created_at).getTime() > 5 * 60 * 1000;
 
-  // Cancel query mutation
+  // Cancel query mutation — PATCH /api/admin/query-history/:id.
   const cancelQueryMutation = useMutation({
     mutationFn: async (historyId: string) => {
-      const { error } = await supabase
-        .from('query_history')
-        .update({
-          status: 'failed',
-          error_message: 'Cancelled by user',
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', historyId);
-
-      if (error) throw error;
+      await api.patch(`/query-history/${historyId}`, {
+        status: 'failed',
+        error_message: 'Cancelled by user',
+        completed_at: new Date().toISOString(),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['query-history'] });
@@ -200,30 +193,25 @@ const ManualQuery = () => {
         throw new Error('Please select at least one source');
       }
 
-      const promptVersionId = promptMode === 'active' 
-        ? activePromptVersion?.id 
+      const promptVersionId = promptMode === 'active'
+        ? activePromptVersion?.id
         : selectedPromptVersion;
 
       if (!promptVersionId) {
         throw new Error('No prompt version selected');
       }
 
-      // Create history record
-      const { data: historyRecord, error: historyError } = await supabase
-        .from('query_history')
-        .insert({
-          date_from: dateFrom.toISOString(),
-          date_to: dateTo.toISOString(),
-          environment,
-          prompt_version_id: promptVersionId,
-          source_ids: selectedSources,
-          run_stages: 'manual',
-          status: 'running'
-        })
-        .select()
-        .single();
-
-      if (historyError) throw historyError;
+      // Create the shared history record first so both fetch calls report against
+      // the same run. POST /api/admin/query-history.
+      const historyRecord = await api.post<QueryHistoryRow>('/query-history', {
+        date_from: dateFrom.toISOString(),
+        date_to: dateTo.toISOString(),
+        environment,
+        prompt_version_id: promptVersionId,
+        source_ids: selectedSources,
+        run_stages: 'manual',
+        status: 'running',
+      });
 
       // Store the history ID for polling — do this before invoking
       setCurrentHistoryId(historyRecord.id);
@@ -237,33 +225,29 @@ const ManualQuery = () => {
       );
 
       // Fire-and-forget: don't await the response.
-      // The function can take 60-90s for many sources; the browser will time out
+      // The pipeline can take 60-90s for many sources; the browser will time out
       // waiting. Instead, the query_history polling below detects completion.
       if (rssSources.length > 0) {
         console.log('📡 Fetching RSS feeds:', rssSources.length);
-        supabase.functions.invoke('fetch-rss-feeds', {
-          body: {
-            dateFrom: dateFrom.toISOString(),
-            dateTo: dateTo.toISOString(),
-            sourceIds: rssSources,
-            environment,
-            queryHistoryId: historyRecord.id
-          }
+        api.post('/pipeline/fetch-rss', {
+          dateFrom: dateFrom.toISOString(),
+          dateTo: dateTo.toISOString(),
+          sourceIds: rssSources,
+          environment,
+          queryHistoryId: historyRecord.id
         }).catch(err => {
-          console.warn('fetch-rss-feeds connection closed (function still running):', err?.message);
+          console.warn('fetch-rss connection closed (pipeline still running):', err?.message);
         });
       }
 
       if (webPageSources.length > 0) {
         console.log('🌐 Fetching Web Pages:', webPageSources.length);
-        supabase.functions.invoke('fetch-web-pages', {
-          body: {
-            sourceIds: webPageSources,
-            environment,
-            queryHistoryId: historyRecord.id
-          }
+        api.post('/pipeline/fetch-web-pages', {
+          sourceIds: webPageSources,
+          environment,
+          queryHistoryId: historyRecord.id
         }).catch(err => {
-          console.warn('fetch-web-pages connection closed (function still running):', err?.message);
+          console.warn('fetch-web-pages connection closed (pipeline still running):', err?.message);
         });
       }
 
@@ -277,7 +261,7 @@ const ManualQuery = () => {
       });
     },
     onError: (error: Error) => {
-      // Only fires for DB errors (history insert), not function timeouts
+      // Only fires for the history-create error, not pipeline timeouts
       toast({
         title: "Failed to Start Fetch",
         description: error.message,
@@ -379,7 +363,7 @@ const ManualQuery = () => {
                     </AlertDescription>
                   </Alert>
                 )}
-                
+
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span>Sources Progress</span>
@@ -394,22 +378,22 @@ const ManualQuery = () => {
                     }
                   />
                 </div>
-                
+
                 {((displayQuery as QueryHistoryExt).sources_failed || 0) > 0 && (
                   <div className="text-sm text-yellow-600 dark:text-yellow-500">
                     ⚠️ {(displayQuery as QueryHistoryExt).sources_failed} source(s) failed to process
                   </div>
                 )}
-                
+
                     <div className="text-sm">
                       <div className="text-muted-foreground">Artifacts Found</div>
                       <div className="text-2xl font-bold">{displayQuery.artifacts_count || 0}</div>
                     </div>
-                
+
                 {displayQuery.status === 'running' && (
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => {
                       setIsRunning(false);
                       setCurrentHistoryId(null);
@@ -500,17 +484,17 @@ const ManualQuery = () => {
               </div>
 
               <div className="flex gap-2">
-                <Button 
+                <Button
                   variant={activeQuickDate === 7 ? "default" : "outline"}
-                  size="sm" 
+                  size="sm"
                   onClick={() => handleQuickDate(7)}
                   className={cn(activeQuickDate === 7 && "bg-blue-600 hover:bg-blue-700")}
                 >
                   Last 7 days
                 </Button>
-                <Button 
+                <Button
                   variant={activeQuickDate === 30 ? "default" : "outline"}
-                  size="sm" 
+                  size="sm"
                   onClick={() => handleQuickDate(30)}
                   className={cn(activeQuickDate === 30 && "bg-blue-600 hover:bg-blue-700")}
                 >
@@ -611,7 +595,7 @@ const ManualQuery = () => {
                 </>
               )}
             </Button>
-            
+
             {isRunning && (
               <Button
                 size="lg"
@@ -712,7 +696,7 @@ const ManualQuery = () => {
                   onCheckedChange={setFetchScheduleEnabled}
                 />
               </div>
-              
+
               <ScheduleTimeSelector
                 scheduledTimes={fetchScheduleTimes}
                 onChange={setFetchScheduleTimes}

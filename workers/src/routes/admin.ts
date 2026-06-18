@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "../env";
 import { verifyAccess } from "../_shared/auth";
+import { first } from "../_shared/db";
 import { sourcesRouter } from "./admin/sources";
 import { storiesAdminRouter } from "./admin/stories";
 import { artifactsRouter } from "./admin/artifacts";
@@ -19,6 +20,19 @@ export const admin = new Hono<{ Bindings: Env }>();
 admin.use("*", async (c, next) => {
   if (!(await verifyAccess(c.req.raw, c.env))) return c.json({ error: "unauthorized" }, 401);
   await next();
+});
+
+// Dashboard summary counts (replaces the SPA's 3 count:exact queries).
+admin.get("/dashboard-stats", async (c) => {
+  const row = await first<{ stories: number; artifacts: number; sources: number; total_size_mb: number }>(
+    c.env,
+    `select
+       (select count(*) from stories) as stories,
+       (select count(*) from artifacts) as artifacts,
+       (select count(*) from sources) as sources,
+       (select coalesce(sum(size_mb), 0) from artifacts) as total_size_mb`,
+  );
+  return c.json(row ?? { stories: 0, artifacts: 0, sources: 0, total_size_mb: 0 });
 });
 
 admin.route("/", sourcesRouter);

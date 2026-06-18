@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,12 @@ interface QueueItem {
   };
 }
 
+interface HistoryDetails {
+  created_at: string;
+  completed_at: string | null;
+  status: string;
+}
+
 interface QueueProcessorProps {
   historyId: string | null;
   isRunning: boolean;
@@ -27,87 +33,22 @@ interface QueueProcessorProps {
 }
 
 export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcessorProps) => {
-  const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
-  const [, setLoading] = useState(false);
-  const [historyDetails, setHistoryDetails] = useState<{
-    created_at: string;
-    completed_at: string | null;
-    status: string;
-  } | null>(null);
+  // History details for the run header (started/completed timestamps).
+  const { data: historyDetails = null } = useQuery({
+    queryKey: ["query-history", historyId],
+    queryFn: () => api.get<HistoryDetails>(`/query-history/${historyId}`),
+    enabled: !!historyId,
+  });
 
-  useEffect(() => {
-    if (!historyId) {
-      setQueueItems([]);
-      setHistoryDetails(null);
-      return;
-    }
-
-    setLoading(true);
-
-    // Fetch history details and queue
-    const fetchData = async () => {
-      // Fetch history details
-      const { data: historyData } = await supabase
-        .from("query_history")
-        .select("created_at, completed_at, status")
-        .eq("id", historyId)
-        .single();
-
-      if (historyData) {
-        setHistoryDetails(historyData);
-      }
-
-      // Fetch queue
-      const { data, error } = await supabase
-        .from("journalism_queue")
-        .select(`
-          *,
-          artifact:artifacts(title, name)
-        `)
-        .eq("query_history_id", historyId)
-        .order("position", { ascending: true });
-
-      if (error) {
-        console.error("Error fetching queue:", error);
-        setLoading(false);
-        return;
-      }
-
-      setQueueItems((data as QueueItem[]) || []);
-      setLoading(false);
-    };
-
-    fetchData();
-
-    // Subscribe to realtime updates
-    const channel = supabase
-      .channel(`journalism_queue_${historyId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "journalism_queue",
-          filter: `query_history_id=eq.${historyId}`,
-        },
-        (payload) => {
-          if (payload.eventType === "INSERT") {
-            setQueueItems((prev) => [...prev, payload.new as QueueItem].sort((a, b) => a.position - b.position));
-          } else if (payload.eventType === "UPDATE") {
-            setQueueItems((prev) =>
-              prev.map((item) => (item.id === payload.new.id ? (payload.new as QueueItem) : item))
-            );
-          } else if (payload.eventType === "DELETE") {
-            setQueueItems((prev) => prev.filter((item) => item.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [historyId]);
+  // Queue items, joined to their artifact. Replaces the Supabase realtime
+  // subscription with React Query polling (1000ms while mounted with a run).
+  const { data: queueItems = [] } = useQuery({
+    queryKey: ["journalism-queue", historyId],
+    queryFn: () =>
+      api.get<QueueItem[]>("/journalism-queue", { historyId: historyId as string }),
+    enabled: !!historyId,
+    refetchInterval: 1000,
+  });
 
   if (!historyId) {
     return null;
@@ -121,7 +62,7 @@ export const QueueProcessor = ({ historyId, isRunning, onDismiss }: QueueProcess
   const progress = total > 0 ? ((completed + failed) / total) * 100 : 0;
   const isComplete = pending === 0 && !processing;
 
-  const statusConfig = isRunning 
+  const statusConfig = isRunning
     ? { icon: Loader2, text: "Running", variant: "default" as const, iconClass: "animate-spin text-primary" }
     : isComplete && failed === 0
     ? { icon: CheckCircle, text: "Completed", variant: "secondary" as const, iconClass: "text-green-500" }

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { useSchedule } from "@/hooks/useSchedules";
 import { Link } from "react-router-dom";
 import {
   FileText,
@@ -24,24 +25,28 @@ const Dashboard = () => {
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
-      const [storiesRes, artifactsRes, sourcesRes] = await Promise.all([
-        supabase.from('stories').select('*', { count: 'exact', head: false }),
-        supabase.from('artifacts').select('size_mb', { count: 'exact', head: false }),
-        supabase.from('sources').select('*', { count: 'exact', head: false })
+      const [summary, pendingRes, publishedRes] = await Promise.all([
+        // Aggregate counts + storage in a single endpoint.
+        api.get<{ stories: number; artifacts: number; sources: number; total_size_mb: number }>(
+          '/dashboard-stats'
+        ),
+        // Status-specific counts via the stories list filter.
+        api.get<{ stories: unknown[] }>('/stories', { status: 'pending' }),
+        api.get<{ stories: unknown[] }>('/stories', { status: 'published' })
       ]);
 
-      const pendingStories = storiesRes.data?.filter(s => s.status === 'pending').length || 0;
-      
-      const totalPublished = storiesRes.data?.filter(s => s.status === 'published').length || 0;
+      const pendingStories = pendingRes.stories.length;
 
-      const totalStorageMB = artifactsRes.data?.reduce((sum, a) => sum + Number(a.size_mb), 0) || 0;
+      const totalPublished = publishedRes.stories.length;
+
+      const totalStorageMB = Number(summary.total_size_mb) || 0;
 
       return {
         pendingStories,
         totalPublished,
         totalStorageMB: totalStorageMB.toFixed(2),
-        totalSources: sourcesRes.count || 0,
-        totalArtifacts: artifactsRes.count || 0
+        totalSources: summary.sources || 0,
+        totalArtifacts: summary.artifacts || 0
       };
     }
   });
@@ -50,42 +55,36 @@ const Dashboard = () => {
   const { data: recentActivity, isLoading: activityLoading } = useQuery({
     queryKey: ['recent-activity'],
     queryFn: async () => {
-      const [lastPublished, recentSources] = await Promise.all([
-        supabase
-          .from('stories')
-          .select('title, published_at, created_at')
-          .eq('status', 'published')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from('sources')
-          .select('name, created_at, last_fetch_at, items_fetched')
-          .order('created_at', { ascending: false })
-          .limit(3)
+      type StoryRow = { title: string | null; published_at: string | null; created_at: string };
+      type SourceRow = {
+        name: string | null;
+        created_at: string;
+        last_fetch_at: string | null;
+        items_fetched: number | null;
+      };
+
+      const [publishedRes, sources] = await Promise.all([
+        // Published stories ordered by created_at DESC — take the most recent.
+        api.get<{ stories: StoryRow[] }>('/stories', { status: 'published' }),
+        // Sources list (bare array) — sort by created_at DESC and take the top 3.
+        api.get<SourceRow[]>('/sources')
       ]);
 
+      const lastPublished = publishedRes.stories[0] ?? null;
+
+      const recentSources = [...sources]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 3);
+
       return {
-        lastPublished: lastPublished.data,
-        recentSources: recentSources.data || []
+        lastPublished,
+        recentSources
       };
     }
   });
 
-  // Fetch artifact fetch schedule
-  const { data: schedule } = useQuery({
-    queryKey: ['artifact-fetch-schedule'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('schedules')
-        .select('*')
-        .eq('schedule_type', 'artifact_fetch')
-        .maybeSingle();
-
-      if (error) throw error;
-      return data;
-    }
-  });
+  // Fetch artifact fetch schedule (GET /api/admin/schedules/artifact_fetch)
+  const { data: schedule } = useSchedule('artifact_fetch');
 
   // Calculate next auto-run based on active-hours schedule (every 15 min within active hours)
   const calculateNextRun = () => {
@@ -111,9 +110,8 @@ const Dashboard = () => {
     const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
     const ET_OFFSET_HOURS = (new Date(etStr).getTime() - new Date(utcStr).getTime()) / (60 * 60 * 1000);
 
-    const activeStart = (schedule as Record<string, unknown>).active_hour_start as number ?? 6;
-    const activeEnd = (schedule as Record<string, unknown>).active_hour_end as number ?? 22;
-    const currentTimeMinutes = etHours * 60 + etMinutes;
+    const activeStart = (schedule as unknown as Record<string, unknown>).active_hour_start as number ?? 6;
+    const activeEnd = (schedule as unknown as Record<string, unknown>).active_hour_end as number ?? 22;
 
     // Next 15-minute mark within active hours
     const nextMinuteMark = Math.ceil((etMinutes + 1) / 15) * 15;

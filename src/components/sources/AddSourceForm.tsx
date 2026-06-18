@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CheckCircle, ExternalLink, Loader2, Search, XCircle } from "lucide-react";
 import { ReadabilityTestResults } from "./ReadabilityTestResults";
@@ -82,14 +82,19 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
         body.link_selector = linkSelector.trim();
       }
 
-      const { data, error } = await supabase.functions.invoke("test-readability", { body });
-
-      if (error) throw error;
+      const data = await api.post<
+        TestResult & Partial<IndexTestResult> & { mode?: string; error?: string }
+      >("/test-readability", body);
 
       if (isIndexPage && data.mode === "index") {
-        setIndexTestResult(data);
-        if (data.links_found > 0) {
-          toast.success(`Found ${data.links_found} article links`);
+        const indexData: IndexTestResult = {
+          success: data.success,
+          links_found: data.links_found ?? 0,
+          links: data.links ?? [],
+        };
+        setIndexTestResult(indexData);
+        if (indexData.links_found > 0) {
+          toast.success(`Found ${indexData.links_found} article links`);
           if (!name.trim()) {
             setName(url.trim().replace(/^https?:\/\//, "").split("/")[0] + " — News Index");
           }
@@ -161,7 +166,7 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
               }),
             };
 
-      const { error } = await supabase.from("sources").insert({
+      await api.post("/sources", {
         name: name.trim(),
         url: url.trim(),
         type: sourceType,
@@ -169,8 +174,6 @@ export const AddSourceForm = ({ onSuccess }: AddSourceFormProps) => {
         items_fetched: 0,
         parser_config: config,
       });
-
-      if (error) throw error;
 
       toast.success(`${sourceType} source added to test queue successfully`);
       setName("");
