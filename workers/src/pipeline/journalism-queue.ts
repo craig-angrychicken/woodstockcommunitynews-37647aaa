@@ -451,6 +451,18 @@ ${artifactData}`;
       structuredMetadata.byline = stripEmDashes(structuredMetadata.byline as string | null);
     }
 
+    // Quality guard: never persist an empty/near-empty story. This catches an
+    // empty structured body (`body: []`, which slips past parseStructuredResponse),
+    // an empty/garbage LLM response, and degenerate legacy parses — before any of
+    // them enter the editorial/publish chain. Skip (not fail) so the queue does
+    // not churn retries on a hopeless artifact.
+    const MIN_CONTENT_CHARS = 200;
+    if (!title.trim() || content.trim().length < MIN_CONTENT_CHARS) {
+      const skipReason = `Generated story failed quality guard (title=${title.trim().length} chars, content=${content.trim().length} chars; min ${MIN_CONTENT_CHARS})`;
+      console.warn(`⏭️ Skipping — ${skipReason}`);
+      return await skipQueueItem(env, queueItemId, historyId, skipReason);
+    }
+
     // Story-level dedup: check for similar existing stories by title embedding.
     // Replaces RPC match_stories_by_embedding (threshold 0.85, production only),
     // excluding rejected stories (the primary check) and rejected/archived (retry).

@@ -264,6 +264,16 @@ Respond in this format:
         }
 
         const factCheckResult = llmResponse.content.trim();
+
+        // An empty fact-check response (callLLM returns "" on a malformed/empty
+        // 200) must NOT be treated as "all clear". Leave the story 'pending' so
+        // it is retried rather than silently advancing unchecked.
+        if (!factCheckResult) {
+          console.warn(`⚠️ Empty fact-check response for "${storyTitle}" — skipping (left as pending)`);
+          summary.errors++;
+          continue;
+        }
+
         console.log(`📋 Fact-check result for "${storyTitle}": ${factCheckResult.substring(0, 200)}`);
 
         const upperResult = factCheckResult.toUpperCase();
@@ -429,6 +439,16 @@ Respond with the improved article in the SAME format as the input. Start with th
 
         const rewrittenContent = llmResponse.content.trim();
 
+        // Guard against empty/truncated LLM responses: callLLM returns "" on a
+        // malformed/empty 200. Without this, an empty response would OVERWRITE
+        // the story body with "" and advance it to 'edited'. Skip instead so the
+        // story stays 'fact_checked' and is retried next run.
+        if (rewrittenContent.length < 100) {
+          console.warn(`⚠️ Rewriter got empty/too-short response for "${storyTitle}" — skipping (left as fact_checked)`);
+          summary.errors++;
+          continue;
+        }
+
         // Extract new title (first line).
         const lines = rewrittenContent.split("\n").filter((l: string) => l.trim());
         const rawTitle = lines[0] || "";
@@ -441,6 +461,13 @@ Respond with the improved article in the SAME format as the input. Start with th
             .replace(/^["'](.+)["']$/, "$1")
             .trim() || storyTitle;
         const newContent = lines.slice(1).join("\n").trim();
+
+        // Never persist an empty body (would wipe a real story and advance it).
+        if (!newContent) {
+          console.warn(`⚠️ Rewriter produced no body for "${storyTitle}" — skipping (left as fact_checked)`);
+          summary.errors++;
+          continue;
+        }
 
         // Update story with rewritten content and advance status.
         await run(

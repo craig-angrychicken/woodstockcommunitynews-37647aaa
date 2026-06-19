@@ -2,7 +2,7 @@ import type { Env } from "../env";
 import type { JournalismQueueRow } from "../_shared/types";
 import { all, run } from "../_shared/db";
 import { logCronJob } from "../_shared/cron-logger";
-import { processJournalismQueueItem } from "./journalism-queue";
+import { kickJournalismQueue } from "../queue";
 
 const DEFAULT_STUCK_THRESHOLD_MINUTES = 10;
 const DEFAULT_MAX_RETRIES = 3;
@@ -94,17 +94,15 @@ export async function recoverStuckQueueItems(
         console.log(`🔄 Reset item ${item.id} to pending (retry ${retryCount + 1}/${MAX_RETRIES})`);
         recovered++;
 
-        // Restart processing chain for this item (fire-and-forget, non-fatal)
+        // Re-enqueue on the durable serial journalism Queue instead of processing
+        // inline. A direct fire-and-forget call here races the Queue consumer
+        // (max_concurrency=1) and can create duplicate stories, and is lost if the
+        // worker is evicted; re-enqueueing preserves serial, at-least-once delivery.
         try {
-          void processJournalismQueueItem(env, item.id).catch((err: unknown) =>
-            console.warn(
-              "Chain restart error (non-fatal):",
-              err instanceof Error ? err.message : err,
-            ),
-          );
-          console.log(`📋 Restarted processing chain for item ${item.id}`);
+          await kickJournalismQueue(env, item.id);
+          console.log(`📋 Re-enqueued item ${item.id} on the journalism queue`);
         } catch (chainErr) {
-          console.warn("Failed to restart chain:", chainErr);
+          console.warn("Failed to re-enqueue item:", chainErr);
         }
       } else {
         // Max retries exceeded — mark as permanently failed

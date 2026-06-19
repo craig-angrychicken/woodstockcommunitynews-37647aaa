@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import type { StoryRow } from "../_shared/types";
 import { first, run, fromJson } from "../_shared/db";
 import { publishToFacebook } from "./publish-to-facebook";
+import { triggerRevalidate } from "./trigger-revalidate";
 
 function slugify(title: string): string {
   let slug = title.toLowerCase();
@@ -40,11 +41,11 @@ export async function publishStory(
     const story = await first<
       Pick<
         StoryRow,
-        "id" | "title" | "ghost_url" | "structured_metadata" | "hero_image_url" | "council_meeting_id"
+        "id" | "title" | "content" | "ghost_url" | "structured_metadata" | "hero_image_url" | "council_meeting_id"
       >
     >(
       env,
-      `select id, title, ghost_url, structured_metadata, hero_image_url, council_meeting_id
+      `select id, title, content, ghost_url, structured_metadata, hero_image_url, council_meeting_id
          from stories where id = ?`,
       storyId,
     );
@@ -53,10 +54,23 @@ export async function publishStory(
       throw new Error(`Story not found: ${storyId}`);
     }
 
+    // Quality gate — this is the single chokepoint for everything that reaches
+    // the public site + Facebook, so refuse to publish a degenerate story here.
+    // A blank/symbol-only title slugs to "" (which would publish at the homepage
+    // URL and post a homepage link to Facebook); an empty/near-empty body is a
+    // broken LLM result. Block both rather than publishing garbage unattended.
+    const MIN_CONTENT_CHARS = 200;
+    const cleanTitle = (story.title || "").trim();
+    const cleanContent = (story.content || "").trim();
+    const baseSlug = slugify(cleanTitle);
+    if (!cleanTitle || !baseSlug || cleanContent.length < MIN_CONTENT_CHARS) {
+      const reason = `Quality gate failed (title="${cleanTitle.slice(0, 40)}", slug="${baseSlug}", content=${cleanContent.length} chars, min ${MIN_CONTENT_CHARS})`;
+      console.error(`🚫 Refusing to publish ${storyId}: ${reason}`);
+      return { success: false, error: reason };
+    }
+
     const isFirstPublish = !story.ghost_url;
 
-    // Generate slug
-    const baseSlug = slugify(story.title);
     let finalSlug = baseSlug;
     let suffix = 2;
 
@@ -98,22 +112,23 @@ export async function publishStory(
 
     console.log(`✅ Published: "${story.title}" → ${publicUrl}`);
 
-    // Trigger on-demand revalidation (non-fatal)
-    const revalidationSecret = env.REVALIDATION_SECRET;
-    if (revalidationSecret) {
+    // Trigger on-demand revalidation (non-fatal). Reuse the shared helper, which
+    // checks res.ok so a secret mismatch surfaces in logs instead of silently
+    // leaving pages stale.
+    if (env.REVALIDATION_SECRET) {
       try {
-        const revalidateBase = new URL("/api/revalidate", env.PUBLIC_SITE_URL).toString();
         const paths = ["/", `/${finalSlug}`];
         if (story.council_meeting_id) paths.push("/council");
-        await Promise.all(
-          paths.map((p) =>
-            fetch(
-              `${revalidateBase}?secret=${encodeURIComponent(revalidationSecret)}&path=${encodeURIComponent(p)}`,
-              { method: "POST" },
-            ),
-          ),
-        );
-        console.log("🔄 Revalidation triggered for " + paths.join(", "));
+        const { results } = await triggerRevalidate(env, paths);
+        const failed = results.filter((r) => !r.ok);
+        if (failed.length) {
+          console.warn(
+            "⚠️ Revalidation non-OK for: " +
+              failed.map((f) => `${f.path}(${f.status ?? "err"})`).join(", "),
+          );
+        } else {
+          console.log("🔄 Revalidation triggered for " + paths.join(", "));
+        }
       } catch (revalErr) {
         console.warn("⚠️ Revalidation failed (non-fatal):", revalErr);
       }
