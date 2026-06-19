@@ -59,7 +59,7 @@ Loader: `workers/scripts/set-secrets.sh` (+ `.secrets.env.example`). **Note:** t
 - **Admin must be same-origin with its API.** SPA + `/api/*` both live under `admin.woodstockcommunity.news` so one Access cookie covers
   both (cross-domain pages.dev↔workers.dev does NOT share the Access cookie — this was a real trap that was fixed).
 - **Public site stays OPEN** — never put `woodstockcommunity.news` behind Access.
-- **Pipeline schedules are currently DISABLED** (`UPDATE schedules SET is_enabled=0` was run so cron wouldn't churn before secrets existed).
+- **Pipeline is LIVE (since 2026-06-19).** `schedules`: `artifact_fetch` / `ai_journalism` / `ai_editor` enabled, `council_scraper` off. Cron auto-generates → fact-checks → rewrites → edits → publishes to the public site + Facebook hourly. First go-live cycle published 9 stories (verified live: homepage + a story page both 200). Five publish-safety guardrails were added at go-live (commit 4f2ce35: quality gate at the publish chokepoint, empty-LLM-response guards in fact-check/rewrite, durable stuck-item re-enqueue). To pause: `UPDATE schedules SET is_enabled=0`.
 - Worker runtime libs: `linkedom` + `@mozilla/readability` (HTML), `unpdf` (PDF, replaced the Deno extractor), `fast-xml-parser` (RSS), `hono`, `jose` (Access JWT).
 - Credential locations: OpenRouter key in `RISO4/viewer/.env.local`; R2 S3 keys in `RISO4/.env`; wrangler is OAuth-authed.
   Supabase secrets are **digest-only** (not exportable). Tooling installed this session: `colima` (Docker), `ffmpeg`.
@@ -75,13 +75,11 @@ Loader: `workers/scripts/set-secrets.sh` (+ `.secrets.env.example`). **Note:** t
 - `supabase/` — ORIGINAL Deno functions + migrations, kept as reference until decommission.
 
 ## What remains (operator)
-1. **Smoke-test admin:** log in at https://admin.woodstockcommunity.news (one-time PIN) → confirm CRUD works.
-2. **Turn the pipeline on** after a watched manual run (admin → trigger journalism, confirm a clean story):
-   `npx wrangler d1 execute wcn --remote --command "UPDATE schedules SET is_enabled=1"`. (Cron then auto-generates + publishes + posts to FB.)
-3. **Optional:** create `wcn-monitor` Access service token → GitHub secrets, so the monitor can auto-remediate.
-4. **Decommission** (after a day or two as fallback): pause/delete Vercel project `prj_fAfxifRgx2eWBLnPla2gRvm7Uye8`;
-   downgrade/delete Supabase `cceprnhnpqnpexmouuig`. Remove `.vercel/`, `supabase/`, unused `@supabase/*` deps, `VITE_SUPABASE_*`.
-5. **Merge** `migrate/cloudflare` → `main`.
+1. **Add the `CLOUDFLARE_API_TOKEN` GitHub secret, then merge `migrate/cloudflare` → `main`** (clean fast-forward). The CI deploy job needs it; `CF_ACCOUNT_ID` is already set. Token perms: Account → Workers Scripts:Edit + Cloudflare Pages:Edit + D1:Edit, and Access → Apps & Policies:Edit + Service Tokens:Edit. (wrangler's OAuth login lacks the `access` scope and can't mint API tokens, so this must be created in the dashboard.)
+2. **Smoke-test admin:** log in at https://admin.woodstockcommunity.news (one-time PIN) → confirm CRUD works. (Or, once the CF API token above exists, create a `wcn-monitor` Access service token to automate it + the monitor.)
+3. **Decommission** (after a day or two as fallback): pause/delete Vercel project `prj_fAfxifRgx2eWBLnPla2gRvm7Uye8` (needs `vercel login` — CLI not currently authed); downgrade/delete Supabase `cceprnhnpqnpexmouuig` (supabase CLI is logged in). Remove `.vercel/`, `supabase/`, unused `@supabase/*` deps, `VITE_SUPABASE_*`.
+
+**✅ Done 2026-06-19 (go-live session):** pipeline turned on for full auto-publish; publish-safety hardening deployed; ESLint build-output ignore fixed (lint 0 errors); branch pushed to origin; `CF_ACCOUNT_ID` GitHub secret set.
 
 ## Verify quickly
 ```bash
