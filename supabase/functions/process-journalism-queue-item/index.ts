@@ -183,6 +183,7 @@ Title: ${queueItem.artifact.title || queueItem.artifact.name}
 Date: ${queueItem.artifact.date}
 Source: ${sourceName}
 URL: ${queueItem.artifact.url || "Not available"}
+Current time (for evaluating time-bound advisories): ${new Date().toISOString()}
 Content: ${contentToUse}
 `;
 
