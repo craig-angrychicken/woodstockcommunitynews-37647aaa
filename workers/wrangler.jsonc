@@ -7,6 +7,13 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
 
+  // Serve the API (and admin image thumbnails) under the admin hostname so the SPA is same-origin
+  // and one Cloudflare Access login covers both. The Pages project serves the rest of admin.*.
+  "routes": [
+    { "pattern": "admin.woodstockcommunity.news/api/*", "zone_name": "woodstockcommunity.news" },
+    { "pattern": "admin.woodstockcommunity.news/images/*", "zone_name": "woodstockcommunity.news" }
+  ],
+
   "d1_databases": [
     {
       "binding": "DB",
@@ -25,8 +32,8 @@
   "vars": {
     "PUBLIC_SITE_URL": "https://woodstockcommunity.news",
     // Cloudflare Access team domain + AUD for verifying admin JWTs (set real values in phase 0/6).
-    "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_TEAM.cloudflareaccess.com",
-    "ACCESS_AUD": "REPLACE_WITH_ACCESS_AUD"
+    "ACCESS_TEAM_DOMAIN": "holy-bar-b3ad.cloudflareaccess.com",
+    "ACCESS_AUD": "e69f5d02d7d2b9209dd90ea9cf77f3b466da84842110e42736bc8383fb3f3f06"
   },
 
   "queues": {

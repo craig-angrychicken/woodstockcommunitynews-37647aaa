@@ -15,6 +15,11 @@
   "d1_databases": [{ "binding": "DB", "database_name": "wcn", "database_id": "7b161ae7-7f3c-42fd-a627-dd3fb1058f14" }],
   "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "artifact-images" }],
   "workers_dev": true,
+  // Public site lives on the apex (+ www). custom_domain creates the proxied DNS records.
+  "routes": [
+    { "pattern": "woodstockcommunity.news", "custom_domain": true },
+    { "pattern": "www.woodstockcommunity.news", "custom_domain": true }
+  ],
   "vars": { "PUBLIC_SITE_URL": "https://woodstockcommunity.news" }
-  // Secret: REVALIDATION_SECRET (wrangler secret put). Custom domain route added at cutover (Phase 9).
+  // Secret: REVALIDATION_SECRET (wrangler secret put).
 }
