@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { supabase } from "@/lib/supabase";
+import { all, fromJson } from "@/lib/db";
 import StoryCard from "@/components/StoryCard";
 
 export const metadata: Metadata = {
@@ -31,19 +31,29 @@ async function runSearch(rawQuery: string) {
   const term = rawQuery.trim();
   if (!term) return [];
   const pattern = `%${escapeIlike(term)}%`;
-  const { data } = await supabase
-    .from("stories")
-    .select(
-      "id, title, content, slug, hero_image_url, published_at, structured_metadata"
-    )
-    .eq("status", "published")
-    .eq("environment", "production")
-    .not("slug", "is", null)
-    .or(`title.ilike.${pattern},content.ilike.${pattern}`)
-    .order("published_at", { ascending: false })
-    .limit(50);
+  const rows = await all<Story & { structured_metadata: string | null }>(
+    `select id, title, content, slug, hero_image_url, published_at, structured_metadata
+     from stories
+     where status = ?
+       and environment = ?
+       and slug is not null
+       and (title like ? escape '\\' or content like ? escape '\\')
+     order by published_at desc
+     limit ?`,
+    "published",
+    "production",
+    pattern,
+    pattern,
+    50
+  );
 
-  return (data as Story[]) || [];
+  return rows.map((row) => ({
+    ...row,
+    structured_metadata: fromJson<Story["structured_metadata"]>(
+      row.structured_metadata,
+      null
+    ),
+  }));
 }
 
 export default async function SearchPage({ searchParams }: Props) {

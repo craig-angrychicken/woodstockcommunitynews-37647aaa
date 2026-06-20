@@ -12,43 +12,52 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
+      # Admin SPA (root Vite app)
       - run: npm ci
-
       - run: npm run build
-
       - run: npm run lint
-
       - run: npm run test
 
+      # API + pipeline Worker
+      - name: Workers typecheck
+        run: cd workers && npm ci && npx tsc --noEmit
+
+      # Public site (Next.js via OpenNext)
+      - name: Site build
+        run: cd site && npm ci && npx opennextjs-cloudflare build
+
   deploy:
-    name: Deploy
+    name: Deploy to Cloudflare
     needs: check
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: supabase/setup-cli@v1
+      - uses: actions/setup-node@v4
         with:
-          version: latest
+          node-version: 22
+          cache: npm
 
-      - name: Link Supabase project
-        run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      # Deploy the API + pipeline Worker (Cron Triggers + Queue consumer)
+      - name: Deploy API Worker
+        run: cd workers && npm ci && npx wrangler deploy
 
-      - name: Push database migrations
-        run: supabase db push
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      # D1 schema changes are applied manually via:
+      #   wrangler d1 execute wcn --remote --file=workers/schema.sql
+      # (set up `wrangler d1 migrations` here once a migrations/ dir exists).
 
-      - name: Deploy edge functions
-        run: supabase functions deploy
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      # Build + deploy the public site (OpenNext → Workers)
+      - name: Deploy site
+        run: cd site && npm ci && npx opennextjs-cloudflare build && npx opennextjs-cloudflare deploy
+
+      # Build + deploy the admin SPA to Cloudflare Pages (gated by Access)
+      - name: Deploy admin SPA to Pages
+        run: npm ci && npm run build && npx wrangler pages deploy dist --project-name=wcn-admin

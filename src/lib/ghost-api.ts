@@ -1,8 +1,15 @@
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+
+/** Response shape from POST /api/admin/stories/:id/publish (pipeline-admin). */
+interface PublishStoryResponse {
+  success: boolean;
+  url?: string;
+  error?: string;
+}
 
 /**
- * Publishes a story to the public site via the publish-story edge function.
+ * Publishes a story to the public site via the admin publish endpoint.
  * Handles slug generation, status update, revalidation, and Facebook posting.
  */
 export async function publishStory(
@@ -12,15 +19,10 @@ export async function publishStory(
   try {
     console.log("Publishing story:", storyId);
 
-    const { data, error } = await supabase.functions.invoke('publish-story', {
-      body: { storyId, featured },
-    });
-
-    if (error) {
-      console.error("Publish error:", error);
-      toast.error("Failed to publish story");
-      throw error;
-    }
+    const data = await api.post<PublishStoryResponse>(
+      `/stories/${storyId}/publish`,
+      { featured }
+    );
 
     if (!data.success) {
       console.error("Publish error:", data.error);

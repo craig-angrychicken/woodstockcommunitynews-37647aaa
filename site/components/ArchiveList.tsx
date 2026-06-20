@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import StoryCard from "@/components/StoryCard";
-import { supabase } from "@/lib/supabase";
+import { all, first, fromJson } from "@/lib/db";
 
 export const PAGE_SIZE = 30;
 
@@ -15,25 +15,29 @@ interface ArchiveStory {
   structured_metadata: { subhead?: string; byline?: string } | null;
 }
 
-async function getArchivePage(page: number) {
-  const from = (page - 1) * PAGE_SIZE;
-  const to = page * PAGE_SIZE - 1;
+const ARCHIVE_WHERE =
+  "status='published' and environment='production' and slug is not null";
 
-  const { data, count } = await supabase
-    .from("stories")
-    .select(
-      "id, title, content, slug, hero_image_url, published_at, structured_metadata",
-      { count: "exact" }
-    )
-    .eq("status", "published")
-    .eq("environment", "production")
-    .not("slug", "is", null)
-    .order("published_at", { ascending: false })
-    .range(from, to);
+async function getArchivePage(page: number) {
+  const offset = (page - 1) * PAGE_SIZE;
+
+  const countRow = await first<{ n: number }>(
+    `select count(*) as n from stories where ${ARCHIVE_WHERE}`,
+  );
+  const rows = await all<Omit<ArchiveStory, "structured_metadata"> & { structured_metadata: string | null }>(
+    `select id, title, content, slug, hero_image_url, published_at, structured_metadata
+       from stories where ${ARCHIVE_WHERE}
+       order by published_at desc limit ? offset ?`,
+    PAGE_SIZE,
+    offset,
+  );
 
   return {
-    stories: (data as ArchiveStory[]) || [],
-    total: count || 0,
+    stories: rows.map((r) => ({
+      ...r,
+      structured_metadata: fromJson<ArchiveStory["structured_metadata"]>(r.structured_metadata, null),
+    })) as ArchiveStory[],
+    total: countRow?.n ?? 0,
   };
 }
 

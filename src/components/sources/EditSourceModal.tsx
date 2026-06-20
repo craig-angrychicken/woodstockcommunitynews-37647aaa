@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 interface EditSourceModalProps {
   open: boolean;
@@ -31,16 +31,10 @@ export const EditSourceModal = ({ open, onOpenChange, source, onSuccess }: EditS
 
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from("sources")
-        .update({
-          name: name.trim(),
-          url: url.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", source.id);
-
-      if (error) throw error;
+      await api.patch(`/sources/${source.id}`, {
+        name: name.trim(),
+        url: url.trim() || null,
+      });
 
       toast.success("RSS source updated successfully");
       onSuccess();

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SourceCard } from "@/components/sources/SourceCard";
 import { TestSourceCard } from "@/components/sources/TestSourceCard";
@@ -33,16 +33,8 @@ const Sources = () => {
     refetch: refetchActive,
   } = useQuery({
     queryKey: ["sources", "active"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sources")
-        .select("*")
-        .eq("status", "active")
-        .order("name");
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      api.get<Tables<"sources">[]>("/sources", { status: "active" }),
   });
 
   // Fetch test queue sources
@@ -54,47 +46,29 @@ const Sources = () => {
   } = useQuery({
     queryKey: ["sources", "testing"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sources")
-        .select("*")
-        .eq("status", "testing")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data;
+      const data = await api.get<Tables<"sources">[]>("/sources", {
+        status: "testing",
+      });
+      // Endpoint orders by name; preserve original newest-first ordering.
+      return [...data].sort((a, b) =>
+        (b.created_at ?? "").localeCompare(a.created_at ?? "")
+      );
     },
   });
 
   // Update source status mutation
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const { error } = await supabase
-        .from("sources")
-        .update({ status, updated_at: new Date().toISOString() })
-        .eq("id", id);
-
-      if (error) throw error;
-    },
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      api.patch(`/sources/${id}/status`, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
     },
   });
 
   // Delete source mutation
+  // The endpoint cascades server-side: nullify stories.source_id, then delete.
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      // First, nullify source_id in related stories to avoid constraint violation
-      const { error: storiesError } = await supabase
-        .from("stories")
-        .update({ source_id: null })
-        .eq("source_id", id);
-      
-      if (storiesError) throw storiesError;
-
-      // Then delete the source
-      const { error } = await supabase.from("sources").delete().eq("id", id);
-      if (error) throw error;
-    },
+    mutationFn: (id: string) => api.delete(`/sources/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       toast.success("Source removed successfully");

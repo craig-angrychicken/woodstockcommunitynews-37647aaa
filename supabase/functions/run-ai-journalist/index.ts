@@ -224,9 +224,61 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Combine: representatives + unclustered artifacts
-    const artifactsToQueue = [...representativeArtifacts, ...unclustered];
-    console.log(`✅ Step 3b complete: ${artifacts.length} artifacts → ${artifactsToQueue.length} queue items (${clustered.size} clusters, ${unclustered.length} unclustered)`);
+    // In-batch dedup for unclustered artifacts: group by token-overlap of title/name.
+    // Catches near-duplicate announcements that arrived too close together for the
+    // embedding-based clusterer to link them (e.g. multiple feeds posting the same
+    // burn ban or weather alert within minutes).
+    const tokenize = (s: string): Set<string> => new Set(
+      (s || "")
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, " ")
+        .split(/\s+/)
+        .filter(t => t.length >= 4)
+    );
+    const jaccard = (a: Set<string>, b: Set<string>): number => {
+      if (a.size === 0 || b.size === 0) return 0;
+      let inter = 0;
+      for (const t of a) if (b.has(t)) inter++;
+      return inter / (a.size + b.size - inter);
+    };
+
+    const titleGroups: Array<{ tokens: Set<string>; members: typeof unclustered }> = [];
+    for (const artifact of unclustered) {
+      const tokens = tokenize(artifact.title || artifact.name || "");
+      if (tokens.size < 3) {
+        // too few tokens to compare reliably — keep as its own group
+        titleGroups.push({ tokens, members: [artifact] });
+        continue;
+      }
+      let placed = false;
+      for (const group of titleGroups) {
+        if (jaccard(tokens, group.tokens) >= 0.5) {
+          group.members.push(artifact);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) titleGroups.push({ tokens, members: [artifact] });
+    }
+
+    const dedupedUnclustered: typeof unclustered = [];
+    let inBatchDuplicates = 0;
+    for (const group of titleGroups) {
+      if (group.members.length === 1) {
+        dedupedUnclustered.push(group.members[0]);
+        continue;
+      }
+      const sorted = group.members.sort((a, b) =>
+        new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
+      );
+      dedupedUnclustered.push(sorted[0]);
+      inBatchDuplicates += group.members.length - 1;
+      console.log(`   In-batch title dedup: ${group.members.length} unclustered artifacts → "${(sorted[0].title || sorted[0].name || sorted[0].id).substring(0, 80)}"`);
+    }
+
+    // Combine: representatives + deduped unclustered artifacts
+    const artifactsToQueue = [...representativeArtifacts, ...dedupedUnclustered];
+    console.log(`✅ Step 3b complete: ${artifacts.length} artifacts → ${artifactsToQueue.length} queue items (${clustered.size} clusters, ${dedupedUnclustered.length} unclustered after in-batch dedup, ${inBatchDuplicates} in-batch duplicates removed)`);
 
     // Step 4: Create queue entries for all artifacts
     console.log(`🔍 Step 4: Creating queue with ${artifactsToQueue.length} items...`);

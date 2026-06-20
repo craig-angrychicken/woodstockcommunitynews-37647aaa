@@ -71,8 +71,7 @@ function resolveUrl(href: string): string {
 function parseMeetings(html: string): ParsedMeeting[] {
   if (!parseHTML) throw new Error("linkedom not loaded");
 
-  // deno-lint-ignore no-explicit-any
-  const { document } = parseHTML(html) as any;
+  const { document } = parseHTML(html);
   const rows = document.querySelectorAll("tr.listingRow");
   const meetings: ParsedMeeting[] = [];
   const cutoff = Date.now() - NINETY_DAYS_MS;

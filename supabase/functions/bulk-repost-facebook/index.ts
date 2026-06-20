@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
         }),
       });
 
-      let commentOk = commentRes.ok;
+      const commentOk = commentRes.ok;
       let commentErr: string | undefined;
       if (!commentRes.ok) {
         commentErr = await commentRes.text();

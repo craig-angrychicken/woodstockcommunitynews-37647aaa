@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { ArtifactCard } from "@/components/artifacts/ArtifactCard";
 import { ArtifactDetailModal } from "@/components/artifacts/ArtifactDetailModal";
 import { CardSkeleton } from "@/components/ui/loading-skeleton";
@@ -38,7 +38,8 @@ type ArtifactRow = {
   type: string;
   url: string | null;
   images: unknown;
-  sources: { name: string } | null;
+  source: { name: string | null; type: string | null } | null;
+  story_artifacts: { story: { id: string; title: string | null } }[];
   [key: string]: unknown;
 };
 
@@ -77,39 +78,21 @@ const Artifacts = () => {
   } = useQuery({
     queryKey: ['artifacts'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('artifacts')
-        .select(`
-          *,
-          sources (name)
-        `)
-        .order('date', { ascending: false });
-
-      if (error) throw error;
-      return data;
+      const { artifacts } = await api.get<{ artifacts: ArtifactRow[] }>('/artifacts');
+      return artifacts;
     }
   });
 
   // Fetch sources for filter
   const { data: sources } = useQuery({
     queryKey: ['sources'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('sources').select('id, name');
-      if (error) throw error;
-      return data;
-    }
+    queryFn: () => api.get<{ id: string; name: string }[]>('/sources', { status: 'all' }),
   });
 
   // Fetch story artifacts to determine usage
   const { data: storyArtifacts } = useQuery({
     queryKey: ['all-story-artifacts'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('story_artifacts')
-        .select('artifact_id, story_id, stories(id, title)');
-      if (error) throw error;
-      return data;
-    }
+    queryFn: () => api.get<{ artifact_id: string; story_id: string }[]>('/story-artifacts/count'),
   });
 
   // Fetch stories using selected artifact
@@ -117,21 +100,19 @@ const Artifacts = () => {
     queryKey: ['artifact-stories', selectedArtifact?.id],
     enabled: !!selectedArtifact?.id && showDetailModal,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('story_artifacts')
-        .select('stories(id, title)')
-        .eq('artifact_id', selectedArtifact!.id);
-
-      if (error) throw error;
-      return data.map(sa => sa.stories).filter(Boolean);
+      const rows = await api.get<{ story_id: string; title: string | null }[]>(
+        `/story-artifacts/${selectedArtifact!.id}`
+      );
+      return rows
+        .map(sa => ({ id: sa.story_id, title: sa.title }))
+        .filter(s => Boolean(s.id));
     }
   });
 
   // Delete artifact mutation
   const deleteArtifactMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('artifacts').delete().eq('id', id);
-      if (error) throw error;
+      await api.delete(`/artifacts/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['artifacts'] });
@@ -160,19 +141,9 @@ const Artifacts = () => {
   // Delete all artifacts mutation
   const deleteAllArtifactsMutation = useMutation({
     mutationFn: async () => {
-      const { count, error: countError } = await supabase
-        .from('artifacts')
-        .select('*', { count: 'exact', head: true });
-      
-      if (countError) throw countError;
-
-      const { error } = await supabase
-        .from('artifacts')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
-      
-      if (error) throw error;
-      return count || 0;
+      const all = queryClient.getQueryData<ArtifactRow[]>(['artifacts']) ?? [];
+      await Promise.all(all.map(a => api.delete(`/artifacts/${a.id}`)));
+      return all.length;
     },
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ['artifacts'] });
@@ -240,7 +211,7 @@ const Artifacts = () => {
     const groups = new Map<string, typeof filteredArtifacts>();
 
     filteredArtifacts.forEach(artifact => {
-      const sourceName = artifact.sources?.name || 'Unknown Source';
+      const sourceName = artifact.source?.name || 'Unknown Source';
       if (!groups.has(sourceName)) {
         groups.set(sourceName, []);
       }
@@ -436,9 +407,9 @@ const Artifacts = () => {
       {/* Artifact Detail Modal */}
       <ArtifactDetailModal
         artifact={selectedArtifact ? { ...selectedArtifact, guid: selectedArtifact.guid ?? '', date: selectedArtifact.date ?? '' } : null}
-        sourceName={(selectedArtifact?.sources as { name: string } | null)?.name || 'Unknown'}
+        sourceName={(selectedArtifact?.source as { name: string } | null)?.name || 'Unknown'}
         isTest={false} // TODO: Determine from related stories
-        stories={artifactStories || []}
+        stories={(artifactStories || []).map((s) => ({ ...s, title: s.title ?? "" }))}
         open={showDetailModal}
         onClose={() => setShowDetailModal(false)}
         onDelete={() => selectedArtifact && handleDelete(selectedArtifact.id)}

@@ -1,0 +1,26 @@
+{
+  "name": "wcn-workers",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "fast-xml-parser": "^5.9.2",
+    "hono": "^4.6.14",
+    "jose": "^5.9.6",
+    "linkedom": "^0.18.12",
+    "unpdf": "^1.6.2"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1071.0",
+    "@cloudflare/workers-types": "^4.20260601.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.0.0"
+  }
+}

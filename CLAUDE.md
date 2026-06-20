@@ -1,6 +1,13 @@
 # Project: Woodstock Community News
 
-## Supabase Deployment
+> **⚠️ MIGRATED TO CLOUDFLARE (2026-06, branch `migrate/cloudflare`).** This app is moving off
+> Supabase/Vercel to an all-Cloudflare stack: **D1** (SQLite) + **R2** + **Workers** (`workers/` — API,
+> pipeline, Cron Triggers, Queue) + **OpenNext** for the public site (`site/`) + **Pages** for the admin SPA
+> (`src/`), with **Cloudflare Access** for admin auth. See **[CUTOVER.md](CUTOVER.md)** for the live-cutover
+> runbook and the remaining operator steps. The Supabase sections below describe the OLD stack (kept until
+> decommission). D1 id: `7b161ae7-7f3c-42fd-a627-dd3fb1058f14`; SQL is SQLite dialect now.
+
+## Supabase Deployment (legacy — being decommissioned)
 
 After making any changes to Supabase (edge functions or migrations), always deploy automatically:
 

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 export type ScheduleType = "artifact_fetch" | "ai_journalism" | "ai_editor";
@@ -17,14 +17,8 @@ export const useSchedule = (scheduleType: ScheduleType) => {
   return useQuery({
     queryKey: ["schedule", scheduleType],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("schedules")
-        .select("*")
-        .eq("schedule_type", scheduleType)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data as Schedule | null;
+      // GET /api/admin/schedules/:type — returns the schedule object or null.
+      return api.get<Schedule | null>(`/schedules/${scheduleType}`);
     },
   });
 };
@@ -42,16 +36,12 @@ export const useSaveSchedule = () => {
       scheduledTimes: string[];
       isEnabled: boolean;
     }) => {
-      const { data, error } = await supabase.functions.invoke("manage-schedule", {
-        body: {
-          scheduleType,
-          scheduledTimes,
-          isEnabled,
-        },
+      // Replaces supabase.functions.invoke("manage-schedule").
+      return api.post("/manage-schedule", {
+        scheduleType,
+        scheduledTimes,
+        isEnabled,
       });
-
-      if (error) throw error;
-      return data;
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["schedule", variables.scheduleType] });

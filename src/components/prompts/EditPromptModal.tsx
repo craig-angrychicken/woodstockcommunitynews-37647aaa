@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 interface EditPromptModalProps {
   open: boolean;
@@ -64,7 +64,7 @@ export const EditPromptModal = ({
     try {
       if (isCreating) {
         // Create brand new prompt
-        const { error } = await supabase.from("prompt_versions").insert({
+        await api.post("/prompt-versions", {
           version_name: versionName,
           content,
           prompt_type: promptType,
@@ -74,40 +74,26 @@ export const EditPromptModal = ({
           test_status: "not_tested",
           author: "User",
         });
-
-        if (error) throw error;
         toast.success("Prompt created successfully");
       } else if (editMode === "direct") {
         // Direct edit - update the existing prompt in place
-        const { error } = await supabase
-          .from("prompt_versions")
-          .update({
-            content,
-            version_name: versionName,
-            update_notes: updateNotes,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", promptId);
-
-        if (error) throw error;
+        await api.patch(`/prompt-versions/${promptId}`, {
+          content,
+          version_name: versionName,
+          update_notes: updateNotes,
+        });
         toast.success("Prompt updated successfully");
       } else if (isTestDraft) {
         // Update existing test draft
-        const { error } = await supabase
-          .from("prompt_versions")
-          .update({
-            content,
-            update_notes: updateNotes,
-            version_name: versionName,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", promptId);
-
-        if (error) throw error;
+        await api.patch(`/prompt-versions/${promptId}`, {
+          content,
+          version_name: versionName,
+          update_notes: updateNotes,
+        });
         toast.success("Test draft updated successfully");
       } else {
         // Create new version based on existing
-        const { error } = await supabase.from("prompt_versions").insert({
+        await api.post("/prompt-versions", {
           version_name: versionName,
           content,
           prompt_type: promptType,
@@ -118,8 +104,6 @@ export const EditPromptModal = ({
           test_status: "not_tested",
           author: "User",
         });
-
-        if (error) throw error;
         toast.success("New test draft created successfully");
       }
 

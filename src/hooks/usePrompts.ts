@@ -1,69 +1,41 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import type { Tables } from "@/integrations/supabase/types";
+
+type PromptVersion = Tables<"prompt_versions">;
 
 export const useActivePrompts = () => {
   return useQuery({
     queryKey: ["prompts", "active"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("prompt_versions")
-        .select("*")
-        .eq("is_active", true)
-        .eq("is_test_draft", false)
-        .order("prompt_type");
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      api.get<PromptVersion[]>("/prompt-versions", {
+        activeOnly: true,
+        excludeTestDrafts: true,
+      }),
   });
 };
 
 export const useTestDrafts = () => {
   return useQuery({
     queryKey: ["prompts", "test-drafts"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("prompt_versions")
-        .select("*")
-        .eq("is_test_draft", true)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      api.get<PromptVersion[]>("/prompt-versions/drafts", {
+        testDraftsOnly: true,
+      }),
   });
 };
 
 export const usePromptHistory = () => {
   return useQuery({
     queryKey: ["prompts", "history"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("prompt_versions")
-        .select("*")
-        .eq("is_test_draft", false)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api.get<PromptVersion[]>("/prompt-versions/history"),
   });
 };
 
 export const usePromptVersion = (promptId: string) => {
   return useQuery({
     queryKey: ["prompts", promptId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("prompt_versions")
-        .select("*")
-        .eq("id", promptId)
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api.get<PromptVersion>(`/prompt-versions/${promptId}`),
     enabled: !!promptId,
   });
 };
-

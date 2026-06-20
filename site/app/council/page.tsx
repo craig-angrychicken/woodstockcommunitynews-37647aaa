@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { all, first, fromJson } from "@/lib/db";
 import CouncilStoryCard from "@/components/CouncilStoryCard";
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "City Council Coverage",
@@ -33,20 +33,71 @@ interface CouncilMeeting {
   recap_story: StoryRef | null;
 }
 
-async function getCouncilMeetings(): Promise<CouncilMeeting[]> {
-  const { data } = await supabase
-    .from("council_meetings")
-    .select(
-      `id, meeting_type, meeting_date,
-       agenda_url, packet_url, minutes_url,
-       preview_story:stories!council_meetings_preview_story_id_fkey(id, title, slug, content, structured_metadata, published_at),
-       update_story:stories!council_meetings_update_story_id_fkey(id, title, slug, content, structured_metadata, published_at),
-       recap_story:stories!council_meetings_recap_story_id_fkey(id, title, slug, content, structured_metadata, published_at)`
-    )
-    .order("meeting_date", { ascending: false })
-    .limit(30);
+interface MeetingRow {
+  id: string;
+  meeting_type: string;
+  meeting_date: string;
+  agenda_url: string | null;
+  packet_url: string | null;
+  minutes_url: string | null;
+  preview_story_id: string | null;
+  update_story_id: string | null;
+  recap_story_id: string | null;
+}
 
-  return (data as unknown as CouncilMeeting[]) || [];
+interface StoryRow {
+  id: string;
+  title: string;
+  slug: string;
+  content: string;
+  structured_metadata: string | null;
+  published_at: string | null;
+}
+
+async function getStoryRef(id: string | null): Promise<StoryRef | null> {
+  if (!id) return null;
+  const row = await first<StoryRow>(
+    "select id, title, slug, content, structured_metadata, published_at from stories where id = ?",
+    id
+  );
+  if (!row) return null;
+  return {
+    id: row.id,
+    title: row.title,
+    slug: row.slug,
+    content: row.content,
+    structured_metadata: fromJson<StoryRef["structured_metadata"]>(
+      row.structured_metadata,
+      null
+    ),
+    published_at: row.published_at,
+  };
+}
+
+async function getCouncilMeetings(): Promise<CouncilMeeting[]> {
+  const rows = await all<MeetingRow>(
+    `select id, meeting_type, meeting_date,
+            agenda_url, packet_url, minutes_url,
+            preview_story_id, update_story_id, recap_story_id
+       from council_meetings
+       order by meeting_date desc
+       limit ?`,
+    30
+  );
+
+  return Promise.all(
+    rows.map(async (row) => ({
+      id: row.id,
+      meeting_type: row.meeting_type,
+      meeting_date: row.meeting_date,
+      agenda_url: row.agenda_url,
+      packet_url: row.packet_url,
+      minutes_url: row.minutes_url,
+      preview_story: await getStoryRef(row.preview_story_id),
+      update_story: await getStoryRef(row.update_story_id),
+      recap_story: await getStoryRef(row.recap_story_id),
+    }))
+  );
 }
 
 function formatFullMeetingDate(iso: string): string {

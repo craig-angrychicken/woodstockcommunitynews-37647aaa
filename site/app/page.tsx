@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { all, fromJson } from "@/lib/db";
 import StoryCard from "@/components/StoryCard";
 import { TOPICS } from "@/lib/topics";
 
-export const revalidate = 3600;
+// Runtime-rendered against the live D1 binding (build has no DB). Fast at the edge.
+export const dynamic = "force-dynamic";
 
 interface Story {
   id: string;
@@ -16,35 +17,37 @@ interface Story {
 }
 
 async function getStories() {
-  const { data } = await supabase
-    .from("stories")
-    .select(
-      "id, title, content, slug, hero_image_url, published_at, structured_metadata"
-    )
-    .eq("status", "published")
-    .eq("environment", "production")
-    .not("slug", "is", null)
-    .is("council_meeting_id", null)
-    .order("published_at", { ascending: false })
-    .limit(30);
+  const rows = await all<Story & { structured_metadata: string | null }>(
+    "select id, title, content, slug, hero_image_url, published_at, structured_metadata from stories where status = ? and environment = ? and slug is not null and council_meeting_id is null order by published_at desc limit ?",
+    "published",
+    "production",
+    30
+  );
 
-  return (data as Story[]) || [];
+  return rows.map((row) => ({
+    ...row,
+    structured_metadata: fromJson<Story["structured_metadata"]>(
+      row.structured_metadata,
+      null
+    ),
+  })) as Story[];
 }
 
 async function getCouncilStories() {
-  const { data } = await supabase
-    .from("stories")
-    .select(
-      "id, title, content, slug, hero_image_url, published_at, structured_metadata"
-    )
-    .eq("status", "published")
-    .eq("environment", "production")
-    .not("slug", "is", null)
-    .not("council_meeting_id", "is", null)
-    .order("published_at", { ascending: false })
-    .limit(6);
+  const rows = await all<Story & { structured_metadata: string | null }>(
+    "select id, title, content, slug, hero_image_url, published_at, structured_metadata from stories where status = ? and environment = ? and slug is not null and council_meeting_id is not null order by published_at desc limit ?",
+    "published",
+    "production",
+    6
+  );
 
-  return (data as Story[]) || [];
+  return rows.map((row) => ({
+    ...row,
+    structured_metadata: fromJson<Story["structured_metadata"]>(
+      row.structured_metadata,
+      null
+    ),
+  })) as Story[];
 }
 
 export default async function HomePage() {

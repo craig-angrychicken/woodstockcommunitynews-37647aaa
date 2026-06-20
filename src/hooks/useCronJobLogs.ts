@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 export interface CronJobLog {
   id: string;
@@ -19,91 +19,43 @@ export interface CronJobLog {
   created_at: string;
 }
 
+export interface CronJobStats {
+  totalRuns: number;
+  artifactFetchRuns: number;
+  journalismRuns: number;
+  editorRuns: number;
+  successfulRuns: number;
+  failedRuns: number;
+  skippedRuns: number;
+  totalArtifacts: number;
+  totalStories: number;
+  lastArtifactFetch?: string;
+  lastJournalismRun?: string;
+  lastEditorRun?: string;
+  facebookPosted: number;
+  facebookMissing: number;
+}
+
 export const useCronJobLogs = (limit: number = 50) => {
   return useQuery({
     queryKey: ["cron-job-logs", limit],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("cron_job_logs")
-        .select("*")
-        .order("triggered_at", { ascending: false })
-        .limit(limit);
-
-      if (error) throw error;
-      return data as CronJobLog[];
-    },
+    queryFn: () => api.get<CronJobLog[]>("/cron-job-logs", { limit }),
   });
 };
 
 export const useCronJobLogsByName = (jobName: string, limit: number = 20) => {
   return useQuery({
     queryKey: ["cron-job-logs", jobName, limit],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("cron_job_logs")
-        .select("*")
-        .eq("job_name", jobName)
-        .order("triggered_at", { ascending: false })
-        .limit(limit);
-
-      if (error) throw error;
-      return data as CronJobLog[];
-    },
+    queryFn: () =>
+      api.get<CronJobLog[]>(`/cron-job-logs/${jobName}`, { limit }),
   });
 };
 
 export const useCronJobStats = () => {
   return useQuery({
     queryKey: ["cron-job-stats"],
-    queryFn: async () => {
-      // Get stats for last 24 hours
-      const oneDayAgo = new Date();
-      oneDayAgo.setHours(oneDayAgo.getHours() - 24);
-
-      const { data, error } = await supabase
-        .from("cron_job_logs")
-        .select("*")
-        .gte("triggered_at", oneDayAgo.toISOString());
-
-      if (error) throw error;
-
-      const logs = data as CronJobLog[];
-      
-      // Calculate stats
-      const artifactFetchLogs = logs.filter(l => l.job_name === "scheduled-fetch-artifacts");
-      const journalismLogs = logs.filter(l => l.job_name === "scheduled-run-journalism");
-      const editorLogs = logs.filter(l => l.job_name === "run-editor");
-
-      // Facebook stats: count published stories with/without Facebook posts
-      const { count: fbPostedCount } = await supabase
-        .from("stories")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "published")
-        .not("facebook_posted_at", "is", null);
-
-      const { count: fbMissingCount } = await supabase
-        .from("stories")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "published")
-        .is("facebook_posted_at", null);
-
-      return {
-        totalRuns: logs.length,
-        artifactFetchRuns: artifactFetchLogs.length,
-        journalismRuns: journalismLogs.length,
-        editorRuns: editorLogs.length,
-        successfulRuns: logs.filter(l => l.schedule_check_passed && !l.error_message).length,
-        failedRuns: logs.filter(l => l.error_message).length,
-        skippedRuns: logs.filter(l => !l.schedule_check_passed && !l.error_message).length,
-        totalArtifacts: artifactFetchLogs.reduce((sum, l) => sum + (l.artifacts_count || 0), 0),
-        totalStories: journalismLogs.reduce((sum, l) => sum + (l.stories_count || 0), 0),
-        lastArtifactFetch: artifactFetchLogs.find(l => l.schedule_check_passed)?.triggered_at,
-        lastJournalismRun: journalismLogs.find(l => l.schedule_check_passed)?.triggered_at,
-        lastEditorRun: editorLogs.find(l => l.schedule_check_passed)?.triggered_at,
-        facebookPosted: fbPostedCount || 0,
-        facebookMissing: fbMissingCount || 0,
-      };
-    },
+    // Stats (last 24h aggregations + Facebook coverage) are computed server-side.
+    queryFn: () => api.get<CronJobStats>("/cron-job-logs/stats"),
     refetchInterval: 60000, // Refresh every minute
   });
 };

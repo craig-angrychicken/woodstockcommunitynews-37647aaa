@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { supabase } from "@/lib/supabase";
+import { all, first, fromJson } from "@/lib/db";
 import { estimateReadTime, formatDate, getExcerpt } from "@/lib/formatting";
 import RelatedStories from "@/components/RelatedStories";
 import ShareButtons from "@/components/ShareButtons";
@@ -42,58 +42,65 @@ type Props = {
 };
 
 async function getStory(slug: string) {
-  const { data } = await supabase
-    .from("stories")
-    .select(
-      "id, title, content, slug, hero_image_url, published_at, content_updated_at, structured_metadata, word_count, council_meeting_id, story_type"
-    )
-    .eq("slug", slug)
-    .eq("status", "published")
-    .eq("environment", "production")
-    .single();
+  const row = await first<Record<string, unknown>>(
+    "select id, title, content, slug, hero_image_url, published_at, content_updated_at, structured_metadata, word_count, council_meeting_id, story_type from stories where slug = ? and status = ? and environment = ?",
+    slug,
+    "published",
+    "production"
+  );
 
-  return data as Story | null;
+  if (!row) return null;
+
+  return {
+    ...row,
+    structured_metadata: fromJson<StructuredMetadata | null>(
+      row.structured_metadata as string | null,
+      null
+    ),
+  } as Story;
 }
 
 async function getChainStories(councilMeetingId: string, currentId: string): Promise<ChainStory[]> {
-  const { data } = await supabase
-    .from("stories")
-    .select("id, title, slug, story_type")
-    .eq("council_meeting_id", councilMeetingId)
-    .eq("status", "published")
-    .neq("id", currentId)
-    .not("slug", "is", null)
-    .order("published_at", { ascending: true });
-
-  return (data as ChainStory[]) || [];
-}
-
-async function getRelatedStories(currentId: string) {
-  const { data } = await supabase
-    .from("stories")
-    .select(
-      "id, title, content, slug, hero_image_url, published_at, structured_metadata"
-    )
-    .eq("status", "published")
-    .eq("environment", "production")
-    .neq("id", currentId)
-    .not("slug", "is", null)
-    .order("published_at", { ascending: false })
-    .limit(4);
+  const data = await all<ChainStory>(
+    "select id, title, slug, story_type from stories where council_meeting_id = ? and status = ? and id != ? and slug is not null order by published_at asc",
+    councilMeetingId,
+    "published",
+    currentId
+  );
 
   return data || [];
 }
 
-export async function generateStaticParams() {
-  const { data } = await supabase
-    .from("stories")
-    .select("slug")
-    .eq("status", "published")
-    .not("slug", "is", null)
-    .order("published_at", { ascending: false })
-    .limit(100);
+async function getRelatedStories(currentId: string) {
+  const data = await all<{
+    id: string;
+    title: string;
+    content: string | null;
+    slug: string;
+    hero_image_url: string | null;
+    published_at: string;
+    structured_metadata: string | null;
+  }>(
+    "select id, title, content, slug, hero_image_url, published_at, structured_metadata from stories where status = ? and environment = ? and id != ? and slug is not null order by published_at desc limit ?",
+    "published",
+    "production",
+    currentId,
+    4
+  );
 
-  return (data || []).map((story) => ({ slug: story.slug }));
+  return (data || []).map((row) => ({
+    ...row,
+    structured_metadata: fromJson<StructuredMetadata | null>(
+      row.structured_metadata,
+      null
+    ),
+  }));
+}
+
+// Render story pages on-demand against the live D1 binding, then ISR-cache them
+// (revalidate above). We don't pre-render at build because the build has no D1.
+export async function generateStaticParams() {
+  return [];
 }
 
 export async function generateMetadata(
