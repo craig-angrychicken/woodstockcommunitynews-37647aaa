@@ -1,8 +1,8 @@
--- WCN D1 (SQLite) schema — translated from the live Supabase Postgres schema.
--- Type mapping: uuid→TEXT, timestamptz→TEXT(ISO), boolean→INTEGER(0/1),
---   numeric→REAL, jsonb/uuid[]/vector(384)→TEXT(JSON).
--- Dropped vs Postgres: RLS, GRANTs, pg functions/triggers, ivfflat vector indexes,
---   user_roles (Cloudflare Access replaces Supabase Auth), pg_cron/pg_net.
+-- WCN D1 (SQLite) schema.
+-- Conventions: ids are TEXT(uuid), timestamps are TEXT(ISO), booleans are
+--   INTEGER(0/1), decimals are REAL, and JSON / array / embedding columns are TEXT(JSON).
+-- Admin auth is handled by Cloudflare Access (no row-level auth in the DB).
+-- Embeddings live in TEXT columns; similarity is computed in-worker (no vector indexes).
 -- FKs are enforced at the application layer (avoids D1 circular-FK + import-order issues).
 -- updated_at / content_updated_at are maintained in app code (db helpers), not triggers.
 
@@ -180,7 +180,7 @@ CREATE TABLE IF NOT EXISTS stories (
   prompt_version_id TEXT,
   guid TEXT,
   source_id TEXT,
-  ghost_url TEXT,
+  published_url TEXT,
   hero_image_url TEXT,
   editor_notes TEXT,
   featured INTEGER NOT NULL DEFAULT 0,

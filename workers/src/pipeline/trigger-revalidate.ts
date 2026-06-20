@@ -6,9 +6,8 @@ import type { Env } from "../env";
  * having to re-publish the story (which would move published_at and otherwise
  * mutate the row).
  *
- * The endpoint lives at `${PUBLIC_SITE_URL}/api/revalidate` and is implemented
- * on the site side (Phase 5). Each path is hit fire-and-forget: a failure for
- * one path is non-fatal and does not abort the others.
+ * The endpoint lives at `${PUBLIC_SITE_URL}/api/revalidate`. Each path is hit
+ * fire-and-forget: a failure for one path is non-fatal and does not abort the others.
  *
  * @param paths e.g. ["/", "/some-slug"]
  */

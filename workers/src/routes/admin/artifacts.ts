@@ -4,7 +4,7 @@ import { all, first, run, insert, fromJson, toJson } from "../../_shared/db";
 import type { ArtifactRow, StoredImage } from "../../_shared/types";
 
 /**
- * Admin CRUD for artifacts (replaces the SPA's supabase.from("artifacts") calls).
+ * Admin CRUD for artifacts backing the SPA's artifact views.
  * Mounted at /api/admin; the parent admin router applies the Cloudflare Access gate.
  *
  * Fidelity notes (see src/hooks/useArtifacts.ts):

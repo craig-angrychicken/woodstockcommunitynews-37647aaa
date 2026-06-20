@@ -1,8 +1,8 @@
 import type { Env } from "../env";
 
 /**
- * R2 helpers (replaces Supabase Storage `artifact-images` bucket).
- * Object keys keep the original path convention: `{artifact_guid}/{index}.{ext}`.
+ * R2 helpers for the artifact-images bucket.
+ * Object keys follow the path convention: `{artifact_guid}/{index}.{ext}`.
  */
 
 /** Store an image (or any blob) and return its public URL. */

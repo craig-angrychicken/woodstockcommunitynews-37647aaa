@@ -9,9 +9,9 @@ import { all, first, run, insert, fromJson, toJson } from "../../_shared/db";
  * Cloudflare Access gate — do NOT re-gate here). Routes use full
  * /api/admin-relative paths.
  *
- * Replaces the Supabase surface used by:
+ * Backs the SPA surface used by:
  *  - src/hooks/useQueryHistory.ts (useQueryHistory / useQueryRun / useRecentQueryHistory)
- *  - src/components/ai-journalist/QueueProcessor.tsx (realtime subscribe → polling)
+ *  - src/components/ai-journalist/QueueProcessor.tsx (polling)
  */
 export const historyRouter = new Hono<{ Bindings: Env }>();
 
@@ -78,9 +78,9 @@ historyRouter.get("/query-history/:id", async (c) => {
 });
 
 // GET /api/admin/journalism-queue — queue items for a run, joined to their artifact.
-// Replaces the Supabase realtime subscription (query_history_id=eq.{historyId}) with
-// a polled query. QueueProcessor.tsx expects each item's artifact under
-// `artifact: { title, name }`, so we nest the joined columns to match that shape.
+// Polled by QueueProcessor.tsx (filtered by query_history_id). The component
+// expects each item's artifact under `artifact: { title, name }`, so we nest the
+// joined columns to match that shape.
 historyRouter.get("/journalism-queue", async (c) => {
   const historyId = c.req.query("historyId");
   if (!historyId) return c.json({ error: "historyId is required" }, 400);

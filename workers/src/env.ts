@@ -24,10 +24,8 @@ export interface Env {
   FACEBOOK_PLACE_ID?: string;
   QUEUE_PROCESSOR_SECRET?: string;
   REVALIDATION_SECRET?: string;
-  GHOST_API_URL?: string;
-  GHOST_ADMIN_API_KEY?: string;
 
-  // --- Queue (Phase 4) ---
+  // --- Queue ---
   JOURNALISM_QUEUE: Queue<JournalismMessage>;
 }
 

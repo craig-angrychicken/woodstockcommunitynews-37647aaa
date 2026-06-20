@@ -3,7 +3,7 @@ import { run } from "../_shared/db";
 
 export interface PublishToFacebookOptions {
   storyId: string;
-  ghostUrl: string;
+  storyUrl: string;
   title: string;
   excerpt?: string;
   heroImageUrl?: string;
@@ -41,7 +41,7 @@ function pickTopicHashtag(title: string): string | null {
 
 export async function publishToFacebook(
   env: Env,
-  { storyId, ghostUrl, title, excerpt, heroImageUrl }: PublishToFacebookOptions,
+  { storyId, storyUrl, title, excerpt, heroImageUrl }: PublishToFacebookOptions,
 ): Promise<PublishToFacebookResult> {
   try {
     const PAGE_ACCESS_TOKEN = env.FACEBOOK_PAGE_ACCESS_TOKEN;
@@ -52,7 +52,7 @@ export async function publishToFacebook(
       throw new Error('Facebook credentials not configured');
     }
 
-    console.log('📘 Publishing to Facebook:', { storyId, ghostUrl, title, hasHero: !!heroImageUrl });
+    console.log('📘 Publishing to Facebook:', { storyId, storyUrl, title, hasHero: !!heroImageUrl });
 
     // Derive topic hashtag from title keywords (best-effort)
     const topicTag = pickTopicHashtag(title);
@@ -105,7 +105,7 @@ export async function publishToFacebook(
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              message: `Read the full story: ${ghostUrl}`,
+              message: `Read the full story: ${storyUrl}`,
               access_token: PAGE_ACCESS_TOKEN,
             }),
           }
@@ -127,7 +127,7 @@ export async function publishToFacebook(
       // Fallback: link-preview post (no hero image available)
       const feedBody: Record<string, string> = {
         message: caption,
-        link: ghostUrl,
+        link: storyUrl,
         access_token: PAGE_ACCESS_TOKEN,
       };
       if (PLACE_ID) feedBody.place = PLACE_ID;

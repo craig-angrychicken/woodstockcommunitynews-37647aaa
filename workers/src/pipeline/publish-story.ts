@@ -41,11 +41,11 @@ export async function publishStory(
     const story = await first<
       Pick<
         StoryRow,
-        "id" | "title" | "content" | "ghost_url" | "structured_metadata" | "hero_image_url" | "council_meeting_id"
+        "id" | "title" | "content" | "published_url" | "structured_metadata" | "hero_image_url" | "council_meeting_id"
       >
     >(
       env,
-      `select id, title, content, ghost_url, structured_metadata, hero_image_url, council_meeting_id
+      `select id, title, content, published_url, structured_metadata, hero_image_url, council_meeting_id
          from stories where id = ?`,
       storyId,
     );
@@ -69,7 +69,7 @@ export async function publishStory(
       return { success: false, error: reason };
     }
 
-    const isFirstPublish = !story.ghost_url;
+    const isFirstPublish = !story.published_url;
 
     let finalSlug = baseSlug;
     let suffix = 2;
@@ -99,7 +99,7 @@ export async function publishStory(
              slug = ?,
              published_at = ?,
              featured = ?,
-             ghost_url = ?,
+             published_url = ?,
              updated_at = ?
        where id = ?`,
       finalSlug,
@@ -141,7 +141,7 @@ export async function publishStory(
         const excerpt = metadata?.subhead || undefined;
         const fbData = await publishToFacebook(env, {
           storyId,
-          ghostUrl: publicUrl,
+          storyUrl: publicUrl,
           title: story.title,
           excerpt,
           heroImageUrl: story.hero_image_url ?? undefined,

@@ -13,10 +13,8 @@ import { regenerateStories } from "../pipeline/story-regeneration";
 import { scrapeMeetings, generateCouncilStory } from "../pipeline/council";
 import { createJournalismQueue } from "../pipeline/journalism-queue";
 import { backfillArtifactImages } from "../pipeline/backfill-artifact-images";
-import { backfillStoryImages } from "../pipeline/backfill-story-images";
 import { publishStory } from "../pipeline/publish-story";
 import { bulkRepostFacebook } from "../pipeline/bulk-repost-facebook";
-import { publishAboutPage } from "../pipeline/publish-about-page";
 import { triggerRevalidate } from "../pipeline/trigger-revalidate";
 import { manageSchedule } from "../pipeline/manage-schedule";
 import { fetchOpenRouterModels } from "../pipeline/fetch-openrouter-models";
@@ -24,7 +22,7 @@ import { testReadability } from "../pipeline/test-readability";
 import { kickJournalismQueue } from "../queue";
 
 /**
- * Admin pipeline triggers (replaces the SPA's supabase.functions.invoke(...) calls).
+ * Admin pipeline triggers (manual pipeline runs from the admin UI).
  * Cloudflare Access gates the host; verifyAccess is defense-in-depth.
  * Mounted at /api/admin alongside the CRUD router.
  */
@@ -87,10 +85,6 @@ pipelineAdmin.post("/pipeline/backfill-artifact-images", async (c) => {
   const b = await body(c);
   return c.json(await backfillArtifactImages(c.env, b.sourceId ? String(b.sourceId) : undefined));
 });
-pipelineAdmin.post("/pipeline/backfill-story-images", async (c) => {
-  const b = await body(c);
-  return c.json(await backfillStoryImages(c.env, b.mode as "broken" | "missing" | undefined));
-});
 
 // Manual journalism run: create a query_history then build + kick the queue.
 pipelineAdmin.post("/pipeline/journalism", async (c) => {
@@ -120,7 +114,6 @@ pipelineAdmin.post("/stories/:id/publish", async (c) => {
   return c.json(await publishStory(c.env, c.req.param("id"), Boolean(b.featured)));
 });
 pipelineAdmin.post("/stories/bulk-repost-facebook", async (c) => c.json(await bulkRepostFacebook(c.env, await body(c))));
-pipelineAdmin.post("/pages/about", async (c) => c.json(await publishAboutPage(c.env)));
 pipelineAdmin.post("/revalidate", async (c) => {
   const b = await body(c);
   return c.json(await triggerRevalidate(c.env, (b.paths as string[]) ?? []));

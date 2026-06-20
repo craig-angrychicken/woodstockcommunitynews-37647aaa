@@ -26,7 +26,7 @@ interface StoryDetailModalProps {
     guid: string;
     created_at: string;
     environment: string;
-    ghost_url?: string | null;
+    published_url?: string | null;
     hero_image_url?: string | null;
     featured?: boolean;
     editor_notes?: string | null;
@@ -161,10 +161,10 @@ export const StoryDetailModal = ({
             <>
               <Button variant="default" onClick={onPublish}>
                 <Send className="h-4 w-4 mr-2" />
-                {story.ghost_url ? 'Republish' : 'Publish'}
+                {story.published_url ? 'Republish' : 'Publish'}
               </Button>
-              {story.ghost_url && (
-                <Button variant="outline" onClick={() => window.open(story.ghost_url!, '_blank')}>
+              {story.published_url && (
+                <Button variant="outline" onClick={() => window.open(story.published_url!, '_blank')}>
                   View on site &rarr;
                 </Button>
               )}

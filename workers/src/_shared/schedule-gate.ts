@@ -19,9 +19,9 @@ export interface GateResult {
 }
 
 /**
- * Active-hours gate for scheduled jobs (ported from the Supabase _shared version).
- * Transport-agnostic: returns a plain result so it works from both the Cron Trigger
- * handler and HTTP (force) invocations. Logs skips to cron_job_logs like the original.
+ * Active-hours gate for scheduled jobs.
+ * Returns a plain result so it works from both the Cron Trigger handler and HTTP
+ * (force) invocations. Logs skips to cron_job_logs.
  */
 export async function checkScheduleGate(
   env: Env,

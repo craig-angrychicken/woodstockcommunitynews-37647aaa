@@ -6,9 +6,10 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: [
-      "supabase/functions/**/__tests__/**/*.test.ts",
       "src/**/__tests__/**/*.test.ts",
+      "workers/**/__tests__/**/*.test.ts",
     ],
+    passWithNoTests: true,
   },
   resolve: {
     alias: {

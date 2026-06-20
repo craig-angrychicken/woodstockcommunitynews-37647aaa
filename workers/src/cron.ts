@@ -12,7 +12,7 @@ import { createJournalismQueue } from "./pipeline/journalism-queue";
 import { kickJournalismQueue } from "./queue";
 
 /**
- * Cron Triggers dispatcher (replaces the 6 pg_cron jobs). Routes each cron
+ * Cron Triggers dispatcher. Routes each cron
  * expression (from wrangler.jsonc triggers.crons) to the matching pipeline step.
  * fetch/cluster gate internally on 'artifact_fetch'; journalism/editor gate here.
  */

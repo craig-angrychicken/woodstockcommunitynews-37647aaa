@@ -1,4 +1,4 @@
-// Test-readability pipeline module — ported from supabase/functions/test-readability.
+// Test-readability pipeline module.
 // Exposes testReadability(env, {url, link_selector?}) which fetches a page and runs
 // the shared Readability helpers, returning a JSON-serializable diagnostic result.
 // The orchestrator wires the HTTP route; this module just returns plain data.

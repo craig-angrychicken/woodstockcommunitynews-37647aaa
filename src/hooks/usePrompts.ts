@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Tables } from "@/integrations/supabase/types";
+import type { Tables } from "@/types/tables";
 
 type PromptVersion = Tables<"prompt_versions">;
 

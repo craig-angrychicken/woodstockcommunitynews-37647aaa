@@ -7,9 +7,6 @@ declare namespace Cloudflare {
 		DB: D1Database;
 		ASSETS: Fetcher;
 		PUBLIC_SITE_URL: "https://woodstockcommunity.news";
-		VERCEL_OIDC_TOKEN: string;
-		SUPABASE_URL: string;
-		SUPABASE_ANON_KEY: string;
 		WORKER_SELF_REFERENCE: Fetcher /* wcn-site */;
 	}
 }

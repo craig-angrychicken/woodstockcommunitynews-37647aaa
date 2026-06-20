@@ -14,7 +14,7 @@ interface StoryCardProps {
     prompt_version_id: string | null;
     created_at: string;
     environment: string;
-    ghost_url?: string | null;
+    published_url?: string | null;
     hero_image_url?: string | null;
     featured?: boolean;
     editor_notes?: string | null;

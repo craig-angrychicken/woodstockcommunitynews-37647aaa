@@ -1,20 +1,16 @@
 /**
- * Council coverage pipeline (ported from supabase/functions/scrape-council-meetings
- * + generate-council-story).
+ * Council coverage pipeline.
  *
- * Two exports, transport-agnostic (the orchestrator wires routes/cron):
+ * Two exports (routes/cron are wired elsewhere):
  *  - scrapeMeetings(env): scrape the Woodstock Granicus portal, upsert
  *    council_meetings rows, detect new agenda/packet/minutes PDFs, and generate
  *    up to MAX_GENERATIONS_PER_RUN missing stories (newest meetings first).
  *  - generateCouncilStory(env, meetingId, storyType): generate a single
  *    preview/update/recap story for a meeting.
  *
- * Platform changes vs the Deno originals:
- *  - No Supabase client / no `supabase.functions.invoke`. Data access goes
- *    through the D1 helpers (`all`/`first`/`run`/`insert`), and the scraper
- *    calls `generateCouncilStory` directly (in-process) instead of invoking the
- *    sibling edge function over HTTP.
- *  - `linkedom` is imported normally (no esm.sh dynamic import).
+ * Notes:
+ *  - Data access goes through the D1 helpers (`all`/`first`/`run`/`insert`), and
+ *    the scraper calls `generateCouncilStory` directly (in-process).
  *  - PDF text extraction uses the shared `../_shared/pdf` `extractPdfText`.
  *  - `callLLM` takes `keys` (OpenRouter/Lovable) and a refererUrl from
  *    PUBLIC_SITE_URL.
@@ -23,7 +19,7 @@
  *
  * Council stories are already grounded in the official PDF during generation,
  * so they bypass fact-check and rewrite and land at status `edited`, where
- * run-ai-editor picks them up for publish/reject.
+ * the editor picks them up for publish/reject.
  */
 import { parseHTML } from "linkedom";
 

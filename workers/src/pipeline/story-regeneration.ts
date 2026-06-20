@@ -1,16 +1,16 @@
 /**
- * Story regeneration (ported from supabase/functions/regenerate-stories/index.ts).
+ * Story regeneration.
  *
  * Re-runs the active journalism prompt against the most recent published production
  * stories' first linked artifact, updating each story in-place and resetting it to
  * `pending` so it re-enters the editorial pipeline.
  *
- * Platform changes vs the original Deno function:
- *  - No HTTP/CORS shell — exports `regenerateStories(env, { maxStories? })`.
- *  - Supabase nested-join select is replaced with explicit D1 queries.
+ * Notes:
+ *  - Exports `regenerateStories(env, { maxStories? })`.
+ *  - Data access uses explicit D1 queries.
  *  - `parseStructuredResponse` is imported from ./journalism-queue (not reimplemented).
  *  - `callLLM` takes `keys` (OpenRouter/Lovable) and a refererUrl from PUBLIC_SITE_URL.
- *  - Text-only: images are intentionally skipped (matches original behavior).
+ *  - Text-only: images are intentionally skipped.
  */
 import type { Env } from "../env";
 import type {
@@ -60,7 +60,7 @@ export async function regenerateStories(
     // Step 1: Fetch the most recent published production stories.
     const stories = await all<StoryRow>(
       env,
-      `select id, title, ghost_url, hero_image_url, source_id
+      `select id, title, published_url, hero_image_url, source_id
          from stories
         where status = 'published'
           and environment = 'production'
@@ -255,7 +255,7 @@ ${artifactData}`;
           regenerated_at: new Date().toISOString(),
         };
 
-        // Update the story in-place (preserve ghost_url, source_id, hero_image_url, etc.).
+        // Update the story in-place (preserve published_url, source_id, hero_image_url, etc.).
         await run(
           env,
           `update stories set

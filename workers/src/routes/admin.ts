@@ -11,7 +11,7 @@ import { configRouter } from "./admin/config";
 import { monitoringRouter } from "./admin/monitoring";
 
 /**
- * Admin CRUD API — replaces the SPA's direct supabase.from() access.
+ * Admin CRUD API backing the SPA's data access.
  * Cloudflare Access gates the host; verifyAccess here is defense-in-depth.
  * Sub-routers use full /api/admin-relative paths and are mounted at "/".
  */
@@ -22,7 +22,7 @@ admin.use("*", async (c, next) => {
   await next();
 });
 
-// Dashboard summary counts (replaces the SPA's 3 count:exact queries).
+// Dashboard summary counts for the SPA.
 admin.get("/dashboard-stats", async (c) => {
   const row = await first<{ stories: number; artifacts: number; sources: number; total_size_mb: number }>(
     c.env,

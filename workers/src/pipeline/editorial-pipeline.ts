@@ -1,20 +1,18 @@
 /**
- * Editorial pipeline (ported from supabase/functions/run-ai-fact-checker,
- * run-ai-rewriter, and run-ai-editor).
+ * Editorial pipeline: fact-check, rewrite, and final editorial review.
  *
- * Platform changes vs the Deno originals:
- *  - Supabase client + nested PostgREST joins are replaced by explicit D1 queries
- *    (stories → story_artifacts → artifacts → sources). Booleans are INTEGER 0/1.
+ * Notes:
+ *  - Data access uses explicit D1 queries (stories → story_artifacts → artifacts
+ *    → sources). Booleans are INTEGER 0/1.
  *  - Model config is read from app_settings key 'ai_model_config' (JSON).
- *  - callLLM now takes a `keys` object (OpenRouter/Lovable keys + referer URL).
- *  - Images live on R2 as relative `/images/<key>` paths. The old
- *    "only supabase.co/storage images" filter becomes "stored_url starts with
- *    `/images/` and !download_failed". For LLM vision the URLs are made absolute
- *    via `new URL(storedUrl, env.PUBLIC_SITE_URL).toString()`.
- *  - run-ai-editor's `supabase.functions.invoke("publish-story", ...)` becomes a
- *    direct import of `publishStory` from ./publish-story.
- *  - Transport-agnostic: each function returns a plain summary object instead of a
- *    Response; routing/cron wiring is added by the orchestrator.
+ *  - callLLM takes a `keys` object (OpenRouter/Lovable keys + referer URL).
+ *  - Images live on R2 as relative `/images/<key>` paths, so the image filter is
+ *    "stored_url starts with `/images/` and !download_failed". For LLM vision the
+ *    URLs are made absolute via `new URL(storedUrl, env.PUBLIC_SITE_URL).toString()`.
+ *  - The editor publishes via a direct import of `publishStory` from
+ *    ./publish-story.
+ *  - Each function returns a plain summary object; routing/cron wiring lives
+ *    elsewhere.
  */
 import type { Env } from "../env";
 import type { StoryRow, PromptVersionRow, AppSettingRow, StoredImage, LLMModelConfig } from "../_shared/types";
@@ -86,8 +84,8 @@ async function getModelConfig(env: Env): Promise<LLMModelConfig> {
 
 /**
  * Decide whether an R2-served image should be sent to an LLM for vision.
- * Old rule: only supabase.co/storage URLs (external CDN URLs expire).
- * New rule: only images whose stored_url is a relative /images/ R2 path.
+ * Only images whose stored_url is a relative /images/ R2 path are eligible
+ * (external CDN URLs expire).
  */
 function isVisionEligible(storedUrl: string | null | undefined): storedUrl is string {
   return typeof storedUrl === "string" && storedUrl.startsWith("/images/");
