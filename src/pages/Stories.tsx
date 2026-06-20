@@ -14,7 +14,13 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { publishStory } from "@/lib/ghost-api";
+
+/** Response shape from POST /api/admin/stories/:id/publish (pipeline-admin). */
+interface PublishStoryResponse {
+  success: boolean;
+  url?: string;
+  error?: string;
+}
 
 interface Story {
   id: string;
@@ -27,7 +33,7 @@ interface Story {
   prompt_version_id: string | null;
   created_at: string;
   environment: string | null;
-  ghost_url: string | null;
+  published_url: string | null;
   hero_image_url: string | null;
   published_at: string | null;
   source_id: string | null;
@@ -206,16 +212,16 @@ const Stories = () => {
         description: "Please wait..."
       });
 
-      const result = await publishStory(
-        storyToPublish.id,
-        storyToPublish.featured || false
+      const result = await api.post<PublishStoryResponse>(
+        `/stories/${storyToPublish.id}/publish`,
+        { featured: storyToPublish.featured || false }
       );
 
       if (result.success) {
         queryClient.invalidateQueries({ queryKey: ['stories'] });
 
         toast({
-          title: storyToPublish.ghost_url ? "Updated!" : "Published!",
+          title: storyToPublish.published_url ? "Updated!" : "Published!",
           description: result.url ? (
             <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
               View on site &rarr;

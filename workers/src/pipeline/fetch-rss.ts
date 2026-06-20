@@ -110,8 +110,7 @@ async function normalizeToUUID(guid: string): Promise<string> {
 
 /**
  * Fetch RSS feeds for the given sources, download images to R2, and upsert
- * artifacts keyed on their (normalized) GUID. Ported from the Supabase edge
- * function `fetch-rss-feeds`.
+ * artifacts keyed on their (normalized) GUID.
  */
 export async function fetchRssFeeds(
   env: Env,

@@ -13,7 +13,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { Database } from "lucide-react";
-import type { Tables } from "@/integrations/supabase/types";
+import type { Tables } from "@/types/tables";
 
 const Sources = () => {
   const queryClient = useQueryClient();

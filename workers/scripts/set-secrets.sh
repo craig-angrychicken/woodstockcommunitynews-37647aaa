@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."   # → workers/
 ENVFILE=".secrets.env"
 if [ ! -f "$ENVFILE" ]; then
   cp .secrets.env.example "$ENVFILE"
-  echo "Created $ENVFILE — paste the values you have (RESEND/FACEBOOK/GHOST), then re-run."
+  echo "Created $ENVFILE — paste the values you have (RESEND/FACEBOOK), then re-run."
   exit 1
 fi
 

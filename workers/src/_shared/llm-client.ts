@@ -1,7 +1,6 @@
 /**
- * LLM + embedding client (ported from supabase/functions/_shared/llm-client.ts).
- * Change vs original: API keys are passed in via `keys` instead of read from Deno.env,
- * and HTTP-Referer uses the public site URL instead of the Supabase URL.
+ * LLM + embedding client. API keys are passed in via `keys`, and the OpenRouter
+ * HTTP-Referer header uses the public site URL.
  */
 export interface LLMConfig {
   model_name: string;
@@ -36,7 +35,7 @@ const RETRY_DELAYS = [2000, 4000, 8000];
 
 /**
  * Generate a 384-dim embedding using OpenRouter's text-embedding-3-small,
- * matching the existing pgvector vector(384) column.
+ * matching the 384-dimension embedding column.
  */
 export async function generateEmbedding(text: string, openRouterApiKey: string | undefined): Promise<number[]> {
   if (!openRouterApiKey) throw new Error("OPENROUTER_API_KEY not configured");

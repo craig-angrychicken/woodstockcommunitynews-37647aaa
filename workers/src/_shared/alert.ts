@@ -2,8 +2,7 @@ import type { Env } from "../env";
 
 /**
  * Send an alert/briefing email via Resend.
- * Replaces the Supabase `send-alert` edge function + the pg_net notify_on_cron_error trigger:
- * Workers now call this directly on their error paths.
+ * Workers call this directly on their error paths.
  */
 export async function sendEmail(
   env: Env,

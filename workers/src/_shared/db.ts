@@ -3,11 +3,11 @@ import type { Env } from "../env";
 /**
  * Thin helpers over the D1 binding. SQLite dialect, `?` placeholders.
  *
- * Notes vs the old Postgres layer:
+ * Notes:
  *  - booleans are stored as INTEGER 0/1
  *  - timestamps are ISO-8601 TEXT (use datetime('now') / pass new Date().toISOString())
  *  - JSON columns are TEXT — use toJson()/fromJson() at the edges
- *  - there is no pgvector; embeddings live in a TEXT column and similarity is computed in-worker
+ *  - embeddings live in a TEXT column and similarity is computed in-worker
  */
 
 export async function all<T = Record<string, unknown>>(

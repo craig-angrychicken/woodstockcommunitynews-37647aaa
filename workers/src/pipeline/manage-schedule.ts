@@ -17,10 +17,9 @@ export interface ManageScheduleResult {
 /**
  * Upsert a schedule configuration by schedule_type.
  *
- * Mirrors the old Supabase `manage-schedule` function: it persists the set of
- * scheduled times and the enabled flag for a given schedule type. Actual cron
- * wiring is configured separately; this just saves the configuration that cron
- * jobs read to decide when to run.
+ * Persists the set of scheduled times and the enabled flag for a given schedule
+ * type. Actual cron wiring is configured separately; this just saves the
+ * configuration that cron jobs read to decide when to run.
  */
 export async function manageSchedule(
   env: Env,

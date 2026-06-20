@@ -2,7 +2,6 @@
 //
 // Em dashes (—) and en dashes (–) are a classic tell-tale sign of AI prose.
 // Strip them on write, before text reaches the stories table.
-// (Ported verbatim from supabase/functions/_shared/text-cleanup.ts.)
 
 export function stripEmDashes(text: string): string;
 export function stripEmDashes(text: string | null | undefined): string | null;

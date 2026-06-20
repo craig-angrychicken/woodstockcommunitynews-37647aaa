@@ -1,8 +1,7 @@
 // Shared PDF text extraction — fetches a PDF URL and returns plain text.
 // Used by council meeting pipeline for agenda, packet, and minutes PDFs.
 //
-// Cloudflare Workers port: replaces the hand-rolled Deno PDF parser with
-// `unpdf` (a serverless-friendly build of pdf.js) for text extraction.
+// Uses `unpdf` (a serverless-friendly build of pdf.js) for text extraction.
 //
 // Granicus URLs (AgendaViewer, MinutesViewer) return 302 redirects to the
 // actual PDF on S3 or Granicus CDN — fetch follows these automatically.

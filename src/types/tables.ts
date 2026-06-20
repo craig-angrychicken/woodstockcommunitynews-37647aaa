@@ -7,9 +7,7 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
+  __Internal: {
     PostgrestVersion: "14.1"
   }
   public: {
@@ -407,7 +405,7 @@ export type Database = {
           editor_notes: string | null
           environment: string | null
           featured: boolean
-          ghost_url: string | null
+          published_url: string | null
           guid: string | null
           hero_image_url: string | null
           id: string
@@ -426,7 +424,7 @@ export type Database = {
           editor_notes?: string | null
           environment?: string | null
           featured?: boolean
-          ghost_url?: string | null
+          published_url?: string | null
           guid?: string | null
           hero_image_url?: string | null
           id?: string
@@ -445,7 +443,7 @@ export type Database = {
           editor_notes?: string | null
           environment?: string | null
           featured?: boolean
-          ghost_url?: string | null
+          published_url?: string | null
           guid?: string | null
           hero_image_url?: string | null
           id?: string
@@ -551,7 +549,7 @@ export type Database = {
   }
 }
 
-type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+type DatabaseWithoutInternals = Omit<Database, "__Internal">
 
 type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 

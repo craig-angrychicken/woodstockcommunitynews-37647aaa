@@ -2,7 +2,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { Env } from "../env";
 
 /**
- * Verify a Cloudflare Access JWT (replaces Supabase Auth + RLS for the admin API).
+ * Verify a Cloudflare Access JWT for the admin API.
  * Access injects the token as the `Cf-Access-Jwt-Assertion` header (or CF_Authorization cookie)
  * on requests that have passed the Access policy. We additionally verify signature + audience
  * here so the Worker can't be called directly, bypassing Access.

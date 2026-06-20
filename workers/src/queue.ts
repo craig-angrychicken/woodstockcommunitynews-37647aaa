@@ -4,8 +4,7 @@ import type { JournalismQueueRow } from "./_shared/types";
 import { processJournalismQueueItem, updateHistoryProgress } from "./pipeline/journalism-queue";
 
 /**
- * Queue consumer for serial journalism processing (replaces the Supabase
- * fire-and-forget chaining + the recover-queue watchdog's re-kick).
+ * Queue consumer for serial journalism processing.
  * Configured max_batch_size=1, max_concurrency=1 → strictly serial.
  * Each message processes one queue item, advances history progress, then
  * enqueues the next pending item in the same run.

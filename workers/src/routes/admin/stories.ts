@@ -4,7 +4,7 @@ import { all, first, run, fromJson } from "../../_shared/db";
 import type { StoryRow } from "../../_shared/types";
 
 /**
- * Stories admin CRUD (replaces the SPA's supabase.from("stories") calls).
+ * Stories admin CRUD backing the SPA's story management.
  * Mounted at /api/admin; the parent admin router applies the Cloudflare Access
  * gate, so no auth gate is added here.
  *

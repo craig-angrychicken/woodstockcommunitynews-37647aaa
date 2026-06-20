@@ -22,11 +22,8 @@ export interface FetchArtifactsResult {
 /**
  * Orchestrates the scheduled artifact fetch: schedule-gates on `artifact_fetch`,
  * fetches all active RSS + Web Page sources in parallel, writes a single
- * query_history batch entry, and logs the cron run.
- *
- * Ported from supabase/functions/scheduled-fetch-artifacts. Behavior preserved;
- * the only platform change is calling the in-worker fetchRssFeeds/fetchWebPages
- * helpers directly (in parallel) instead of supabase.functions.invoke.
+ * query_history batch entry, and logs the cron run. Calls the in-worker
+ * fetchRssFeeds/fetchWebPages helpers directly (in parallel).
  */
 export async function fetchArtifacts(
   env: Env,

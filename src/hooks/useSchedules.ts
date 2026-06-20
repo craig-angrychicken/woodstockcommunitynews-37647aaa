@@ -36,7 +36,7 @@ export const useSaveSchedule = () => {
       scheduledTimes: string[];
       isEnabled: boolean;
     }) => {
-      // Replaces supabase.functions.invoke("manage-schedule").
+      // Routes through the admin API: POST /api/admin/manage-schedule.
       return api.post("/manage-schedule", {
         scheduleType,
         scheduledTimes,

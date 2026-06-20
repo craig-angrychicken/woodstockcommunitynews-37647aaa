@@ -1,4 +1,4 @@
-# Admin API spec (Phase 6) — endpoints the SPA hooks need
+# Admin API spec — endpoints the SPA hooks need
 
 Conventions: Hono sub-routers under /api/admin (parent applies Cloudflare Access gate — do NOT re-gate).
 Use ../../_shared/db helpers (all/first/run/insert/encodeValue/toJson/fromJson), snake_case cols, ? params,
@@ -183,7 +183,7 @@ structured_metadata, images, scheduled_times, value, test_results) are TEXT — 
 
 ### GET /api/admin/cron-job-logs/stats
 - table: cron_job_logs (select)
-- sql: `SELECT * FROM cron_job_logs WHERE triggered_at >= ? AND (triggered_at <= now() + interval '24 hours')`
+- sql: `SELECT * FROM cron_job_logs WHERE triggered_at >= ? AND triggered_at <= datetime('now', '+24 hours')`
 - request: {}
 - usedBy: useCronJobStats (queryKey: ['cron-job-stats'])
 
@@ -238,8 +238,8 @@ structured_metadata, images, scheduled_times, value, test_results) are TEXT — 
 ## Notes
 - All SELECT queries support filtering via query parameters. Apply WHERE clauses based on provided filters (environment, status, dateFrom, dateTo, searchQuery, etc)
 - Pagination not explicitly shown but should be supported via limit/offset query params for large result sets
-- Realtime subscriptions for journalism_queue via Supabase channels should be replaced with polling via GET /api/admin/journalism-queue
-- QueueProcessor.tsx uses realtime subscription filter: query_history_id=eq.{historyId} — convert to query param in polling
+- journalism_queue updates are delivered by polling GET /api/admin/journalism-queue (no realtime channel)
+- QueueProcessor.tsx polls filtered by query_history_id — passed as a query param
 - useStories applies client-side search filter with ilike on title/content/name fields — implement server-side in SQL WHERE (title ILIKE ? OR content ILIKE ? OR name ILIKE ?)
 - useArtifacts filters by usageStatus client-side by checking story_artifacts length — implement server-side join and GROUP BY to count related stories
 - useCronJobStats computes aggregations client-side (artifact_fetch/journalism/editor run counts, success/fail/skip rates) — implement aggregations server-side with conditional SUM/COUNT
@@ -247,9 +247,9 @@ structured_metadata, images, scheduled_times, value, test_results) are TEXT — 
 - Source deletion must cascade: nullify source_id in stories table first, then delete source — implement as transaction
 - Story deletion relationships: check story_artifacts, then delete story — implement cascade or pre-delete check
 - QueryKey patterns establish cache invalidation: [table], [table, filters], [table, id] — use these for React Query key matching in polling/mutations
-- ManualQuery.tsx uses edge functions for fetch-rss-feeds and fetch-web-pages — these are orchestration endpoints, not direct DB queries, keep as edge functions
-- AIJournalist.tsx runs via run-ai-journalist edge function with historyId creation — maintains query_history record, queries journalism_queue via polling
-- Dashboard.tsx uses supabase.from().select() with count:exact — convert to COUNT(*) in SQL for performance
+- ManualQuery.tsx triggers fetch-rss / fetch-web-pages — these are orchestration endpoints, not direct DB queries
+- AIJournalist.tsx triggers the journalism run with historyId creation — maintains a query_history record, queries journalism_queue via polling
+- Dashboard.tsx counts use COUNT(*) in SQL for performance
 - Story joins artifacts via story_artifacts junction table — always LEFT JOIN to handle unused artifacts
 - Artifact joins sources — LEFT JOIN to handle orphaned artifacts (source_id = null)
 - All timestamps should use UTC (created_at, updated_at columns) — convert to EST in frontend if needed (formatUTCtoEST utility)

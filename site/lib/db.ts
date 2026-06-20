@@ -1,4 +1,4 @@
-// Server-side D1 access for the public site (replaces lib/supabase.ts).
+// Server-side D1 access for the public site.
 // Bindings are request-scoped on Workers and also available under `next dev`
 // / `opennextjs-cloudflare preview` via initOpenNextCloudflareForDev() (next.config.ts).
 import { getCloudflareContext } from "@opennextjs/cloudflare";

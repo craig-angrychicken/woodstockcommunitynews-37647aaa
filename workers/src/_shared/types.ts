@@ -51,7 +51,7 @@ export interface StoryRow {
   prompt_version_id: string | null;
   guid: string | null;
   source_id: string | null;
-  ghost_url: string | null;
+  published_url: string | null;
   hero_image_url: string | null;
   editor_notes: string | null;
   featured: number;

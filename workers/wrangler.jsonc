@@ -31,7 +31,7 @@
 
   "vars": {
     "PUBLIC_SITE_URL": "https://woodstockcommunity.news",
-    // Cloudflare Access team domain + AUD for verifying admin JWTs (set real values in phase 0/6).
+    // Cloudflare Access team domain + AUD for verifying admin JWTs.
     "ACCESS_TEAM_DOMAIN": "holy-bar-b3ad.cloudflareaccess.com",
     "ACCESS_AUD": "e69f5d02d7d2b9209dd90ea9cf77f3b466da84842110e42736bc8383fb3f3f06"
   },
@@ -50,12 +50,12 @@
   },
 
   // Cron expressions map (in src/cron.ts) to: fetch+recover (15m), cluster (4x/hr),
-  // journalism (4x/hr), editorial (3x/hr), council scrape (3x/day) — mirrors the old pg_cron jobs.
+  // journalism (4x/hr), editorial (3x/hr), council scrape (3x/day).
   "triggers": {
     "crons": ["*/15 * * * *", "5,20,35,50 * * * *", "10,25,40,55 * * * *", "14,34,54 * * * *", "0 8,14,20 * * *"]
   }
 
   // Secrets (wrangler secret put): OPENROUTER_API_KEY, LOVABLE_API_KEY, RESEND_API_KEY,
   //   ALERT_EMAIL, FACEBOOK_PAGE_ACCESS_TOKEN, FACEBOOK_PAGE_ID, FACEBOOK_PLACE_ID,
-  //   QUEUE_PROCESSOR_SECRET, REVALIDATION_SECRET, R2_PUBLIC_URL, GHOST_API_URL, GHOST_ADMIN_API_KEY.
+  //   QUEUE_PROCESSOR_SECRET, REVALIDATION_SECRET, R2_PUBLIC_URL.
 }

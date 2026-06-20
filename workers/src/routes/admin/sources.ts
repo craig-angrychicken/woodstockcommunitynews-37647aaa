@@ -6,7 +6,7 @@ import type { SourceRow } from "../../_shared/types";
 /**
  * Admin CRUD for `sources` (RSS feeds / web pages).
  * Mounted under /api/admin — Cloudflare Access is applied by the parent router,
- * so no auth gate here. Replaces the SPA's supabase.from("sources") calls
+ * so no auth gate here. Backs the SPA's source management
  * (useSources hooks, AddSourceForm, EditSourceModal, Sources.tsx mutations).
  *
  * `parser_config` is a TEXT JSON column — decoded to an object on read so the

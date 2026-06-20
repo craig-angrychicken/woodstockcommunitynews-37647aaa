@@ -1,22 +1,20 @@
 /**
- * AI Journalist queue (ported from supabase/functions/run-ai-journalist +
- * process-journalism-queue-item).
+ * AI Journalist queue: builds the per-run queue and converts one artifact at a
+ * time into a story.
  *
- * Platform changes vs the Deno originals:
- *  - No HTTP transport / Deno.serve / internal-secret gate. These are plain
- *    async functions the orchestrator wires to a Cloudflare Queue + routes.
- *  - Chaining is handled by the orchestrator's Queue consumer. We DO NOT
- *    fire-and-forget a fetch to the next item — each call processes exactly one
- *    queue item and (re)computes query_history progress.
- *  - No pgvector / Postgres RPCs. The three similarity searches
- *    (match_published_story_artifacts, match_stories_by_embedding,
- *    match_artifacts_with_images) are reimplemented as in-worker cosine over the
- *    `embedding` / `title_embedding` TEXT (JSON) columns, preserving the same
- *    thresholds, environment/status filters, and ordering as the migration SQL.
- *  - Images live on R2 as relative `/images/<key>` paths. The old
- *    "supabase.co/storage" checks become "stored_url starts with /images/ and
- *    !download_failed". For LLM vision, those paths are made absolute against
- *    env.PUBLIC_SITE_URL (vision needs absolute HTTPS URLs).
+ * Notes:
+ *  - These are plain async functions wired to a Cloudflare Queue + routes.
+ *  - Chaining is handled by the Queue consumer: each call processes exactly one
+ *    queue item and (re)computes query_history progress — it does NOT
+ *    fire-and-forget to the next item.
+ *  - The three similarity searches (against published story artifacts, existing
+ *    stories, and artifacts with images) are computed as in-worker cosine over
+ *    the `embedding` / `title_embedding` TEXT (JSON) columns, with thresholds,
+ *    environment/status filters, and ordering matching the schema.
+ *  - Images live on R2 as relative `/images/<key>` paths, so image filters check
+ *    "stored_url starts with /images/ and !download_failed". For LLM vision,
+ *    those paths are made absolute against env.PUBLIC_SITE_URL (vision needs
+ *    absolute HTTPS URLs).
  *  - LLM keys are passed explicitly to callLLM via `keys`.
  */
 import type { Env } from "../env";
@@ -34,7 +32,7 @@ import { all, first, insert, run, fromJson, toJson } from "../_shared/db";
 import { callLLM, generateEmbedding } from "../_shared/llm-client";
 import { stripEmDashes } from "../_shared/text-cleanup";
 
-/** R2-served image path prefix (replaces the old supabase.co/storage marker). */
+/** R2-served image path prefix. */
 const STORAGE_MARKER = "/images/";
 
 export interface StructuredStoryResponse {
@@ -117,7 +115,7 @@ function llmKeys(env: Env) {
 
 /**
  * Recompute query_history progress counters + status from the current queue
- * state. (Exported; ported from updateHistoryProgress.)
+ * state.
  */
 export async function updateHistoryProgress(env: Env, historyId: string): Promise<void> {
   const queueStats = await all<Pick<JournalismQueueRow, "status">>(
@@ -731,9 +729,9 @@ export interface CreateJournalismQueueResult {
 }
 
 /**
- * Build the journalism queue for a query_history run (ported from
- * run-ai-journalist). Selects artifacts (by IDs or date range), applies
- * production dedup (used GUIDs/clusters, previously-skipped), groups by cluster,
+ * Build the journalism queue for a query_history run. Selects artifacts (by IDs
+ * or date range), applies production dedup (used GUIDs/clusters,
+ * previously-skipped), groups by cluster,
  * runs in-batch title-token dedup for unclustered artifacts, and inserts queue
  * rows. Does NOT kick off processing — the orchestrator's Queue consumer does.
  *

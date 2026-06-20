@@ -1,14 +1,13 @@
 /**
- * Artifact clustering (ported from supabase/functions/cluster-artifacts).
+ * Artifact clustering.
  *
- * Platform changes vs the Deno original:
- *  - No pgvector / `match_artifacts_by_embedding` RPC. Similarity is computed
- *    in-worker as cosine over the `embedding` TEXT column (decoded from JSON),
- *    keeping the 0.82 threshold and the join-existing-vs-create-new logic.
+ * Notes:
+ *  - Similarity is computed in-worker as cosine over the `embedding` TEXT column
+ *    (decoded from JSON), using a 0.82 threshold and join-existing-vs-create-new
+ *    logic.
  *  - Embeddings are generated via the shared `generateEmbedding` helper and
  *    persisted to the `embedding` TEXT column so later runs can reuse them.
- *  - Transport-agnostic: returns a plain summary object instead of a Response;
- *    routing/cron wiring is added by the orchestrator.
+ *  - Returns a plain summary object; routing/cron wiring lives elsewhere.
  */
 import type { Env } from "../env";
 import type { ArtifactRow } from "../_shared/types";
@@ -113,7 +112,7 @@ export async function clusterArtifacts(
       }
     }
 
-    // Cluster artifacts by cosine similarity computed in-worker (replaces pgvector RPC).
+    // Cluster artifacts by cosine similarity computed in-worker.
     let newClusters = 0;
     let clusteredCount = 0;
 

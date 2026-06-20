@@ -4,7 +4,7 @@ import { all, first, fromJson } from "../_shared/db";
 
 /**
  * Public read API — published stories for the news site (no auth).
- * Mirrors the queries the Next.js site/ pages run against Supabase today
+ * Serves the queries the Next.js site/ pages need
  * (status='published', environment='production', slug present).
  */
 export const publicApi = new Hono<{ Bindings: Env }>();
