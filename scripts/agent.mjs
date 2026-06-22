@@ -20,7 +20,7 @@ const MAX_TOOL_CALLS = 35;
 const IS_DAILY_REPORT = process.env.FORCE_REPORT === "true";
 
 const ALERT_EMAIL = "craig@angrychicken.co";
-const FROM_EMAIL = "Woodstock Community News Monitor <alerts@woodstockcommunity.news>";
+const FROM_EMAIL = "Woodstock Community News Monitor <alerts@angrychicken.co>";
 
 // ─── Validate required env vars ──────────────────────────────────────────────
 
