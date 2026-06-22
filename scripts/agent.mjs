@@ -414,7 +414,7 @@ FROM stories WHERE is_test = 0 AND environment = 'production'
 GROUP BY status ORDER BY status;
 
 6. Recently published stories:
-SELECT title, ghost_url, published_at FROM stories
+SELECT title, published_url, published_at FROM stories
 WHERE is_test = 0 AND environment = 'production' AND status = 'published'
 ORDER BY published_at DESC NULLS LAST LIMIT 5;
 

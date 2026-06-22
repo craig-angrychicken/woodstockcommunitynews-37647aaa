@@ -1,5 +1,5 @@
 import type { Env } from "./env";
-import { first, insert, toJson } from "./_shared/db";
+import { first, insert, toJson, run } from "./_shared/db";
 import { checkScheduleGate } from "./_shared/schedule-gate";
 import { logCronJob } from "./_shared/cron-logger";
 import type { PromptVersionRow } from "./_shared/types";
@@ -20,23 +20,43 @@ export async function handleScheduled(controller: ScheduledController, env: Env)
   const start = Date.now();
   switch (controller.cron) {
     case "*/15 * * * *": // fetch artifacts + recover stuck queue items
-      await fetchArtifacts(env, {});
-      await recoverStuckQueueItems(env, {});
+      await step(env, "scheduled-fetch-artifacts", start, () => fetchArtifacts(env, {}));
+      await step(env, "recover-stuck-queue", start, () => recoverStuckQueueItems(env, {}));
       break;
     case "5,20,35,50 * * * *": // cluster artifacts
-      await clusterArtifacts(env, { startTime: start });
+      await step(env, "cluster-artifacts", start, () => clusterArtifacts(env, { startTime: start }));
       break;
     case "10,25,40,55 * * * *": // journalism: build queue + kick serial processing
-      await runScheduledJournalism(env, start);
+      await step(env, "scheduled-run-journalism", start, () => runScheduledJournalism(env, start));
       break;
     case "14,34,54 * * * *": // editorial: fact-check → rewrite → edit
-      await runScheduledEditor(env, start);
+      await step(env, "scheduled-run-editor", start, () => runScheduledEditor(env, start));
       break;
     case "0 8,14,20 * * *": // council scrape (3x/day)
-      await scrapeMeetings(env);
+      await step(env, "council-scraper", start, () => scrapeMeetings(env));
       break;
     default:
       console.warn(`[cron] no handler for "${controller.cron}"`);
+  }
+}
+
+/**
+ * Run one cron step inside an error boundary. An uncaught throw becomes a
+ * visible `cron_job_logs` row (surfaced by the monitor agent) instead of a
+ * silent failure, and one failing step no longer skips the rest of the run.
+ */
+async function step(env: Env, jobName: string, start: number, fn: () => Promise<unknown>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[cron] ${jobName} failed:`, err);
+    await logCronJob(env, {
+      job_name: jobName,
+      schedule_check_passed: true,
+      error_message: message.slice(0, 1000),
+      execution_duration_ms: Date.now() - start,
+    });
   }
 }
 
@@ -63,15 +83,21 @@ async function runScheduledJournalism(env: Env, start: number): Promise<void> {
     status: "running",
   });
 
-  const { firstItemId, queueSize } = await createJournalismQueue(env, historyId, dateFrom, dateTo);
-  await kickJournalismQueue(env, firstItemId);
-  await logCronJob(env, {
-    job_name: "scheduled-run-journalism",
-    schedule_check_passed: true,
-    query_history_id: historyId,
-    artifacts_count: queueSize,
-    execution_duration_ms: Date.now() - start,
-  });
+  try {
+    const { firstItemId, queueSize } = await createJournalismQueue(env, historyId, dateFrom, dateTo);
+    await kickJournalismQueue(env, firstItemId);
+    await logCronJob(env, {
+      job_name: "scheduled-run-journalism",
+      schedule_check_passed: true,
+      query_history_id: historyId,
+      artifacts_count: queueSize,
+      execution_duration_ms: Date.now() - start,
+    });
+  } catch (err) {
+    // Don't strand the history row at 'running' if queue build/kick throws.
+    await run(env, `update query_history set status='failed' where id=?`, historyId);
+    throw err; // re-thrown so the step() wrapper logs it to cron_job_logs
+  }
 }
 
 async function runScheduledEditor(env: Env, start: number): Promise<void> {
