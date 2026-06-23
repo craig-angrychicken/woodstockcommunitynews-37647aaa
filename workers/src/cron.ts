@@ -33,7 +33,7 @@ export async function handleScheduled(controller: ScheduledController, env: Env)
       await step(env, "scheduled-run-editor", start, () => runScheduledEditor(env, start));
       break;
     case "0 8,14,20 * * *": // council scrape (3x/day)
-      await step(env, "council-scraper", start, () => scrapeMeetings(env));
+      await step(env, "council-scraper", start, () => runScheduledCouncil(env, start));
       break;
     default:
       console.warn(`[cron] no handler for "${controller.cron}"`);
@@ -107,6 +107,21 @@ async function runScheduledEditor(env: Env, start: number): Promise<void> {
   await logCronJob(env, {
     job_name: "scheduled-run-editor",
     schedule_check_passed: true,
+    execution_duration_ms: Date.now() - start,
+  });
+}
+
+async function runScheduledCouncil(env: Env, start: number): Promise<void> {
+  // Honor the council_scraper schedule flag + active hours (was previously
+  // running ungated and never logging — invisible). The gate logs skips itself.
+  const gate = await checkScheduleGate(env, "council_scraper", "council-scraper", { startTime: start });
+  if (!gate.passed) return;
+  const summary = await scrapeMeetings(env);
+  await logCronJob(env, {
+    job_name: "council-scraper",
+    schedule_check_passed: true,
+    stories_count: summary.storiesGenerated ?? 0,
+    error_message: summary.success ? null : (summary.error ?? "council scrape failed"),
     execution_duration_ms: Date.now() - start,
   });
 }
